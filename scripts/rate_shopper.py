@@ -52,8 +52,7 @@ def scrape_booking() -> list[dict]:
         "&group_adults=2"
         "&no_rooms=1"
         "&order=review_score_and_price"
-        "&nflt=ht_id%3D204"           # Somente hotéis (property type = Hotel)
-        "&rows=40"                     # Busca mais resultados para garantir 20 hotéis após filtro
+        "&rows=40"                     # Busca 40 resultados para garantir 20 após filtro
     )
 
     hotels: list[dict] = []
@@ -140,13 +139,13 @@ def save_to_supabase(hotels: list[dict]) -> None:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     now = datetime.utcnow().isoformat()
 
-    # Remove entradas antigas do scraper antes de inserir as novas
+    print(f"\n[supabase] Salvando {len(hotels)} hotéis...")
+
+    # Só remove os antigos depois de confirmar que há dados novos
     supabase.table("rate_shopper_competitors") \
         .delete() \
         .eq("source", "booking_scraper") \
         .execute()
-
-    print(f"\n[supabase] Salvando {len(hotels)} hotéis...")
 
     for hotel in hotels:
         if not hotel["name"]:
