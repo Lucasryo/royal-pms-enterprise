@@ -106,36 +106,34 @@ def scrape_booking() -> list[dict]:
             if len(hotels) >= MAX_HOTELS:
                 break
             try:
-                name_el  = card.query_selector('[data-testid="title"]')
-                price_el = card.query_selector('[data-testid="price-and-discounted-price"]')
-
+                name_el = card.query_selector('[data-testid="title"]')
                 if not name_el:
                     continue
 
                 name = name_el.inner_text().strip()
 
                 # Segunda camada: descarta propriedades que não são hotéis pelo nome
-                name_lower = name.lower()
-                if any(term in name_lower for term in NON_HOTEL_TERMS):
+                if any(term in name.lower() for term in NON_HOTEL_TERMS):
                     print(f"  — ignorado: {name}")
                     continue
 
-                # Extrai o texto completo do card e busca o preço por regex
-                card_text = card.inner_text()
-
-                # Debug: imprime o texto bruto do card (primeiros 300 chars)
-                print(f"\n  [DEBUG CARD] {name}")
-                print(f"  [RAW TEXT] {repr(card_text[:300])}")
-
-                # Tenta extrair preço do texto do card com regex
+                # Inspeciona o HTML real do elemento de preço
                 price = None
-                price_matches = re.findall(r'R\$\s*([\d.,]+)', card_text)
-                if price_matches:
-                    print(f"  [PREÇOS ENCONTRADOS] {price_matches}")
-                    price = parse_brl("R$ " + price_matches[0])
+                price_el = card.query_selector('[data-testid="price-and-discounted-price"]')
+                if price_el:
+                    inner_text = price_el.inner_text()
+                    outer_html = price_el.evaluate("el => el.outerHTML")
+                    print(f"\n  [HOTEL] {name}")
+                    print(f"  [inner_text] {repr(inner_text)}")
+                    print(f"  [outer_html] {repr(outer_html[:500])}")
+                    price = parse_brl(inner_text)
+                else:
+                    card_text = card.inner_text()
+                    print(f"\n  [HOTEL] {name} — sem price_el")
+                    print(f"  [card_text] {repr(card_text[:300])}")
 
                 hotels.append({"name": name, "price": price})
-                print(f"  → SALVO: {name} | R$ {price}")
+                print(f"  → price={price}")
 
             except Exception as exc:
                 print(f"  ✗ Erro ao processar card: {exc}")
