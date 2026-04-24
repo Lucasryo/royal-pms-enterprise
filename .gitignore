@@ -1,0 +1,30 @@
+node_modules/
+build/
+dist/
+dist_desktop/
+dist_server/
+coverage/
+.DS_Store
+*.log
+.vercel/
+.env*
+!.env.example
+
+# Database
+database/
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Electron
+out/
+.vercel

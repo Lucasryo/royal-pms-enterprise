@@ -1,0 +1,282 @@
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Clock, Send, UsersRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { supabase } from '../supabase';
+import { UserProfile } from '../types';
+
+export type OperationalDepartment =
+  | 'reservations'
+  | 'reception'
+  | 'maintenance'
+  | 'finance'
+  | 'restaurant'
+  | 'events'
+  | 'housekeeping'
+  | 'admin';
+
+type OperationalTask = {
+  id: string;
+  title: string;
+  description?: string;
+  origin_department: OperationalDepartment;
+  target_department: OperationalDepartment;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'waiting_other_department' | 'done' | 'cancelled';
+  due_at?: string;
+  assigned_to?: string;
+  related_type?: string;
+  related_id?: string;
+  related_label?: string;
+  last_note?: string;
+  created_at: string;
+};
+
+type TaskHistory = {
+  id: string;
+  task_id: string;
+  action: string;
+  note?: string;
+  created_at: string;
+};
+
+const departmentLabels: Record<OperationalDepartment, string> = {
+  reservations: 'Reservas',
+  reception: 'Recepcao',
+  maintenance: 'Manutencao',
+  finance: 'Financeiro',
+  restaurant: 'Restaurante',
+  events: 'Eventos',
+  housekeeping: 'Governanca',
+  admin: 'Admin',
+};
+
+const departmentOptions: OperationalDepartment[] = ['reservations', 'reception', 'maintenance', 'finance', 'restaurant', 'events', 'housekeeping', 'admin'];
+
+const priorityColor: Record<OperationalTask['priority'], string> = {
+  low: 'bg-neutral-100 text-neutral-600',
+  medium: 'bg-amber-50 text-amber-700',
+  high: 'bg-orange-50 text-orange-700',
+  urgent: 'bg-red-50 text-red-700',
+};
+
+export default function OperationalWorkQueue({
+  profile,
+  department,
+  adminView = false,
+}: {
+  profile: UserProfile;
+  department: OperationalDepartment;
+  adminView?: boolean;
+}) {
+  const [tasks, setTasks] = useState<OperationalTask[]>([]);
+  const [history, setHistory] = useState<TaskHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [noteByTask, setNoteByTask] = useState<Record<string, string>>({});
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    target_department: department,
+    priority: 'medium' as OperationalTask['priority'],
+    due_at: '',
+    related_label: '',
+  });
+
+  useEffect(() => {
+    fetchQueue();
+  }, [department, adminView]);
+
+  async function fetchQueue() {
+    setLoading(true);
+    let query = supabase
+      .from('operational_tasks')
+      .select('*')
+      .order('due_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(adminView ? 120 : 60);
+
+    if (!adminView) {
+      query = query.or(`target_department.eq.${department},origin_department.eq.${department}`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      toast.error('Erro ao carregar fila operacional: ' + error.message);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data || []) as OperationalTask[];
+    setTasks(rows);
+
+    if (rows.length > 0) {
+      const { data: historyRows } = await supabase
+        .from('operational_task_history')
+        .select('*')
+        .in('task_id', rows.map((task) => task.id))
+        .order('created_at', { ascending: false })
+        .limit(80);
+      if (historyRows) setHistory(historyRows as TaskHistory[]);
+    } else {
+      setHistory([]);
+    }
+    setLoading(false);
+  }
+
+  const metrics = useMemo(() => {
+    const active = tasks.filter((task) => !['done', 'cancelled'].includes(task.status));
+    const critical = active.filter((task) => task.priority === 'high' || task.priority === 'urgent');
+    const waiting = active.filter((task) => task.status === 'waiting_other_department');
+    const overdue = active.filter((task) => task.due_at && new Date(task.due_at) < new Date());
+    return { active: active.length, critical: critical.length, waiting: waiting.length, overdue: overdue.length };
+  }, [tasks]);
+
+  async function createTask(event: FormEvent) {
+    event.preventDefault();
+    if (!form.title.trim()) return;
+    const payload = {
+      title: form.title.trim(),
+      description: form.description.trim() || null,
+      origin_department: department,
+      target_department: form.target_department,
+      priority: form.priority,
+      status: 'open',
+      due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
+      related_type: 'other',
+      related_label: form.related_label.trim() || null,
+      created_by: profile.id,
+    };
+    const { data, error } = await supabase.from('operational_tasks').insert([payload]).select().single();
+    if (error) {
+      toast.error('Erro ao criar tarefa: ' + error.message);
+      return;
+    }
+    await addHistory(data.id, 'created', `Criada por ${departmentLabels[department]}`);
+    toast.success('Tarefa operacional criada.');
+    setForm({ title: '', description: '', target_department: department, priority: 'medium', due_at: '', related_label: '' });
+    setShowCreate(false);
+    fetchQueue();
+  }
+
+  async function updateTask(task: OperationalTask, status: OperationalTask['status']) {
+    const note = noteByTask[task.id]?.trim();
+    const { error } = await supabase
+      .from('operational_tasks')
+      .update({ status, last_note: note || task.last_note || null })
+      .eq('id', task.id);
+    if (error) {
+      toast.error('Erro ao atualizar tarefa: ' + error.message);
+      return;
+    }
+    await addHistory(task.id, status, note || `Status alterado para ${status}`);
+    setNoteByTask((current) => ({ ...current, [task.id]: '' }));
+    toast.success('Fila operacional atualizada.');
+    fetchQueue();
+  }
+
+  async function addHistory(taskId: string, action: string, note?: string) {
+    await supabase.from('operational_task_history').insert([{ task_id: taskId, user_id: profile.id, action, note }]);
+  }
+
+  const visibleTasks = tasks.filter((task) => adminView || task.target_department === department || task.origin_department === department);
+
+  return (
+    <div className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-600">Work Queue</p>
+          <h3 className="mt-1 text-xl font-black text-neutral-950">
+            {adminView ? 'Centro de Controle Operacional' : `Fila de ${departmentLabels[department]}`}
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500">
+            Pendencias, alertas, responsaveis, SLA e handoff entre setores. O objetivo e o trabalho chegar no setor certo antes de virar WhatsApp.
+          </p>
+        </div>
+        <button onClick={() => setShowCreate((value) => !value)} className="rounded-2xl bg-neutral-950 px-5 py-3 text-sm font-black text-white">
+          Nova tarefa
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <QueueMetric icon={UsersRound} label="Ativas" value={String(metrics.active)} />
+        <QueueMetric icon={AlertTriangle} label="Criticas" value={String(metrics.critical)} danger={metrics.critical > 0} />
+        <QueueMetric icon={Send} label="Aguardando setor" value={String(metrics.waiting)} />
+        <QueueMetric icon={Clock} label="SLA vencido" value={String(metrics.overdue)} danger={metrics.overdue > 0} />
+      </div>
+
+      {showCreate && (
+        <form onSubmit={createTask} className="mt-5 grid gap-3 rounded-3xl border border-neutral-200 bg-neutral-50 p-4 md:grid-cols-2">
+          <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm" placeholder="Titulo da pendencia" />
+          <select value={form.target_department} onChange={(event) => setForm({ ...form, target_department: event.target.value as OperationalDepartment })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm">
+            {departmentOptions.map((option) => <option key={option} value={option}>{departmentLabels[option]}</option>)}
+          </select>
+          <select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as OperationalTask['priority'] })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm">
+            <option value="low">Baixa</option>
+            <option value="medium">Media</option>
+            <option value="high">Alta</option>
+            <option value="urgent">Urgente</option>
+          </select>
+          <input type="datetime-local" value={form.due_at} onChange={(event) => setForm({ ...form, due_at: event.target.value })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm" />
+          <input value={form.related_label} onChange={(event) => setForm({ ...form, related_label: event.target.value })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm" placeholder="Vinculo: reserva, UH, evento, fatura..." />
+          <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm md:col-span-2" rows={3} placeholder="Contexto e proxima acao esperada" />
+          <button className="rounded-2xl bg-amber-700 px-5 py-3 text-sm font-black text-white md:col-span-2">Criar e enviar para o setor</button>
+        </form>
+      )}
+
+      <div className="mt-5 space-y-3">
+        {loading ? (
+          <div className="rounded-2xl bg-neutral-50 p-5 text-sm font-bold text-neutral-400">Carregando filas...</div>
+        ) : visibleTasks.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-8 text-center text-sm font-bold text-neutral-400">
+            Nenhuma pendencia operacional para este modulo.
+          </div>
+        ) : visibleTasks.map((task) => {
+          const latestHistory = history.find((item) => item.task_id === task.id);
+          const overdue = task.due_at && new Date(task.due_at) < new Date() && !['done', 'cancelled'].includes(task.status);
+          return (
+            <div key={task.id} className={`rounded-3xl border p-4 ${overdue ? 'border-red-200 bg-red-50/70' : 'border-neutral-200 bg-neutral-50'}`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${priorityColor[task.priority]}`}>{task.priority}</span>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-neutral-500">{task.status}</span>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-neutral-500">
+                      {departmentLabels[task.origin_department]} {'->'} {departmentLabels[task.target_department]}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-lg font-black text-neutral-950">{task.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-neutral-500">{task.description || 'Sem descricao.'}</p>
+                  <p className="mt-2 text-xs font-bold uppercase tracking-widest text-neutral-400">
+                    {task.related_label || 'Sem vinculo'} {task.due_at ? `- SLA ${new Date(task.due_at).toLocaleString('pt-BR')}` : ''}
+                  </p>
+                  {latestHistory ? <p className="mt-2 text-xs text-neutral-400">Ultimo historico: {latestHistory.action} - {latestHistory.note || 'sem nota'}</p> : null}
+                </div>
+                <div className="min-w-[280px] space-y-2">
+                  <input value={noteByTask[task.id] || ''} onChange={(event) => setNoteByTask((current) => ({ ...current, [task.id]: event.target.value }))} className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Nota/justificativa" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => updateTask(task, 'in_progress')} className="rounded-xl bg-blue-950 px-3 py-2 text-xs font-black text-white">Assumir</button>
+                    <button onClick={() => updateTask(task, 'waiting_other_department')} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white">Aguardar</button>
+                    <button onClick={() => updateTask(task, 'done')} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Concluir</button>
+                    <button onClick={() => updateTask(task, 'cancelled')} className="rounded-xl bg-neutral-500 px-3 py-2 text-xs font-black text-white">Cancelar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function QueueMetric({ icon: Icon, label, value, danger = false }: { icon: typeof Clock; label: string; value: string; danger?: boolean }) {
+  return (
+    <div className={`rounded-2xl border px-4 py-3 ${danger ? 'border-red-200 bg-red-50' : 'border-neutral-200 bg-neutral-50'}`}>
+      <div className="flex items-center justify-between">
+        <Icon className={`h-5 w-5 ${danger ? 'text-red-700' : 'text-amber-700'}`} />
+        <p className="text-xl font-black text-neutral-950">{value}</p>
+      </div>
+      <p className="mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
+    </div>
+  );
+}
