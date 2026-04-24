@@ -696,60 +696,60 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                      </div>
 
                      {/* ── A4 Live Preview ── */}
-                     <div className="mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Arial, sans-serif', color: '#111111', backgroundColor: '#FFFFFF', boxShadow: '0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.08)' }}>
+                     <div className="mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Arial, sans-serif', color: '#111827', backgroundColor: '#FFFFFF', boxShadow: '0 4px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06)' }}>
 
                        {/* ══ HEADER ══ */}
-                       <div style={{ backgroundColor: '#111111' }}>
-                         <div style={{ height: '5px', backgroundColor: '#000000' }} />
+                       <div style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB' }}>
+                         <div style={{ height: '5px', backgroundColor: '#b45309' }} />
                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '26px 48px 20px' }}>
                            <div>
-                             <div style={{ fontSize: '22px', fontWeight: '900', color: '#FFFFFF', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1 }}>Royal Macaé</div>
-                             <div style={{ fontSize: '7.5px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.65em', fontWeight: '600', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
+                             <div style={{ fontSize: '22px', fontWeight: '900', color: '#111827', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1 }}>Royal Macaé</div>
+                             <div style={{ fontSize: '7.5px', color: '#6B7280', letterSpacing: '0.65em', fontWeight: '600', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '8px' }}>
-                               <div style={{ height: '1px', width: '18px', background: 'rgba(255,255,255,0.25)' }} />
-                               <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)' }} />
-                               <div style={{ height: '1px', width: '18px', background: 'rgba(255,255,255,0.25)' }} />
+                               <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
+                               <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#b45309' }} />
+                               <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
                              </div>
                            </div>
                            <div style={{ textAlign: 'right', lineHeight: '1.8' }}>
-                             <div style={{ fontSize: '11px', fontWeight: '700', color: 'rgba(255,255,255,0.9)' }}>(22) 2123-9650</div>
-                             <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.4)' }}>eventos@royalmacae.com.br</div>
-                             <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.4)' }}>www.royalmacae.com.br</div>
-                             <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.25)', marginTop: '1px' }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
+                             <div style={{ fontSize: '11px', fontWeight: '700', color: '#111827' }}>(22) 2123-9650</div>
+                             <div style={{ fontSize: '8.5px', color: '#6B7280' }}>eventos@royalmacae.com.br</div>
+                             <div style={{ fontSize: '8.5px', color: '#6B7280' }}>www.royalmacae.com.br</div>
+                             <div style={{ fontSize: '8px', color: '#9CA3AF', marginTop: '1px' }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
                            </div>
                          </div>
-                         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.35)', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                         <div style={{ borderTop: '1px solid #FDE68A', backgroundColor: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                            <div>
-                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: '3px' }}>Documento Oficial</div>
-                             <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '0.2em', color: '#FFFFFF', textTransform: 'uppercase' }}>Ordem de Serviço</div>
+                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: '#92400E', textTransform: 'uppercase', marginBottom: '3px' }}>Documento Oficial</div>
+                             <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '0.2em', color: '#92400E', textTransform: 'uppercase' }}>Ordem de Serviço</div>
                            </div>
                            <div style={{ textAlign: 'right' }}>
-                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: '3px' }}>Número O.S.</div>
-                             <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#FFFFFF', letterSpacing: '0.08em' }}>— pendente —</div>
-                             <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
+                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: '#92400E', textTransform: 'uppercase', marginBottom: '3px' }}>Número O.S.</div>
+                             <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#b45309', letterSpacing: '0.08em' }}>— pendente —</div>
+                             <div style={{ fontSize: '9px', color: '#92400E', marginTop: '2px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
                            </div>
                          </div>
-                         <div style={{ height: '3px', backgroundColor: '#000000' }} />
+                         <div style={{ height: '3px', backgroundColor: '#b45309' }} />
                        </div>
 
                        {/* ══ EVENT NAME ══ */}
                        <div style={{ padding: '26px 48px 22px', backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-                         <div style={{ width: '4px', minHeight: '52px', backgroundColor: '#111111', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
+                         <div style={{ width: '4px', minHeight: '52px', backgroundColor: '#b45309', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
                          <div style={{ flex: 1 }}>
                            <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.48em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px' }}>Nome do Evento</div>
-                           <div style={{ fontSize: '24px', fontWeight: '900', color: '#111111', letterSpacing: '-0.01em', lineHeight: '1.12' }}>{formData.name || '—'}</div>
+                           <div style={{ fontSize: '24px', fontWeight: '900', color: '#111827', letterSpacing: '-0.01em', lineHeight: '1.12' }}>{formData.name || '—'}</div>
                          </div>
-                         <div style={{ padding: '4px 12px', background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#374151', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{formData.event_type}</div>
+                         <div style={{ padding: '4px 12px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#92400E', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{formData.event_type}</div>
                        </div>
 
                        {/* ══ INFO GRID ══ */}
                        <div style={{ padding: '22px 48px', backgroundColor: '#F9FAFB' }}>
                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                           <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase' }}>Detalhes do Evento</div>
-                           <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                           <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Detalhes do Evento</div>
+                           <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                          </div>
-                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#D1D5DB', borderRadius: '6px', overflow: 'hidden', border: '1px solid #D1D5DB' }}>
+                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#E5E7EB', borderRadius: '6px', overflow: 'hidden', border: '1px solid #E5E7EB' }}>
                            {[
                              { label: 'Contratante', value: formData.client_category || '—' },
                              { label: 'Tipo de Evento', value: formData.event_type || '—' },
@@ -763,7 +763,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                            ].map((f, i) => (
                              <div key={i} style={{ padding: '13px 15px', backgroundColor: i % 2 === 0 ? '#F9FAFB' : '#FFFFFF' }}>
                                <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.3em', color: '#6B7280', marginBottom: '4px', textTransform: 'uppercase' }}>{f.label}</div>
-                               <div style={{ fontSize: '12px', fontWeight: '700', color: '#111111' }}>{f.value}</div>
+                               <div style={{ fontSize: '12px', fontWeight: '700', color: '#111827' }}>{f.value}</div>
                              </div>
                            ))}
                          </div>
@@ -773,13 +773,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        {formData.items_included && (
                          <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                             <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase' }}>Serviços & Itens Inclusos</div>
-                             <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                             <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Serviços & Itens Inclusos</div>
+                             <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                            </div>
                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                              {formData.items_included.split(',').map((item, i) => item.trim() && (
-                               <span key={i} style={{ padding: '5px 13px', fontSize: '8px', fontWeight: '700', border: '1px solid #374151', color: '#374151', backgroundColor: '#F3F4F6', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
+                               <span key={i} style={{ padding: '5px 13px', fontSize: '8px', fontWeight: '700', border: '1px solid #FDE68A', color: '#92400E', backgroundColor: '#FEF3C7', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
                              ))}
                            </div>
                          </div>
@@ -787,24 +787,24 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                        {/* ══ IMPORTANT NOTES ══ */}
                        {formData.important_notes && (
-                         <div style={{ padding: '18px 48px 22px', backgroundColor: '#F9FAFB', borderTop: '1px solid #E5E7EB' }}>
+                         <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFBEB', borderTop: '1px solid #FDE68A' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                             <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase' }}>Observações Importantes</div>
-                             <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                             <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Observações Importantes</div>
+                             <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                            </div>
-                           <div style={{ paddingLeft: '14px', borderLeft: '2px solid #9CA3AF', fontSize: '10px', color: '#374151', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{formData.important_notes}</div>
+                           <div style={{ paddingLeft: '14px', borderLeft: '2px solid #b45309', fontSize: '10px', color: '#92400E', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{formData.important_notes}</div>
                          </div>
                        )}
 
                        {/* ══ STAFF ROADMAP ══ */}
                        <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                           <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase' }}>Passo a Passo — Equipe</div>
-                           <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                           <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Passo a Passo — Equipe</div>
+                           <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                          </div>
-                         <div style={{ paddingLeft: '14px', borderLeft: '2px solid #D1D5DB', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{formData.staff_roadmap || 'Nenhum cronograma definido.'}</div>
+                         <div style={{ paddingLeft: '14px', borderLeft: '2px solid #FDE68A', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{formData.staff_roadmap || 'Nenhum cronograma definido.'}</div>
                        </div>
 
                        {/* ══ SIGNATURE ══ */}
@@ -812,9 +812,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px' }}>
                            {['Responsável pelo Evento', 'Contratante'].map((label) => (
                              <div key={label}>
-                               <div style={{ height: '46px', borderBottom: '1px solid #111111', marginBottom: '10px', position: 'relative' }}>
-                                 <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#111111' }} />
-                                 <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#111111' }} />
+                               <div style={{ height: '46px', borderBottom: '1px solid #b45309', marginBottom: '10px', position: 'relative' }}>
+                                 <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
+                                 <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
                                </div>
                                <div style={{ fontSize: '8px', fontWeight: '800', letterSpacing: '0.24em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>{label}</div>
                                <div style={{ fontSize: '8px', color: '#9CA3AF' }}>Data: ____/____/________</div>
@@ -824,13 +824,12 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        </div>
 
                        {/* ══ FOOTER ══ */}
-                       <div style={{ backgroundColor: '#111111', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
-                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', backgroundColor: '#000000' }} />
-                         <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase' }}>Royal Macaé Palace</div>
+                       <div style={{ backgroundColor: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', borderTop: '3px solid #b45309' }}>
+                         <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: '#92400E', textTransform: 'uppercase' }}>Royal Macaé Palace</div>
                          <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                           <div style={{ height: '1px', width: '16px', background: 'rgba(255,255,255,0.25)' }} />
-                           <span style={{ fontSize: '8px', fontWeight: '400', color: 'rgba(255,255,255,0.35)', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
-                           <div style={{ height: '1px', width: '16px', background: 'rgba(255,255,255,0.25)' }} />
+                           <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
+                           <span style={{ fontSize: '8px', fontWeight: '400', color: '#92400E', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
+                           <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
                          </div>
                        </div>
 
@@ -1020,70 +1019,64 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
-            <div id="contract-pdf-template" style={{ backgroundColor: '#FAFAF7', color: '#111827', fontFamily: 'Arial, sans-serif', width: '794px', minHeight: '1123px' }}>
+            <div id="contract-pdf-template" style={{ backgroundColor: '#FFFFFF', color: '#111827', fontFamily: 'Arial, sans-serif', width: '794px', minHeight: '1123px' }}>
 
               {/* ══ HEADER ══ */}
-              <div style={{ background: '#111111', position: 'relative' }}>
-                {/* Top line */}
-                <div style={{ height: '4px', background: '#000000' }} />
-                {/* Letterhead */}
+              <div style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB' }}>
+                <div style={{ height: '5px', background: '#b45309' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '26px 48px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
-                    <div>
-                      <div style={{ fontSize: '20px', fontWeight: '900', color: '#FFFFFF', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1, margin: 0 }}>Royal Macaé</div>
-                      <div style={{ fontSize: '7.5px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.65em', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '9px' }}>
-                        <div style={{ height: '1px', width: '18px', background: 'rgba(255,255,255,0.3)' }} />
-                        <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'rgba(255,255,255,0.4)' }} />
-                        <div style={{ height: '1px', width: '18px', background: 'rgba(255,255,255,0.3)' }} />
-                      </div>
+                  <div>
+                    <div style={{ fontSize: '20px', fontWeight: '900', color: '#111827', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1, margin: 0 }}>Royal Macaé</div>
+                    <div style={{ fontSize: '7.5px', color: '#6B7280', letterSpacing: '0.65em', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '9px' }}>
+                      <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
+                      <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#b45309' }} />
+                      <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', lineHeight: '1.8' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '700', color: 'rgba(255,255,255,0.9)', margin: 0 }}>(22) 2123-9650</div>
-                    <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.45)', margin: 0 }}>eventos@royalmacae.com.br</div>
-                    <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.45)', margin: 0 }}>www.royalmacae.com.br</div>
-                    <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.3)', margin: 0 }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
+                    <div style={{ fontSize: '11px', fontWeight: '700', color: '#111827', margin: 0 }}>(22) 2123-9650</div>
+                    <div style={{ fontSize: '8.5px', color: '#6B7280', margin: 0 }}>eventos@royalmacae.com.br</div>
+                    <div style={{ fontSize: '8.5px', color: '#6B7280', margin: 0 }}>www.royalmacae.com.br</div>
+                    <div style={{ fontSize: '8px', color: '#9CA3AF', margin: 0 }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
                   </div>
                 </div>
-                {/* OS Title band */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.35)', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ borderTop: '1px solid #FDE68A', background: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: '4px' }}>Documento Oficial</div>
-                    <div style={{ fontSize: '17px', fontWeight: '900', letterSpacing: '0.2em', color: '#ffffff', textTransform: 'uppercase', margin: 0 }}>Ordem de Serviço</div>
+                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: '#92400E', textTransform: 'uppercase', marginBottom: '4px' }}>Documento Oficial</div>
+                    <div style={{ fontSize: '17px', fontWeight: '900', letterSpacing: '0.2em', color: '#92400E', textTransform: 'uppercase', margin: 0 }}>Ordem de Serviço</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: '4px' }}>Número O.S.</div>
-                    <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#FFFFFF', letterSpacing: '0.08em', margin: 0 }}>{d.os_number || '—'}</div>
-                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)', marginTop: '3px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
+                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: '#92400E', textTransform: 'uppercase', marginBottom: '4px' }}>Número O.S.</div>
+                    <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#b45309', letterSpacing: '0.08em', margin: 0 }}>{d.os_number || '—'}</div>
+                    <div style={{ fontSize: '9px', color: '#92400E', marginTop: '3px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
                   </div>
                 </div>
-                {/* Bottom line */}
-                <div style={{ height: '3px', background: '#000000' }} />
+                <div style={{ height: '3px', background: '#b45309' }} />
               </div>
 
               {/* ══ EVENT NAME ══ */}
-              <div style={{ padding: '28px 48px 22px', backgroundColor: '#ffffff', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-start', gap: '18px' }}>
-                <div style={{ width: '4px', minHeight: '52px', background: '#111111', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ padding: '28px 48px 22px', backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-start', gap: '18px' }}>
+                <div style={{ width: '4px', minHeight: '52px', background: '#b45309', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.48em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '9px' }}>Nome do Evento</div>
-                  <div style={{ fontSize: '25px', fontWeight: '900', color: '#111111', letterSpacing: '-0.01em', lineHeight: '1.12', margin: 0 }}>{d.name || '—'}</div>
+                  <div style={{ fontSize: '25px', fontWeight: '900', color: '#111827', letterSpacing: '-0.01em', lineHeight: '1.12', margin: 0 }}>{d.name || '—'}</div>
                 </div>
-                <div style={{ padding: '5px 13px', background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#374151', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{d.event_type || '—'}</div>
+                <div style={{ padding: '5px 13px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#92400E', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{d.event_type || '—'}</div>
               </div>
 
               {/* ══ INFO GRID ══ */}
               <div style={{ padding: '22px 48px', backgroundColor: '#F9FAFB' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                  <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase', margin: 0 }}>Detalhes do Evento</div>
-                  <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                  <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Detalhes do Evento</div>
+                  <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#D1D5DB', borderRadius: '8px', overflow: 'hidden', border: '1px solid #D1D5DB' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#E5E7EB', borderRadius: '8px', overflow: 'hidden', border: '1px solid #E5E7EB' }}>
                   {infoRows.map(([label, value], i) => (
-                    <div key={i} style={{ padding: '14px 16px', backgroundColor: i % 2 === 0 ? '#F9FAFB' : '#ffffff' }}>
+                    <div key={i} style={{ padding: '14px 16px', backgroundColor: i % 2 === 0 ? '#F9FAFB' : '#FFFFFF' }}>
                       <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.3em', color: '#6B7280', marginBottom: '5px', textTransform: 'uppercase' }}>{label}</div>
-                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#111111', margin: 0 }}>{value}</div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#111827', margin: 0 }}>{value}</div>
                     </div>
                   ))}
                 </div>
@@ -1091,15 +1084,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
               {/* ══ SERVICES ══ */}
               {d.items_included && (
-                <div style={{ padding: '20px 48px 22px', backgroundColor: '#ffffff', borderTop: '1px solid #E5E7EB' }}>
+                <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase', margin: 0 }}>Serviços & Itens Inclusos</div>
-                    <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                    <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Serviços & Itens Inclusos</div>
+                    <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                     {d.items_included.split(',').map((item: string, i: number) => item.trim() && (
-                      <span key={i} style={{ padding: '5px 14px', fontSize: '8px', fontWeight: '800', border: '1px solid #374151', color: '#374151', backgroundColor: '#F3F4F6', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
+                      <span key={i} style={{ padding: '5px 14px', fontSize: '8px', fontWeight: '800', border: '1px solid #FDE68A', color: '#92400E', backgroundColor: '#FEF3C7', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
                     ))}
                   </div>
                 </div>
@@ -1107,24 +1100,24 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
               {/* ══ IMPORTANT NOTES ══ */}
               {d.important_notes && (
-                <div style={{ padding: '20px 48px 22px', backgroundColor: '#F9FAFB', borderTop: '1px solid #E5E7EB' }}>
+                <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFBEB', borderTop: '1px solid #FDE68A' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase', margin: 0 }}>Observações Importantes</div>
-                    <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                    <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Observações Importantes</div>
+                    <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                   </div>
-                  <div style={{ paddingLeft: '14px', borderLeft: '2px solid #9CA3AF', fontSize: '10px', color: '#374151', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{d.important_notes}</div>
+                  <div style={{ paddingLeft: '14px', borderLeft: '2px solid #b45309', fontSize: '10px', color: '#92400E', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{d.important_notes}</div>
                 </div>
               )}
 
               {/* ══ STAFF ROADMAP ══ */}
-              <div style={{ padding: '20px 48px 22px', backgroundColor: '#ffffff', borderTop: '1px solid #E5E7EB' }}>
+              <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                  <div style={{ height: '1px', width: '20px', background: '#9CA3AF' }} />
-                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#374151', textTransform: 'uppercase', margin: 0 }}>Passo a Passo — Equipe</div>
-                  <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
+                  <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
+                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Passo a Passo — Equipe</div>
+                  <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
                 </div>
-                <div style={{ paddingLeft: '14px', borderLeft: '2px solid #D1D5DB', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{d.staff_roadmap || 'Nenhum cronograma definido.'}</div>
+                <div style={{ paddingLeft: '14px', borderLeft: '2px solid #FDE68A', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{d.staff_roadmap || 'Nenhum cronograma definido.'}</div>
               </div>
 
               {/* ══ SIGNATURE ══ */}
@@ -1132,9 +1125,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px' }}>
                   {['Responsável pelo Evento', 'Contratante'].map((label) => (
                     <div key={label}>
-                      <div style={{ height: '48px', borderBottom: '1px solid #374151', marginBottom: '10px', position: 'relative' }}>
-                        <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#374151' }} />
-                        <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#374151' }} />
+                      <div style={{ height: '48px', borderBottom: '1px solid #b45309', marginBottom: '10px', position: 'relative' }}>
+                        <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
                       </div>
                       <div style={{ fontSize: '8px', fontWeight: '800', letterSpacing: '0.24em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>{label}</div>
                       <div style={{ fontSize: '8px', color: '#9CA3AF', margin: 0 }}>Data: ____/____/________</div>
@@ -1144,13 +1137,12 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* ══ FOOTER ══ */}
-              <div style={{ background: '#111111', padding: '14px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: '#000000' }} />
-                <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', margin: 0 }}>Royal Macaé Palace</div>
+              <div style={{ background: '#FFFBEB', padding: '14px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', borderTop: '3px solid #b45309' }}>
+                <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: '#92400E', textTransform: 'uppercase', margin: 0 }}>Royal Macaé Palace</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                  <div style={{ height: '1px', width: '16px', background: 'rgba(255,255,255,0.3)' }} />
-                  <span style={{ fontSize: '8px', fontWeight: '400', color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
-                  <div style={{ height: '1px', width: '16px', background: 'rgba(255,255,255,0.3)' }} />
+                  <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
+                  <span style={{ fontSize: '8px', fontWeight: '400', color: '#92400E', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
+                  <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
                 </div>
               </div>
 
