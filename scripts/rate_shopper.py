@@ -25,18 +25,20 @@ NON_HOTEL_TERMS = [
 ]
 
 
-def parse_brl(text: str) -> float | None:
-    """Converte 'R$ 1.234,56' → 1234.56"""
-    text = re.sub(r"[R$\s\n\t]", "", text)
-    text = re.sub(r"\.(?=\d{3})", "", text)   # remove ponto de milhar
-    text = text.replace(",", ".")
-    match = re.search(r"\d+(?:\.\d+)?", text)
-    if match:
-        try:
-            return float(match.group())
-        except ValueError:
-            return None
-    return None
+def parse_price(text: str) -> float | None:
+    """Extrai valor numérico de preços como 'R$ 1.234,56' ou 'US$67'"""
+    match = re.search(r"[\d.,]+", text)
+    if not match:
+        return None
+    raw = match.group()
+    # Formato BRL: 1.234,56 → ponto=milhar, vírgula=decimal
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    # Formato USD/simples: 1234.56 → ponto=decimal
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def scrape_booking() -> list[dict]:
@@ -52,6 +54,8 @@ def scrape_booking() -> list[dict]:
         "&no_rooms=1"
         "&order=review_score_and_price"
         "&rows=80"                     # Busca 80 resultados para garantir 20 após filtro
+        "&selected_currency=BRL"       # Força preços em Real brasileiro
+        "&languagecode=pt-br"          # Força interface em português
     )
 
     hotels: list[dict] = []
@@ -121,19 +125,13 @@ def scrape_booking() -> list[dict]:
                 price = None
                 price_el = card.query_selector('[data-testid="price-and-discounted-price"]')
                 if price_el:
-                    inner_text = price_el.inner_text()
-                    outer_html = price_el.evaluate("el => el.outerHTML")
-                    print(f"\n  [HOTEL] {name}")
-                    print(f"  [inner_text] {repr(inner_text)}")
-                    print(f"  [outer_html] {repr(outer_html[:500])}")
-                    price = parse_brl(inner_text)
+                    raw = price_el.inner_text().strip()
+                    price = parse_price(raw)
+                    print(f"  ✓ {name} — {raw} → R$ {price}")
                 else:
-                    card_text = card.inner_text()
-                    print(f"\n  [HOTEL] {name} — sem price_el")
-                    print(f"  [card_text] {repr(card_text[:300])}")
+                    print(f"  ✓ {name} — sem preço")
 
                 hotels.append({"name": name, "price": price})
-                print(f"  → price={price}")
 
             except Exception as exc:
                 print(f"  ✗ Erro ao processar card: {exc}")
