@@ -117,17 +117,25 @@ def scrape_booking() -> list[dict]:
                 # Segunda camada: descarta propriedades que não são hotéis pelo nome
                 name_lower = name.lower()
                 if any(term in name_lower for term in NON_HOTEL_TERMS):
-                    print(f"  — ignorado (não é hotel): {name}")
+                    print(f"  — ignorado: {name}")
                     continue
 
+                # Extrai o texto completo do card e busca o preço por regex
+                card_text = card.inner_text()
+
+                # Debug: imprime o texto bruto do card (primeiros 300 chars)
+                print(f"\n  [DEBUG CARD] {name}")
+                print(f"  [RAW TEXT] {repr(card_text[:300])}")
+
+                # Tenta extrair preço do texto do card com regex
                 price = None
-                raw_price_text = ""
-                if price_el:
-                    raw_price_text = price_el.inner_text().strip()
-                    price = parse_brl(raw_price_text)
+                price_matches = re.findall(r'R\$\s*([\d.,]+)', card_text)
+                if price_matches:
+                    print(f"  [PREÇOS ENCONTRADOS] {price_matches}")
+                    price = parse_brl("R$ " + price_matches[0])
 
                 hotels.append({"name": name, "price": price})
-                print(f"  ✓ {name} | raw='{raw_price_text}' | parsed=R${price}")
+                print(f"  → SALVO: {name} | R$ {price}")
 
             except Exception as exc:
                 print(f"  ✗ Erro ao processar card: {exc}")
