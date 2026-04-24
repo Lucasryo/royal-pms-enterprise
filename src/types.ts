@@ -19,7 +19,8 @@ export type ViewType =
   | 'pos'
   | 'professional'
   | 'audit'
-  | 'profile';
+  | 'profile'
+  | 'prio-billing';
 
 export interface HotelEvent {
   id: string;
