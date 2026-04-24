@@ -136,32 +136,53 @@ def scrape_booking() -> list[dict]:
 
 
 def save_to_supabase(hotels: list[dict]) -> None:
+    print(f"\n[supabase] Conectando em {SUPABASE_URL[:40]}...")
+    print(f"[supabase] Chave: {SUPABASE_KEY[:18]}...")
+
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     now = datetime.utcnow().isoformat()
 
-    print(f"\n[supabase] Salvando {len(hotels)} hotéis...")
+    # Teste de leitura para confirmar conectividade
+    try:
+        test = supabase.table("rate_shopper_competitors").select("id").limit(1).execute()
+        print(f"[supabase] Conexão OK — teste de leitura retornou {len(test.data)} registro(s).")
+    except Exception as exc:
+        print(f"[supabase] ERRO na conexão: {exc}")
+        sys.exit(1)
 
-    # Só remove os antigos depois de confirmar que há dados novos
-    supabase.table("rate_shopper_competitors") \
-        .delete() \
-        .eq("source", "booking_scraper") \
-        .execute()
+    # Remove entradas antigas só depois de confirmar que há novos dados
+    print(f"[supabase] Removendo entradas antigas do scraper...")
+    try:
+        del_res = supabase.table("rate_shopper_competitors") \
+            .delete() \
+            .eq("source", "booking_scraper") \
+            .execute()
+        print(f"[supabase] Delete OK.")
+    except Exception as exc:
+        print(f"[supabase] ERRO no delete: {exc}")
 
+    # Insere os novos dados
+    print(f"[supabase] Inserindo {len(hotels)} hotéis...")
+    salvos = 0
     for hotel in hotels:
         if not hotel["name"]:
             continue
+        try:
+            ins = supabase.table("rate_shopper_competitors").insert({
+                "name":             hotel["name"],
+                "city":             CITY,
+                "locality":         CITY,
+                "source":           "booking_scraper",
+                "observed_rate":    hotel["price"],
+                "notes":            f"Captado automaticamente via Booking.com em {now[:10]}",
+                "last_checked_at":  now,
+            }).execute()
+            salvos += 1
+            print(f"  ✓ salvo: {hotel['name']}")
+        except Exception as exc:
+            print(f"  ✗ ERRO ao salvar {hotel['name']}: {exc}")
 
-        supabase.table("rate_shopper_competitors").insert({
-            "name":             hotel["name"],
-            "city":             CITY,
-            "locality":         CITY,
-            "source":           "booking_scraper",
-            "observed_rate":    hotel["price"],
-            "notes":            f"Captado automaticamente via Booking.com em {now[:10]}",
-            "last_checked_at":  now,
-        }).execute()
-
-    print("[supabase] Concluído.")
+    print(f"\n[supabase] {salvos}/{len(hotels)} hotéis gravados com sucesso.")
 
 
 if __name__ == "__main__":
