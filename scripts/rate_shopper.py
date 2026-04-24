@@ -18,11 +18,10 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 CITY = "Macaé"
 MAX_HOTELS = 20
 
-# Nomes/termos que indicam propriedades que NÃO são hotéis
+# Termos que indicam claramente propriedades que NÃO são hotéis
 NON_HOTEL_TERMS = [
-    "flat", "studio", "apartamento", "apto", "apart", "pousada",
-    "hostel", "camping", "quarto", "residencial", "casa ", "villa",
-    "chalé", "chale", "kitnet", "suite", "suíte", "loft",
+    "flat", "apartamento", "apto", "hostel",
+    "camping", "kitnet", "loft", "pousada",
 ]
 
 
@@ -52,7 +51,7 @@ def scrape_booking() -> list[dict]:
         "&group_adults=2"
         "&no_rooms=1"
         "&order=review_score_and_price"
-        "&rows=40"                     # Busca 40 resultados para garantir 20 após filtro
+        "&rows=80"                     # Busca 80 resultados para garantir 20 após filtro
     )
 
     hotels: list[dict] = []
