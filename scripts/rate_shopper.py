@@ -120,11 +120,14 @@ def scrape_booking() -> list[dict]:
                     print(f"  — ignorado (não é hotel): {name}")
                     continue
 
-                price = parse_brl(price_el.inner_text()) if price_el else None
+                price = None
+                raw_price_text = ""
+                if price_el:
+                    raw_price_text = price_el.inner_text().strip()
+                    price = parse_brl(raw_price_text)
 
                 hotels.append({"name": name, "price": price})
-                price_str = f"R$ {price:.2f}" if price else "sem preço"
-                print(f"  ✓ {name} — {price_str}")
+                print(f"  ✓ {name} | raw='{raw_price_text}' | parsed=R${price}")
 
             except Exception as exc:
                 print(f"  ✗ Erro ao processar card: {exc}")
