@@ -16,7 +16,14 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 CITY = "Macaé"
-MAX_HOTELS = 10
+MAX_HOTELS = 20
+
+# Nomes/termos que indicam propriedades que NÃO são hotéis
+NON_HOTEL_TERMS = [
+    "flat", "studio", "apartamento", "apto", "apart", "pousada",
+    "hostel", "camping", "quarto", "residencial", "casa ", "villa",
+    "chalé", "chale", "kitnet", "suite", "suíte", "loft",
+]
 
 
 def parse_brl(text: str) -> float | None:
@@ -45,6 +52,8 @@ def scrape_booking() -> list[dict]:
         "&group_adults=2"
         "&no_rooms=1"
         "&order=review_score_and_price"
+        "&nflt=ht_id%3D204"           # Somente hotéis (property type = Hotel)
+        "&rows=40"                     # Busca mais resultados para garantir 20 hotéis após filtro
     )
 
     hotels: list[dict] = []
@@ -93,9 +102,11 @@ def scrape_booking() -> list[dict]:
         page.wait_for_timeout(2_500)
 
         cards = page.query_selector_all('[data-testid="property-card"]')
-        print(f"[booking] {len(cards)} cards encontrados — processando até {MAX_HOTELS}.")
+        print(f"[booking] {len(cards)} cards encontrados — coletando até {MAX_HOTELS} hotéis.")
 
-        for card in cards[:MAX_HOTELS]:
+        for card in cards:
+            if len(hotels) >= MAX_HOTELS:
+                break
             try:
                 name_el  = card.query_selector('[data-testid="title"]')
                 price_el = card.query_selector('[data-testid="price-and-discounted-price"]')
@@ -103,13 +114,19 @@ def scrape_booking() -> list[dict]:
                 if not name_el:
                     continue
 
-                name  = name_el.inner_text().strip()
+                name = name_el.inner_text().strip()
+
+                # Segunda camada: descarta propriedades que não são hotéis pelo nome
+                name_lower = name.lower()
+                if any(term in name_lower for term in NON_HOTEL_TERMS):
+                    print(f"  — ignorado (não é hotel): {name}")
+                    continue
+
                 price = parse_brl(price_el.inner_text()) if price_el else None
 
-                if name:
-                    hotels.append({"name": name, "price": price})
-                    price_str = f"R$ {price:.2f}" if price else "sem preço"
-                    print(f"  ✓ {name} — {price_str}")
+                hotels.append({"name": name, "price": price})
+                price_str = f"R$ {price:.2f}" if price else "sem preço"
+                print(f"  ✓ {name} — {price_str}")
 
             except Exception as exc:
                 print(f"  ✗ Erro ao processar card: {exc}")
