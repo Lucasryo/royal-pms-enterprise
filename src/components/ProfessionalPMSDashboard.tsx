@@ -557,31 +557,87 @@ function RevenuePanel({
             </div>
           )}
 
-          <div className="mt-6 space-y-3">
-            {competitors.length === 0 ? <Empty label="Nenhum concorrente salvo." /> : competitors.map((competitor) => (
-              <div key={competitor.id} className="rounded-2xl bg-neutral-50 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-black text-neutral-900">{competitor.name}</p>
-                    <p className="mt-1 text-sm text-neutral-500">{competitor.city} - {competitor.address || competitor.locality || 'Sem endereco'}</p>
-                    {competitor.observed_rate ? (
-                      <p className="mt-1 text-xs font-bold uppercase tracking-widest text-amber-700">Tarifa observada: {money(Number(competitor.observed_rate))}</p>
-                    ) : null}
-                  </div>
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const value = new FormData(event.currentTarget).get('observed_rate');
-                      updateCompetitorRate(competitor, String(value || ''));
-                    }}
-                    className="flex gap-2"
-                  >
-                    <input name="observed_rate" type="number" step="0.01" className="w-32 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Tarifa" />
-                    <button disabled={!canManageRateShopper} className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Atualizar</button>
-                  </form>
-                </div>
-              </div>
-            ))}
+          <div className="mt-6 space-y-4">
+            {competitors.length === 0 ? <Empty label="Nenhum concorrente salvo." /> : (() => {
+              const autoScraped = competitors.filter(c => c.source === 'booking_scraper');
+              const manual      = competitors.filter(c => c.source !== 'booking_scraper');
+              const lastUpdate  = autoScraped[0]?.last_checked_at;
+
+              return (
+                <>
+                  {/* ── Captados automaticamente ── */}
+                  {autoScraped.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Booking.com</span>
+                        <div className="flex-1 h-px bg-neutral-100" />
+                        {lastUpdate && (
+                          <span className="text-[10px] font-bold text-neutral-400">
+                            Atualizado {new Date(lastUpdate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {autoScraped.map((competitor) => (
+                          <div key={competitor.id} className="rounded-2xl bg-amber-50 border border-amber-100 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-black text-neutral-900 text-sm">{competitor.name}</p>
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Auto</span>
+                                </div>
+                                <p className="mt-0.5 text-xs text-neutral-500">{competitor.city}</p>
+                              </div>
+                              {competitor.observed_rate ? (
+                                <p className="text-lg font-black text-amber-700 font-mono">{money(Number(competitor.observed_rate))}</p>
+                              ) : (
+                                <p className="text-xs text-neutral-400 italic">sem preço</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Adicionados manualmente ── */}
+                  {manual.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Adicionados manualmente</span>
+                        <div className="flex-1 h-px bg-neutral-100" />
+                      </div>
+                      <div className="space-y-2">
+                        {manual.map((competitor) => (
+                          <div key={competitor.id} className="rounded-2xl bg-neutral-50 p-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="font-black text-neutral-900">{competitor.name}</p>
+                                <p className="mt-1 text-sm text-neutral-500">{competitor.city} - {competitor.address || competitor.locality || 'Sem endereço'}</p>
+                                {competitor.observed_rate ? (
+                                  <p className="mt-1 text-xs font-bold uppercase tracking-widest text-amber-700">Tarifa observada: {money(Number(competitor.observed_rate))}</p>
+                                ) : null}
+                              </div>
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  const value = new FormData(event.currentTarget).get('observed_rate');
+                                  updateCompetitorRate(competitor, String(value || ''));
+                                }}
+                                className="flex gap-2"
+                              >
+                                <input name="observed_rate" type="number" step="0.01" className="w-32 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Tarifa" />
+                                <button disabled={!canManageRateShopper} className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Atualizar</button>
+                              </form>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 

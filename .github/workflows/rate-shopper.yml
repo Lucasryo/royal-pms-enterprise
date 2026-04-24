@@ -1,0 +1,35 @@
+name: Rate Shopper — Booking.com
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # 08:00 BRT (UTC-3) = 11:00 UTC
+  workflow_dispatch:         # Permite rodar manualmente pelo GitHub
+
+jobs:
+  rate-shopper:
+    name: Scrape Booking.com → Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências Python
+        run: pip install playwright supabase
+
+      - name: Instalar Chromium + dependências de sistema
+        run: |
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Executar Rate Shopper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/rate_shopper.py
