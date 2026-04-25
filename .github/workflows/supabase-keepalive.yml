@@ -1,28 +1,34 @@
-name: Supabase Keepalive
+name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: '0 9 * * *'
-  workflow_dispatch:
+    - cron: "0 10 */5 * *"   # A cada 5 dias às 10:00 UTC — limite Supabase free é 7 dias
+  workflow_dispatch:           # Permite rodar manualmente
 
 jobs:
-  ping:
+  keepalive:
+    name: Ping Supabase → evitar pausa por inatividade
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping REST API do Supabase
         env:
-          SUPABASE_URL: https://eavzrswylsdaybankcie.supabase.co
-          SUPABASE_ANON_KEY: sb_publishable_GG-nyJpU0rp-pPKcjIhRnQ_FiQ2JlTV
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "Pinging Supabase to prevent auto-pause..."
-          STATUS=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
-            "${SUPABASE_URL}/rest/v1/keepalive_log?select=id&limit=1")
-          echo "HTTP status: ${STATUS}"
-          cat /tmp/resp.txt
-          if [ "${STATUS}" != "200" ] && [ "${STATUS}" != "401" ] && [ "${STATUS}" != "403" ]; then
-            echo "Unexpected status — keepalive may have failed"
+          echo "Pinging Supabase em $(date '+%d/%m/%Y %H:%M UTC')..."
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/profiles?select=id&limit=1")
+
+          echo "HTTP Status: ${HTTP_STATUS}"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Supabase ativo — projeto não será pausado."
+          else
+            echo "❌ Resposta inesperada: ${HTTP_STATUS}"
             exit 1
           fi
-          echo "Keepalive successful (any 2xx/4xx still counts as DB activity)."
