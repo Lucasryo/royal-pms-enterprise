@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Send, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
+import { sendNotification } from '../lib/audit';
 import { UserProfile, UserRole } from '../types';
 
 type Collaborator = Pick<UserProfile, 'id' | 'name' | 'role'>;
@@ -90,9 +91,10 @@ export default function OperationalWorkQueue({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [directingTaskId, setDirectingTaskId] = useState<string | null>(null);
   const [directTargetId, setDirectTargetId] = useState<string>('');
-
   const MAX_ACTIVE_PER_USER = 2;
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
+  const canSeeTeam = canDirect || adminView;
+  const [inProgressView, setInProgressView] = useState<'mine' | 'team'>(canSeeTeam ? 'team' : 'mine');
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -287,6 +289,13 @@ export default function OperationalWorkQueue({
       'directed',
       `Direcionada para ${collaborator?.name || directTargetId} por ${profile.name}${note ? ` - ${note}` : ''}`,
     );
+
+    await sendNotification({
+      user_id: directTargetId,
+      title: 'Novo chamado direcionado',
+      message: `${profile.name} direcionou para voce o chamado: ${task.title}${note ? ` - ${note}` : ''}`,
+    });
+
     setNoteByTask((current) => ({ ...current, [task.id]: '' }));
     setDirectingTaskId(null);
     setDirectTargetId('');
@@ -295,15 +304,36 @@ export default function OperationalWorkQueue({
   }
 
   const scopedTasks = tasks.filter((task) => adminView || task.target_department === department || task.origin_department === department);
-  const myInProgressTasks = scopedTasks.filter(
-    (task) => task.assigned_to === profile.id && (task.status === 'in_progress' || task.status === 'waiting_other_department'),
+  const teamInProgressTasks = scopedTasks.filter(
+    (task) => task.status === 'in_progress' || task.status === 'waiting_other_department',
   );
+  const myInProgressTasks = teamInProgressTasks.filter((task) => task.assigned_to === profile.id);
   const myInProgressIds = new Set(myInProgressTasks.map((task) => task.id));
   const activeTasks = scopedTasks.filter(
-    (task) => !['done', 'cancelled'].includes(task.status) && !myInProgressIds.has(task.id),
+    (task) => !['done', 'cancelled'].includes(task.status) && !myInProgressIds.has(task.id) && !task.assigned_to,
   );
   const historyTasks = scopedTasks.filter((task) => ['done', 'cancelled'].includes(task.status));
-  const visibleTasks = tab === 'active' ? activeTasks : tab === 'in_progress' ? myInProgressTasks : historyTasks;
+
+  const inProgressTabTasks = canSeeTeam && inProgressView === 'team' ? teamInProgressTasks : myInProgressTasks;
+  const visibleTasks = tab === 'active' ? activeTasks : tab === 'in_progress' ? inProgressTabTasks : historyTasks;
+
+  const inProgressGroups = useMemo(() => {
+    if (!(canSeeTeam && inProgressView === 'team')) return null;
+    const groups = new Map<string, { collaborator: Collaborator | null; assigneeId: string | null; tasks: OperationalTask[] }>();
+    for (const task of teamInProgressTasks) {
+      const key = task.assigned_to || 'unassigned';
+      if (!groups.has(key)) {
+        const collaborator = task.assigned_to
+          ? collaborators.find((collab) => collab.id === task.assigned_to) || null
+          : null;
+        groups.set(key, { collaborator, assigneeId: task.assigned_to || null, tasks: [] });
+      }
+      groups.get(key)!.tasks.push(task);
+    }
+    return Array.from(groups.values()).sort((a, b) =>
+      (a.collaborator?.name || 'Sem responsavel').localeCompare(b.collaborator?.name || 'Sem responsavel'),
+    );
+  }, [canSeeTeam, inProgressView, teamInProgressTasks, collaborators]);
 
   return (
     <div className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
@@ -341,7 +371,7 @@ export default function OperationalWorkQueue({
             onClick={() => setTab('in_progress')}
             className={`rounded-xl px-4 py-2 text-xs font-black uppercase tracking-widest transition ${tab === 'in_progress' ? 'bg-neutral-950 text-white' : 'text-neutral-500'}`}
           >
-            Em andamento ({myInProgressTasks.length})
+            Em andamento ({canSeeTeam && inProgressView === 'team' ? teamInProgressTasks.length : myInProgressTasks.length})
           </button>
           <button
             onClick={() => setTab('history')}
@@ -374,6 +404,23 @@ export default function OperationalWorkQueue({
         </form>
       )}
 
+      {tab === 'in_progress' && canSeeTeam ? (
+        <div className="mt-4 inline-flex rounded-2xl border border-neutral-200 bg-neutral-50 p-1">
+          <button
+            onClick={() => setInProgressView('mine')}
+            className={`rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition ${inProgressView === 'mine' ? 'bg-amber-700 text-white' : 'text-neutral-500'}`}
+          >
+            Minhas ({myInProgressTasks.length})
+          </button>
+          <button
+            onClick={() => setInProgressView('team')}
+            className={`rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition ${inProgressView === 'team' ? 'bg-amber-700 text-white' : 'text-neutral-500'}`}
+          >
+            Equipe ({teamInProgressTasks.length})
+          </button>
+        </div>
+      ) : null}
+
       <div className="mt-5 space-y-3">
         {loading ? (
           <div className="rounded-2xl bg-neutral-50 p-5 text-sm font-bold text-neutral-400">Carregando filas...</div>
@@ -382,10 +429,39 @@ export default function OperationalWorkQueue({
             {tab === 'active'
               ? 'Nenhuma pendencia operacional para este modulo.'
               : tab === 'in_progress'
-                ? 'Voce ainda nao assumiu nenhum chamado. Va em "Ativas" para assumir.'
+                ? canSeeTeam && inProgressView === 'team'
+                  ? 'Nenhum chamado em andamento na equipe.'
+                  : 'Voce ainda nao assumiu nenhum chamado. Va em "Ativas" para assumir.'
                 : 'Nenhuma tarefa concluida ou cancelada no historico.'}
           </div>
-        ) : visibleTasks.map((task) => {
+        ) : tab === 'in_progress' && inProgressGroups ? (
+          inProgressGroups.map((group) => (
+            <div key={group.assigneeId || 'unassigned'} className="rounded-3xl border border-neutral-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between px-2">
+                <p className="text-xs font-black uppercase tracking-widest text-neutral-700">
+                  {group.collaborator?.name || 'Sem responsavel'}
+                  {group.collaborator?.role ? <span className="ml-2 text-neutral-400">({group.collaborator.role})</span> : null}
+                </p>
+                <p className={`text-[10px] font-black uppercase tracking-widest ${group.tasks.filter((t) => t.status === 'in_progress').length >= MAX_ACTIVE_PER_USER ? 'text-red-700' : 'text-neutral-500'}`}>
+                  {group.tasks.filter((t) => t.status === 'in_progress').length}/{MAX_ACTIVE_PER_USER} em andamento
+                  {group.tasks.filter((t) => t.status === 'waiting_other_department').length > 0
+                    ? ` - ${group.tasks.filter((t) => t.status === 'waiting_other_department').length} aguardando`
+                    : ''}
+                </p>
+              </div>
+              <div className="space-y-3">
+                {group.tasks.map(renderTaskCard)}
+              </div>
+            </div>
+          ))
+        ) : (
+          visibleTasks.map(renderTaskCard)
+        )}
+      </div>
+    </div>
+  );
+
+  function renderTaskCard(task: OperationalTask) {
           const latestHistory = history.find((item) => item.task_id === task.id);
           const overdue = task.due_at && new Date(task.due_at) < new Date() && !['done', 'cancelled'].includes(task.status);
           const isClosed = ['done', 'cancelled'].includes(task.status);
@@ -499,10 +575,7 @@ export default function OperationalWorkQueue({
               </div>
             </div>
           );
-        })}
-      </div>
-    </div>
-  );
+  }
 }
 
 function QueueMetric({ icon: Icon, label, value, danger = false }: { icon: typeof Clock; label: string; value: string; danger?: boolean }) {
