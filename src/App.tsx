@@ -47,7 +47,14 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [currentView, setCurrentViewRaw] = useState<ViewType>(
+    () => (sessionStorage.getItem('pms_current_view') as ViewType) || 'dashboard'
+  );
+
+  const setCurrentView = (view: ViewType) => {
+    sessionStorage.setItem('pms_current_view', view);
+    setCurrentViewRaw(view);
+  };
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
