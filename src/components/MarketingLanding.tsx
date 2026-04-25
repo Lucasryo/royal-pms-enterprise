@@ -1,24 +1,34 @@
+import { useEffect, useState, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   ArrowRight,
   BadgeCheck,
   BarChart3,
+  BedDouble,
   Building2,
   CalendarRange,
   CheckCircle2,
   ClipboardList,
+  Clock,
   Hotel,
   Layers3,
+  LogIn,
   MessageCircle,
   Receipt,
+  Send,
   ShieldCheck,
   Sparkles,
-  Users,
+  UsersRound,
   Utensils,
   Wrench,
+  X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
 import PublicBookingEngine from './PublicBookingEngine';
+
+const WHATSAPP_NUMBER = '5522996105104';
+const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
 
 const stats = [
   { label: 'Hotelaria desde', value: '1990', sub: 'Tradição operacional do Royal Macaé Palace' },
@@ -104,8 +114,8 @@ const footerLinks = [
     title: 'Produto',
     links: [
       { label: 'Módulos', href: '#modulos' },
+      { label: 'Telas do sistema', href: '#telas' },
       { label: 'Como funciona', href: '#como-funciona' },
-      { label: 'Acessar plataforma', href: '#login' },
     ],
   },
   {
@@ -119,14 +129,38 @@ const footerLinks = [
   {
     title: 'Contato',
     links: [
-      { label: 'WhatsApp comercial', href: 'https://wa.me/5522999999999', external: true },
-      { label: 'Suporte técnico', href: 'mailto:suporte@royalpms.com.br', external: true },
+      { label: 'WhatsApp comercial', href: WHATSAPP_LINK, external: true },
       { label: 'Macaé / RJ — Brasil', href: '#' },
     ],
   },
 ];
 
 export default function MarketingLanding() {
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  // Lock body scroll while modal open
+  useEffect(() => {
+    if (loginOpen) {
+      const previous = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setLoginOpen(false);
+      };
+      window.addEventListener('keydown', onKey);
+      return () => {
+        document.body.style.overflow = previous;
+        window.removeEventListener('keydown', onKey);
+      };
+    }
+  }, [loginOpen]);
+
+  // If user navigates with #login hash (legacy), open modal
+  useEffect(() => {
+    if (window.location.hash === '#login') {
+      setLoginOpen(true);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-white text-stone-900">
       <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/85 backdrop-blur">
@@ -145,19 +179,28 @@ export default function MarketingLanding() {
 
           <nav className="hidden items-center gap-7 text-sm font-medium text-stone-600 md:flex">
             <a href="#modulos" className="transition hover:text-stone-950">Módulos</a>
+            <a href="#telas" className="transition hover:text-stone-950">Telas do sistema</a>
             <a href="#como-funciona" className="transition hover:text-stone-950">Como funciona</a>
             <a href="#faq" className="transition hover:text-stone-950">Perguntas</a>
             <a href="#reservar" className="transition hover:text-stone-950">Para hóspedes</a>
-            <a href="#login" className="transition hover:text-stone-950">Acessar</a>
           </nav>
 
-          <a
-            href="#demo"
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-amber-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-800"
-          >
-            Solicitar demonstração
-            <ArrowRight className="h-4 w-4" />
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setLoginOpen(true)}
+              className="hidden min-h-10 items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400 sm:inline-flex"
+            >
+              <LogIn className="h-4 w-4" />
+              Entrar
+            </button>
+            <a
+              href="#demo"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-amber-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-800"
+            >
+              Solicitar demonstração
+              <ArrowRight className="h-4 w-4" />
+            </a>
+          </div>
         </div>
       </header>
 
@@ -189,12 +232,13 @@ export default function MarketingLanding() {
                   Solicitar demonstração
                   <ArrowRight className="h-4 w-4" />
                 </a>
-                <a
-                  href="#modulos"
-                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
+                <button
+                  onClick={() => setLoginOpen(true)}
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-6 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
                 >
-                  Conhecer os módulos
-                </a>
+                  <LogIn className="h-4 w-4" />
+                  Já tenho acesso
+                </button>
               </div>
 
               <div className="mt-8 flex flex-wrap items-center gap-4 text-xs font-semibold text-stone-500">
@@ -219,76 +263,11 @@ export default function MarketingLanding() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="relative"
             >
-              <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-[0_28px_90px_rgba(20,12,7,0.10)]">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="rounded-full bg-stone-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-stone-700">
-                    Painel operacional
-                  </span>
-                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Ao vivo
-                  </span>
-                </div>
+              <BrowserFrame url="royal-pms.app/manutencao">
+                <WorkQueuePreview />
+              </BrowserFrame>
 
-                <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-stone-950 p-5 text-white">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Ocupação hoje</p>
-                    <p className="mt-3 text-4xl font-black">84%</p>
-                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
-                      <div className="h-full w-[84%] rounded-full bg-amber-400" />
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-white/70">68 das 81 UHs ocupadas</p>
-                  </div>
-                  <div className="rounded-2xl border border-stone-200 bg-stone-50 p-5">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Movimento do dia</p>
-                    <div className="mt-3 space-y-2 text-sm text-stone-700">
-                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
-                        <span>Check-ins</span>
-                        <strong>17</strong>
-                      </div>
-                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
-                        <span>Check-outs</span>
-                        <strong>13</strong>
-                      </div>
-                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
-                        <span>Diária média</span>
-                        <strong>R$ 286</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Atividade recente</p>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">Últimos 30min</p>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-amber-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-stone-900">UH 312 liberada para governança</p>
-                        <p className="text-xs text-stone-500">há 2 min</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-stone-900">Pagamento da reserva #1842 conciliado</p>
-                        <p className="text-xs text-stone-500">há 12 min</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-sky-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-stone-900">Nova reserva (3 noites) — empresa Petrobras</p>
-                        <p className="text-xs text-stone-500">há 18 min</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="absolute -bottom-4 -left-4 hidden rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-xl lg:block">
+              <div className="absolute -bottom-5 -left-5 hidden rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-xl lg:block">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
                     <Receipt className="h-4 w-4 text-emerald-700" />
@@ -344,6 +323,63 @@ export default function MarketingLanding() {
                   <p className="mt-2 text-sm leading-6 text-stone-600">{module.description}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* TELAS DO SISTEMA */}
+        <section id="telas" className="border-b border-stone-100 bg-stone-50">
+          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+            <div className="max-w-3xl">
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Telas do sistema</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
+                Veja o Royal PMS em ação.
+              </h2>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-stone-600">
+                Interfaces reais de quem trabalha no chão da operação — sem ruído, sem cliques perdidos.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-6 lg:grid-cols-2">
+              <div>
+                <BrowserFrame url="royal-pms.app/recepcao">
+                  <RoomMapPreview />
+                </BrowserFrame>
+                <p className="mt-4 text-sm font-bold text-stone-900">Mapa operacional de UHs</p>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  Status de limpeza, ocupação e bloqueio em uma visão única. Recepção e governança trabalham com a mesma fonte.
+                </p>
+              </div>
+
+              <div>
+                <BrowserFrame url="royal-pms.app/reservas">
+                  <ReservationsPreview />
+                </BrowserFrame>
+                <p className="mt-4 text-sm font-bold text-stone-900">Central de reservas</p>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  Disponibilidade, garantias, empresas e canais em um fluxo único de criação e alteração.
+                </p>
+              </div>
+
+              <div>
+                <BrowserFrame url="royal-pms.app/admin">
+                  <DashboardPreview />
+                </BrowserFrame>
+                <p className="mt-4 text-sm font-bold text-stone-900">Gestão Pro</p>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  Ocupação, performance e indicadores financeiros para decisão rápida da gestão.
+                </p>
+              </div>
+
+              <div>
+                <BrowserFrame url="royal-pms.app/financeiro">
+                  <BillingPreview />
+                </BrowserFrame>
+                <p className="mt-4 text-sm font-bold text-stone-900">Faturamento e cobrança</p>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  Notas, faturas, AR e conciliação. Trilha de auditoria entre lançamento e baixa.
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -429,7 +465,7 @@ export default function MarketingLanding() {
               </p>
               <div className="mt-6 flex items-center gap-3 border-t border-stone-200 pt-5">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-100 text-stone-700">
-                  <Users className="h-4 w-4" />
+                  <UsersRound className="h-4 w-4" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-stone-900">Equipe operacional</p>
@@ -452,7 +488,7 @@ export default function MarketingLanding() {
                 Não encontrou sua dúvida? Fale direto com o time comercial — atendemos pelo WhatsApp.
               </p>
               <a
-                href="https://wa.me/5522999999999"
+                href={WHATSAPP_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-6 inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
@@ -511,7 +547,7 @@ export default function MarketingLanding() {
 
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <a
-                  href="https://wa.me/5522999999999"
+                  href={WHATSAPP_LINK}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-500 px-6 text-sm font-semibold text-stone-950 transition hover:-translate-y-0.5 hover:bg-amber-400"
@@ -519,48 +555,14 @@ export default function MarketingLanding() {
                   <MessageCircle className="h-4 w-4" />
                   Falar no WhatsApp
                 </a>
-                <a
-                  href="#login"
-                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/30 bg-white/10 px-6 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/20"
+                <button
+                  onClick={() => setLoginOpen(true)}
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 px-6 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/20"
                 >
+                  <LogIn className="h-4 w-4" />
                   Já tenho acesso — entrar
-                </a>
+                </button>
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* LOGIN */}
-        <section id="login" className="border-b border-stone-100">
-          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_0.85fr] lg:items-center lg:px-8">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Acessar plataforma</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
-                Entre com seu login operacional.
-              </h2>
-              <p className="mt-5 text-base leading-7 text-stone-600">
-                Cada usuário entra direto no módulo da sua função — reservas, recepção, governança, financeiro,
-                manutenção, eventos ou administração geral.
-              </p>
-
-              <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                  <ShieldCheck className="h-5 w-5 text-amber-700" />
-                  <p className="mt-2 text-sm font-bold text-stone-900">Permissões granulares</p>
-                </div>
-                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                  <p className="mt-2 text-sm font-bold text-stone-900">Trilha de auditoria</p>
-                </div>
-                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                  <Sparkles className="h-5 w-5 text-amber-700" />
-                  <p className="mt-2 text-sm font-bold text-stone-900">Atualização contínua</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="lg:justify-self-end">
-              <Login embedded />
             </div>
           </div>
         </section>
@@ -617,6 +619,366 @@ export default function MarketingLanding() {
           </div>
         </div>
       </footer>
+
+      {/* LOGIN MODAL */}
+      <AnimatePresence>
+        {loginOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
+            onClick={() => setLoginOpen(false)}
+          >
+            <div className="absolute inset-0 bg-stone-950/70 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setLoginOpen(false)}
+                aria-label="Fechar"
+                className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-lg transition hover:bg-stone-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <Login embedded />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ============================================================
+ * UI PREVIEWS — renderizadas com as mesmas classes Tailwind
+ * dos componentes reais do sistema. Sao essencialmente um
+ * "screenshot vivo" do PMS rodando.
+ * ============================================================ */
+
+function BrowserFrame({ url, children }: { url: string; children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_28px_90px_rgba(20,12,7,0.10)]">
+      <div className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-3">
+        <div className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+        </div>
+        <div className="ml-3 flex flex-1 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-1 text-xs text-stone-500">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          {url}
+        </div>
+      </div>
+      <div className="p-4 sm:p-5">{children}</div>
+    </div>
+  );
+}
+
+function WorkQueuePreview() {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Work Queue</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Fila de Manutenção</h3>
+        </div>
+        <button className="rounded-xl bg-neutral-950 px-3 py-1.5 text-[10px] font-black text-white">Nova tarefa</button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[
+          { icon: UsersRound, label: 'Ativas', value: '4' },
+          { icon: AlertTriangle, label: 'Críticas', value: '1', danger: true },
+          { icon: Send, label: 'Aguardando', value: '2' },
+          { icon: Clock, label: 'SLA vencido', value: '0' },
+        ].map((m) => (
+          <div
+            key={m.label}
+            className={`rounded-xl border px-2 py-2 ${m.danger ? 'border-red-200 bg-red-50' : 'border-neutral-200 bg-neutral-50'}`}
+          >
+            <div className="flex items-center justify-between">
+              <m.icon className={`h-3 w-3 ${m.danger ? 'text-red-700' : 'text-amber-700'}`} />
+              <p className="text-sm font-black text-neutral-950">{m.value}</p>
+            </div>
+            <p className="mt-1 text-[8px] font-black uppercase tracking-[0.18em] text-neutral-400">{m.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 inline-flex rounded-xl border border-neutral-200 bg-neutral-50 p-1 text-[9px]">
+        <span className="rounded-lg bg-neutral-950 px-2 py-1 font-black uppercase tracking-widest text-white">Ativas (3)</span>
+        <span className="px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Em andamento (1)</span>
+        <span className="px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Histórico</span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <div className="rounded-2xl border border-red-200 bg-red-50/70 p-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-red-700">URGENT</span>
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[8px] font-black uppercase text-neutral-500">OPEN</span>
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[8px] font-black uppercase text-neutral-500">RECEPÇÃO → MANUTENÇÃO</span>
+          </div>
+          <p className="mt-2 text-sm font-black text-neutral-950">Ar-condicionado UH 412</p>
+          <p className="text-xs text-neutral-500">Sem ventilação fria. Hóspede aguardando.</p>
+        </div>
+
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-amber-700">MEDIUM</span>
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[8px] font-black uppercase text-neutral-500">OPEN</span>
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[8px] font-black uppercase text-neutral-500">RESERVAS → MANUTENÇÃO</span>
+          </div>
+          <p className="mt-2 text-sm font-black text-neutral-950">Registro UH 507 quebrado</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoomMapPreview() {
+  const rooms: Array<{ n: string; status: 'clean' | 'dirty' | 'occupied' | 'block' | 'inspect' }> = [
+    { n: '301', status: 'clean' },
+    { n: '302', status: 'occupied' },
+    { n: '303', status: 'clean' },
+    { n: '304', status: 'dirty' },
+    { n: '305', status: 'occupied' },
+    { n: '306', status: 'clean' },
+    { n: '307', status: 'inspect' },
+    { n: '308', status: 'occupied' },
+    { n: '309', status: 'clean' },
+    { n: '310', status: 'block' },
+    { n: '311', status: 'dirty' },
+    { n: '312', status: 'clean' },
+    { n: '313', status: 'occupied' },
+    { n: '314', status: 'occupied' },
+    { n: '315', status: 'clean' },
+    { n: '316', status: 'dirty' },
+  ];
+  const statusStyle = {
+    clean: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    dirty: 'bg-amber-100 text-amber-800 border-amber-200',
+    occupied: 'bg-blue-100 text-blue-800 border-blue-200',
+    block: 'bg-red-100 text-red-800 border-red-200',
+    inspect: 'bg-purple-100 text-purple-800 border-purple-200',
+  };
+  const labels = { clean: 'Limpo', dirty: 'Sujo', occupied: 'Ocupado', block: 'Bloqueado', inspect: 'Inspeção' };
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Governança</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Mapa de UHs — andar 3</h3>
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">81/108 ocupadas (75%)</p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-[9px]">
+        {(Object.entries(labels) as Array<[keyof typeof labels, string]>).map(([k, v]) => (
+          <span key={k} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-black uppercase tracking-widest ${statusStyle[k]}`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {v}
+          </span>
+        ))}
+      </div>
+
+      <div className="mt-3 grid grid-cols-8 gap-1.5">
+        {rooms.map((r) => (
+          <div
+            key={r.n}
+            className={`flex flex-col items-center justify-center rounded-lg border px-1 py-2 ${statusStyle[r.status]}`}
+          >
+            <BedDouble className="h-3 w-3" />
+            <p className="mt-1 text-[10px] font-black">{r.n}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReservationsPreview() {
+  const rows = [
+    { code: 'RES-2841', guest: 'Carlos Mendes', company: 'Petrobras', uh: '412', in: '24/04', out: '27/04', status: 'CONFIRMED' },
+    { code: 'RES-2842', guest: 'Ana Beatriz', company: 'Reserva direta', uh: '305', in: '24/04', out: '26/04', status: 'CHECKED_IN' },
+    { code: 'RES-2843', guest: 'Lucas Pereira', company: 'Halliburton', uh: '208', in: '25/04', out: '29/04', status: 'CONFIRMED' },
+    { code: 'RES-2844', guest: 'Renata Costa', company: 'Booking.com', uh: '511', in: '26/04', out: '27/04', status: 'PENDING' },
+  ];
+  const statusStyle: Record<string, string> = {
+    CONFIRMED: 'bg-emerald-100 text-emerald-800',
+    CHECKED_IN: 'bg-blue-100 text-blue-800',
+    PENDING: 'bg-amber-100 text-amber-800',
+  };
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Reservas</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Próximas chegadas</h3>
+        </div>
+        <button className="rounded-xl bg-amber-700 px-3 py-1.5 text-[10px] font-black text-white">Nova reserva</button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Hoje</p>
+          <p className="text-lg font-black text-neutral-950">17 IN</p>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">7 dias</p>
+          <p className="text-lg font-black text-neutral-950">98 IN</p>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Receita prevista</p>
+          <p className="text-lg font-black text-neutral-950">R$ 142k</p>
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200">
+        <table className="w-full text-[10px]">
+          <thead className="bg-neutral-50 text-neutral-500">
+            <tr>
+              <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Reserva</th>
+              <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Hóspede</th>
+              <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">UH</th>
+              <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Período</th>
+              <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.code} className="border-t border-neutral-100">
+                <td className="px-2 py-1.5 font-black text-neutral-700">{r.code}</td>
+                <td className="px-2 py-1.5">
+                  <p className="font-bold text-neutral-900">{r.guest}</p>
+                  <p className="text-neutral-500">{r.company}</p>
+                </td>
+                <td className="px-2 py-1.5 font-black">{r.uh}</td>
+                <td className="px-2 py-1.5 text-neutral-600">{r.in} → {r.out}</td>
+                <td className="px-2 py-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${statusStyle[r.status]}`}>{r.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DashboardPreview() {
+  const bars = [42, 58, 71, 65, 82, 78, 84];
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Gestão Pro</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Indicadores da operação</h3>
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">▲ 12% vs semana anterior</p>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[
+          { l: 'Ocupação', v: '84%' },
+          { l: 'ADR', v: 'R$ 286' },
+          { l: 'RevPAR', v: 'R$ 240' },
+          { l: 'No-show', v: '2%' },
+        ].map((m) => (
+          <div key={m.l} className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{m.l}</p>
+            <p className="mt-1 text-lg font-black text-neutral-950">{m.v}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Ocupação 7 dias</p>
+        <div className="mt-3 flex h-24 items-end justify-between gap-2">
+          {bars.map((h, i) => (
+            <div key={i} className="flex flex-1 flex-col items-center gap-1">
+              <div className="w-full rounded-t-md bg-amber-700/90" style={{ height: `${h}%` }} />
+              <p className="text-[8px] font-bold text-neutral-500">{['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'][i]}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-stone-950 bg-stone-950 p-3 text-white">
+          <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Receita do mês</p>
+          <p className="mt-1 text-lg font-black">R$ 142,8k</p>
+          <p className="text-[9px] text-emerald-300">▲ 8% vs anterior</p>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Pendentes</p>
+          <p className="mt-1 text-lg font-black text-neutral-950">R$ 18,4k</p>
+          <p className="text-[9px] text-amber-700">12 títulos em aberto</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillingPreview() {
+  const items = [
+    { doc: 'NFS-e 8421', empresa: 'Petrobras', valor: 'R$ 4.280,00', status: 'PAID' },
+    { doc: 'NFS-e 8422', empresa: 'Halliburton', valor: 'R$ 2.860,00', status: 'PAID' },
+    { doc: 'NFS-e 8423', empresa: 'Schlumberger', valor: 'R$ 1.720,00', status: 'PENDING' },
+    { doc: 'NFS-e 8424', empresa: 'Reserva direta', valor: 'R$ 980,00', status: 'PAID' },
+    { doc: 'NFS-e 8425', empresa: 'Booking.com', valor: 'R$ 540,00', status: 'CANCELLED' },
+  ];
+  const styles: Record<string, string> = {
+    PAID: 'bg-emerald-100 text-emerald-800',
+    PENDING: 'bg-amber-100 text-amber-800',
+    CANCELLED: 'bg-stone-200 text-stone-700',
+  };
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Faturamento</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Documentos emitidos — abril</h3>
+        </div>
+        <button className="rounded-xl bg-emerald-700 px-3 py-1.5 text-[10px] font-black text-white">Emitir NFS-e</button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-xl bg-emerald-50 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Recebido</p>
+          <p className="text-lg font-black text-emerald-900">R$ 96,2k</p>
+        </div>
+        <div className="rounded-xl bg-amber-50 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Em aberto</p>
+          <p className="text-lg font-black text-amber-900">R$ 18,4k</p>
+        </div>
+        <div className="rounded-xl bg-stone-100 px-3 py-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-stone-600">Cancelado</p>
+          <p className="text-lg font-black text-stone-800">R$ 2,1k</p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        {items.map((i) => (
+          <div key={i.doc} className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-3 py-2 text-[10px]">
+            <div>
+              <p className="font-black text-neutral-900">{i.doc}</p>
+              <p className="text-neutral-500">{i.empresa}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <p className="font-black text-neutral-900">{i.valor}</p>
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${styles[i.status]}`}>{i.status}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
