@@ -1,144 +1,155 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion, useInView, useMotionValue, useSpring } from 'motion/react';
 import {
   AlertTriangle,
-  ArrowRight,
-  BadgeCheck,
-  BarChart3,
   BedDouble,
-  Building2,
-  CalendarRange,
-  CheckCircle2,
-  ClipboardList,
   Clock,
-  Hotel,
-  Layers3,
-  LogIn,
-  MessageCircle,
-  Receipt,
   Send,
-  ShieldCheck,
-  Sparkles,
   UsersRound,
-  Utensils,
-  Wrench,
   X,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import Login from './Login';
 import PublicBookingEngine from './PublicBookingEngine';
 
 const WHATSAPP_NUMBER = '5522996105104';
 const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
 
-const stats = [
-  { label: 'Hotelaria desde', value: '1990', sub: 'Tradição operacional do Royal Macaé Palace' },
-  { label: 'Módulos integrados', value: '8+', sub: 'Reservas, recepção, governança, faturamento e mais' },
-  { label: 'Operação', value: '24/7', sub: 'Plataforma web disponível em qualquer lugar' },
-  { label: 'Implantação', value: '100% web', sub: 'Sem instalação, sem servidor local' },
+const navLinks = [
+  { href: '#modulos', label: 'Módulos' },
+  { href: '#telas', label: 'Telas do sistema' },
+  { href: '#operacao', label: 'Operação' },
+  { href: '#hospedes', label: 'Hóspedes' },
+  { href: '#faq', label: 'Perguntas' },
+];
+
+const marqueeFeatures = [
+  'RESERVAS',
+  'RECEPÇÃO',
+  'GOVERNANÇA',
+  'MANUTENÇÃO',
+  'RESTAURANTE & A&B',
+  'EVENTOS',
+  'FINANCEIRO',
+  'AUDITORIA',
 ];
 
 const modules = [
-  { name: 'Reservas', description: 'Disponibilidade, tarifa, garantia e ocupação em um só fluxo.', icon: CalendarRange },
-  { name: 'Recepção', description: 'Check-in, check-out, walk-in e conta corrente do hóspede.', icon: Hotel },
-  { name: 'Governança', description: 'Status de UH, limpeza, inspeção e bloqueios em tempo real.', icon: Layers3 },
-  { name: 'Manutenção', description: 'Chamados, fila por setor, direcionamento e SLA.', icon: Wrench },
-  { name: 'Restaurante / POS', description: 'Lançamentos em folio, venda direta e integração com a hospedagem.', icon: Utensils },
-  { name: 'Eventos', description: 'O.S., agenda, espelho de calendário e roteiro de equipe.', icon: ClipboardList },
-  { name: 'Faturamento', description: 'Notas, faturas, baixa, AR e conciliação por forma de pagamento.', icon: Receipt },
-  { name: 'Gestão Pro', description: 'Dashboards, ocupação, performance e auditoria entre módulos.', icon: BarChart3 },
+  { n: '01', title: 'Reservas', desc: 'Disponibilidade, tarifa, garantia e ocupação em um só fluxo — com bloqueios inteligentes.' },
+  { n: '02', title: 'Recepção', desc: 'Check-in expresso, hóspedes acompanhantes, ficha nacional e leitura de documento.' },
+  { n: '03', title: 'Governança', desc: 'Status de UH em tempo real, escalas de camareiras e checklist de limpeza.' },
+  { n: '04', title: 'Manutenção', desc: 'Chamados por UH, prioridades, fotos, fila por setor e tempo médio de resolução.' },
+  { n: '05', title: 'Restaurante & A&B', desc: 'Comandas, débito em conta, integração com o ponto de venda do hotel.' },
+  { n: '06', title: 'Eventos', desc: 'Salões, propostas, contratos e produção — do orçamento ao faturamento.' },
+  { n: '07', title: 'Financeiro', desc: 'Conciliação bancária, contas a pagar/receber, DRE por centro de custo.' },
+  { n: '08', title: 'Auditoria', desc: 'Trilha completa, fechamento de caixa noturno e relatórios fiscais.' },
 ];
 
-const benefits = [
-  {
-    title: 'Menos retrabalho entre setores',
-    description: 'Reservas, recepção, governança e financeiro trabalham com a mesma base operacional, sem planilhas paralelas.',
-  },
-  {
-    title: 'Leitura rápida da operação',
-    description: 'Ocupação, movimento do dia, pendências e responsabilidades visíveis em um painel único.',
-  },
-  {
-    title: 'Estrutura para crescer',
-    description: 'Arquitetura desenhada para padronizar processo e profissionalizar a gestão sem peso desnecessário.',
-  },
+const moduleIcons: Record<string, ReactNode> = {
+  '01': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
+    </svg>
+  ),
+  '02': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M3 21v-2a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v2" strokeLinecap="round" />
+      <circle cx="12" cy="8" r="4" />
+    </svg>
+  ),
+  '03': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M3 7l9-4 9 4M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" />
+      <path d="M9 21V12h6v9" strokeLinecap="round" />
+    </svg>
+  ),
+  '04': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z" />
+    </svg>
+  ),
+  '05': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M4 3v18M4 8h6M10 3v18M14 3l2 5v13M16 8l4 0" strokeLinecap="round" />
+    </svg>
+  ),
+  '06': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M5 21V8l7-5 7 5v13M9 21v-6h6v6" strokeLinecap="round" />
+    </svg>
+  ),
+  '07': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M12 1v22M17 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7" strokeLinecap="round" />
+    </svg>
+  ),
+  '08': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6M9 13l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+};
+
+const steps = [
+  { n: 'I', weeks: 'Semana 1', title: 'Diagnóstico operacional', desc: 'Mapeamos rotinas, gargalos por setor e indicadores que importam para a sua hotelaria.' },
+  { n: 'II', weeks: 'Semanas 2–3', title: 'Implantação assistida', desc: 'Migração de dados, configuração de tarifários, treinamento por função e ambiente de homologação.' },
+  { n: 'III', weeks: 'Semana 4', title: 'Go-live com supervisão', desc: 'Acompanhamento presencial nos primeiros check-ins, fechamentos e conciliações.' },
+  { n: 'IV', weeks: 'A partir do mês 2', title: 'Operação contínua', desc: 'Suporte 24/7, atualizações mensais e revisão trimestral de indicadores com a gestão.' },
 ];
 
-const howItWorks = [
-  {
-    step: '01',
-    title: 'Conversa inicial',
-    description: 'Conhecemos sua operação, mapeamos pontos críticos e mostramos como o Royal PMS se encaixa no seu dia a dia.',
-  },
-  {
-    step: '02',
-    title: 'Implantação acompanhada',
-    description: 'Configuramos UHs, tarifas, perfis de acesso e treinamos o time. Tudo no navegador, sem instalação.',
-  },
-  {
-    step: '03',
-    title: 'Operação no ar',
-    description: 'Reservas, recepção, faturamento e governança rodando integrados. Suporte direto com quem implantou.',
-  },
+const faqs = [
+  { q: 'Quanto tempo leva a implantação completa?', a: 'O cronograma é definido após o diagnóstico operacional e considera o porte do hotel, número de UHs e módulos ativados. Trabalhamos em fases — diagnóstico, configuração, treinamento e go-live assistido — para que a virada aconteça sem interromper a operação.' },
+  { q: 'Vocês migram os dados do meu sistema atual?', a: 'Sim. Migramos cadastros de hóspedes, histórico de reservas, contas a pagar/receber em aberto e tarifários vigentes. Mantemos o sistema antigo em paralelo durante a primeira semana de operação para garantir uma transição segura.' },
+  { q: 'Funciona com motor de reservas e channel manager?', a: 'Sim. A plataforma foi desenhada para operar integrada a channel managers e motores de reservas do mercado, mantendo disponibilidade e tarifa sincronizadas em tempo real.' },
+  { q: 'Como funciona o suporte?', a: 'Suporte por WhatsApp, telefone e plataforma. Hotéis com operação 24/7 contam com canal prioritário e, no plano Enterprise, gerente de conta dedicado.' },
+  { q: 'Os meus dados ficam seguros?', a: 'Toda a infraestrutura roda em nuvem brasileira, com backups criptografados, conformidade LGPD e trilha de auditoria completa de qualquer alteração feita por usuário.' },
 ];
 
-const faq = [
-  {
-    question: 'Serve para uma operação menor, como pousadas?',
-    answer:
-      'Sim. A arquitetura atende pousadas e hotéis independentes que precisam profissionalizar a gestão sem adotar uma estrutura excessivamente pesada.',
-  },
-  {
-    question: 'Minha equipe vai ter dificuldade para usar?',
-    answer:
-      'Cada login entra direto no módulo da sua função. Reservas, recepção, governança e financeiro trabalham com interfaces especializadas e sem ruído.',
-  },
-  {
-    question: 'Precisa instalar algum software no hotel?',
-    answer:
-      'Não. O Royal PMS é 100% web. Funciona em qualquer navegador, em desktop, tablet ou celular. Atualizações são automáticas.',
-  },
-  {
-    question: 'Como funcionam as permissões e a auditoria?',
-    answer:
-      'Cada usuário tem permissões granulares por ação. Toda operação relevante (cancelar, alterar tarifa, baixar pagamento) fica registrada em trilha de auditoria consultável.',
-  },
-  {
-    question: 'É possível migrar nossos dados atuais?',
-    answer:
-      'Sim. Reservas, hóspedes, empresas e tarifas vigentes podem ser importados durante a implantação. Conversamos sobre o formato disponível e ajustamos.',
-  },
+const guestFeatures = [
+  'Pré-check-in com leitura de documento e assinatura digital',
+  'Conta consolidada (apartamento, A&B, eventos, frigobar)',
+  'Pagamento por link, Pix, cartão ou faturamento corporativo',
+  'Histórico de preferências mantido entre estadias',
 ];
 
-const footerLinks = [
-  {
-    title: 'Produto',
-    links: [
-      { label: 'Módulos', href: '#modulos' },
-      { label: 'Telas do sistema', href: '#telas' },
-      { label: 'Como funciona', href: '#como-funciona' },
-    ],
-  },
-  {
-    title: 'Empresa',
-    links: [
-      { label: 'Royal Macaé Palace', href: 'https://royalmacaepalace.com.br', external: true },
-      { label: 'Reservar hospedagem', href: '#reservar' },
-      { label: 'Solicitar demonstração', href: '#demo' },
-    ],
-  },
-  {
-    title: 'Contato',
-    links: [
-      { label: 'WhatsApp comercial', href: WHATSAPP_LINK, external: true },
-      { label: 'Macaé / RJ — Brasil', href: '#' },
-    ],
-  },
-];
+/* ==========================================================
+ * COUNTER (animated number)
+ * ========================================================== */
+function Counter({ to, prefix = '', suffix = '', decimals = 0 }: { to: number; prefix?: string; suffix?: string; decimals?: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-20%' });
+  const mv = useMotionValue(0);
+  const spring = useSpring(mv, { duration: 1800, bounce: 0 });
 
+  useEffect(() => {
+    if (inView) mv.set(to);
+  }, [inView, mv, to]);
+
+  useEffect(() => {
+    return spring.on('change', (v) => {
+      if (ref.current) ref.current.textContent = `${prefix}${v.toFixed(decimals).replace('.', ',')}${suffix}`;
+    });
+  }, [spring, prefix, suffix, decimals]);
+
+  return <span ref={ref}>{prefix}0{suffix}</span>;
+}
+
+/* ==========================================================
+ * MAIN COMPONENT
+ * ========================================================== */
 export default function MarketingLanding() {
   const [loginOpen, setLoginOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  // Lock body scroll while modal open
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   useEffect(() => {
     if (loginOpen) {
       const previous = document.body.style.overflow;
@@ -154,51 +165,55 @@ export default function MarketingLanding() {
     }
   }, [loginOpen]);
 
-  // If user navigates with #login hash (legacy), open modal
   useEffect(() => {
-    if (window.location.hash === '#login') {
-      setLoginOpen(true);
-    }
+    if (window.location.hash === '#login') setLoginOpen(true);
   }, []);
 
   return (
-    <div className="min-h-screen bg-white text-stone-900">
-      <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <a href="#inicio" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-stone-200 bg-white p-1">
-              <img src="/logo.png" alt="Royal PMS" className="h-full w-full object-contain" />
+    <div className="relative min-h-screen bg-paper font-sans text-ink antialiased">
+      {/* HEADER */}
+      <header
+        className={`fixed inset-x-0 top-0 z-40 transition-all duration-500 ${
+          scrolled ? 'border-b border-ink/10 bg-paper/85 backdrop-blur-xl' : 'bg-transparent'
+        }`}
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
+          <a href="#inicio" className="group flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper">
+              <span className="font-display text-lg italic leading-none text-ink">R</span>
             </div>
             <div className="leading-tight">
-              <p className="text-sm font-black uppercase tracking-tight text-stone-950">Royal PMS</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-500">
-                Plataforma de hotelaria
-              </p>
+              <p className="font-display text-base font-medium tracking-tight text-ink">Royal PMS</p>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Plataforma de hotelaria</p>
             </div>
           </a>
 
-          <nav className="hidden items-center gap-7 text-sm font-medium text-stone-600 md:flex">
-            <a href="#modulos" className="transition hover:text-stone-950">Módulos</a>
-            <a href="#telas" className="transition hover:text-stone-950">Telas do sistema</a>
-            <a href="#como-funciona" className="transition hover:text-stone-950">Como funciona</a>
-            <a href="#faq" className="transition hover:text-stone-950">Perguntas</a>
-            <a href="#reservar" className="transition hover:text-stone-950">Para hóspedes</a>
+          <nav className="hidden items-center gap-7 md:flex">
+            {navLinks.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                className="group relative text-sm text-ink/80 transition-colors hover:text-ink"
+              >
+                {l.label}
+                <span className="absolute -bottom-1 left-0 h-px w-0 bg-gold transition-all duration-300 group-hover:w-full" />
+              </a>
+            ))}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setLoginOpen(true)}
-              className="hidden min-h-10 items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400 sm:inline-flex"
+              className="hidden text-sm text-ink/70 transition hover:text-ink md:inline"
             >
-              <LogIn className="h-4 w-4" />
-              Entrar
+              Acessar
             </button>
             <a
               href="#demo"
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-amber-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-800"
+              className="group inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3 hover:bg-ink/90"
             >
-              Solicitar demonstração
-              <ArrowRight className="h-4 w-4" />
+              Ver demonstração
+              <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
             </a>
           </div>
         </div>
@@ -206,362 +221,438 @@ export default function MarketingLanding() {
 
       <main>
         {/* HERO */}
-        <section id="inicio" className="border-b border-stone-100">
-          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-12 lg:px-8 lg:py-24">
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <p className="mb-4 text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">
-                PMS para hotelaria independente
-              </p>
-              <h1 className="max-w-3xl text-4xl font-black leading-[1.05] tracking-tight text-stone-950 sm:text-5xl lg:text-6xl">
-                Profissionalize reservas, operação e faturamento em um só sistema.
-              </h1>
-              <p className="mt-6 max-w-xl text-base leading-7 text-stone-600 sm:text-lg">
-                O Royal PMS organiza a rotina do hotel — reservas, recepção, governança, manutenção, restaurante,
-                eventos e financeiro — para meios de hospedagem que querem trocar improviso por padrão.
-              </p>
+        <section id="inicio" className="relative overflow-hidden pt-32 pb-24 lg:pt-40 lg:pb-32">
+          {/* decorative serif R */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-10 right-[-8%] select-none font-display text-[28rem] leading-none text-ink/[0.025] lg:right-[5%]"
+          >
+            R
+          </div>
 
-              <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mx-auto grid max-w-7xl items-center gap-16 px-6 lg:grid-cols-12 lg:gap-10 lg:px-10">
+            <div className="lg:col-span-6">
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6 }}
+                className="inline-flex items-center gap-3 rounded-full border border-ink/10 bg-paper px-4 py-1.5"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+                <span className="text-[11px] uppercase tracking-[0.22em] text-stone-500">
+                  PMS para hotelaria independente
+                </span>
+              </motion.div>
+
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.1 }}
+                className="mt-7 font-display text-5xl font-light leading-[1.02] tracking-[-0.02em] text-ink text-balance sm:text-6xl lg:text-[5.25rem]"
+              >
+                A operação do hotel,
+                <br />
+                <span className="italic text-ink/90">orquestrada</span>{' '}
+                <span className="relative inline-block">
+                  com método.
+                  <svg
+                    viewBox="0 0 300 12"
+                    className="absolute -bottom-2 left-0 w-full text-gold"
+                    preserveAspectRatio="none"
+                  >
+                    <path d="M2 8 C 80 2, 160 12, 298 4" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+                  </svg>
+                </span>
+              </motion.h1>
+
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.25 }}
+                className="mt-7 max-w-xl text-lg leading-relaxed text-ink/70 text-pretty"
+              >
+                Reservas, recepção, governança, manutenção, restaurante, eventos e financeiro em uma só plataforma —
+                desenhada para meios de hospedagem que trocam improviso por padrão.
+              </motion.p>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.4 }}
+                className="mt-10 flex flex-wrap items-center gap-4"
+              >
                 <a
                   href="#demo"
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-700 px-6 text-sm font-semibold text-white shadow-md shadow-amber-900/20 transition hover:-translate-y-0.5 hover:bg-amber-800"
+                  className="group inline-flex items-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-medium text-paper transition-all hover:bg-ink/90"
                 >
                   Solicitar demonstração
-                  <ArrowRight className="h-4 w-4" />
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink transition-transform group-hover:translate-x-0.5">
+                    →
+                  </span>
                 </a>
                 <button
                   onClick={() => setLoginOpen(true)}
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-6 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
+                  className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink"
                 >
-                  <LogIn className="h-4 w-4" />
-                  Já tenho acesso
+                  <span className="border-b border-ink/30 pb-0.5 transition group-hover:border-ink">
+                    Já tenho acesso
+                  </span>
                 </button>
-              </div>
+              </motion.div>
 
-              <div className="mt-8 flex flex-wrap items-center gap-4 text-xs font-semibold text-stone-500">
-                <div className="inline-flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  100% web
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.8, delay: 0.6 }}
+                className="mt-12 grid max-w-md grid-cols-3 gap-6 border-t border-ink/10 pt-6 text-xs"
+              >
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">100%</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">web · sem instalação</p>
                 </div>
-                <div className="inline-flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  Operando em produção
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">24/7</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">operação contínua</p>
                 </div>
-                <div className="inline-flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  Trilha de auditoria
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">LGPD</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">dados em conformidade</p>
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="relative"
-            >
-              <BrowserFrame url="royal-pms.app/manutencao">
-                <WorkQueuePreview />
-              </BrowserFrame>
-
-              <div className="absolute -bottom-5 -left-5 hidden rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-xl lg:block">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
-                    <Receipt className="h-4 w-4 text-emerald-700" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Faturamento</p>
-                    <p className="text-sm font-bold text-stone-900">R$ 142,8 mil</p>
-                    <p className="text-[10px] text-stone-500">acumulado do mês</p>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+            <div className="lg:col-span-6">
+              <HeroPanel />
+            </div>
           </div>
         </section>
 
-        {/* STATS BANNER */}
-        <section className="border-b border-stone-100 bg-stone-50">
-          <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-12 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="border-l-2 border-amber-700 pl-4">
-                <p className="text-3xl font-black tracking-tight text-stone-950 sm:text-4xl">{stat.value}</p>
-                <p className="mt-2 text-sm font-bold uppercase tracking-widest text-stone-700">{stat.label}</p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">{stat.sub}</p>
-              </div>
-            ))}
+        {/* MARQUEE */}
+        <section className="relative border-y border-ink/10 bg-paper py-8">
+          <div className="mx-auto mb-5 max-w-7xl px-6 lg:px-10">
+            <p className="text-center text-[11px] uppercase tracking-[0.28em] text-stone-500">
+              Uma plataforma · toda a operação do hotel
+            </p>
+          </div>
+          <div className="relative overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
+            <div className="flex w-max animate-marquee gap-16 whitespace-nowrap">
+              {[...marqueeFeatures, ...marqueeFeatures].map((l, i) => (
+                <span key={i} className="font-display text-lg italic tracking-[0.18em] text-ink/60">
+                  · {l}
+                </span>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* MODULES GRID */}
-        <section id="modulos" className="border-b border-stone-100">
-          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-            <div className="max-w-3xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Módulos do sistema</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
-                Toda a operação do hotel em uma plataforma única.
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-stone-600">
+        {/* MODULES */}
+        <section id="modulos" className="relative py-28 lg:py-36">
+          <div className="mx-auto max-w-7xl px-6 lg:px-10">
+            <div className="grid gap-10 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Módulos do sistema</p>
+                <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-6xl">
+                  Toda a operação do hotel em uma <span className="italic">plataforma única.</span>
+                </h2>
+              </div>
+              <p className="text-base leading-relaxed text-ink/70 text-pretty lg:col-span-6 lg:col-start-7 lg:mt-3">
                 Cada módulo é especializado para a função que executa, mas todos compartilham a mesma base de dados —
-                evitando retrabalho e divergências entre setores.
+                evitando retrabalho e divergências entre setores. Ative apenas o que faz sentido para o seu meio de hospedagem.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {modules.map((module) => (
-                <div
-                  key={module.name}
-                  className="group rounded-2xl border border-stone-200 bg-white p-6 transition hover:-translate-y-1 hover:border-amber-300 hover:shadow-lg"
+            <div className="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-3xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-4">
+              {modules.map((m, i) => (
+                <motion.article
+                  key={m.n}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-10%' }}
+                  transition={{ duration: 0.5, delay: (i % 4) * 0.07 }}
+                  className="group relative flex flex-col bg-paper p-8 transition-colors duration-500 hover:bg-white"
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700 transition group-hover:bg-amber-100">
-                    <module.icon className="h-5 w-5" />
+                  <div className="flex items-center justify-between">
+                    <span className="font-display text-sm tracking-[0.2em] text-stone-500/80">{m.n}</span>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-ink/10 text-ink/80 transition-all duration-500 group-hover:border-gold group-hover:bg-gold group-hover:text-ink">
+                      <div className="h-5 w-5">{moduleIcons[m.n]}</div>
+                    </div>
                   </div>
-                  <h3 className="mt-4 text-base font-bold text-stone-950">{module.name}</h3>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">{module.description}</p>
-                </div>
+                  <h3 className="mt-10 font-display text-2xl font-medium text-ink">{m.title}</h3>
+                  <p className="mt-3 text-sm leading-relaxed text-ink/65 text-pretty">{m.desc}</p>
+                  <div className="mt-8 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-ink/60 transition-colors group-hover:text-ink">
+                    Detalhes
+                    <span className="transition-transform group-hover:translate-x-1">→</span>
+                  </div>
+                </motion.article>
               ))}
             </div>
           </div>
         </section>
 
         {/* TELAS DO SISTEMA */}
-        <section id="telas" className="border-b border-stone-100 bg-stone-50">
-          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-            <div className="max-w-3xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Telas do sistema</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
-                Veja o Royal PMS em ação.
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-stone-600">
-                Interfaces reais de quem trabalha no chão da operação — sem ruído, sem cliques perdidos.
+        <section id="telas" className="relative bg-paper py-28 lg:py-36">
+          <div className="mx-auto max-w-7xl px-6 lg:px-10">
+            <div className="grid gap-10 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Telas do sistema</p>
+                <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-6xl">
+                  Veja o Royal PMS <span className="italic">em ação.</span>
+                </h2>
+              </div>
+              <p className="text-base leading-relaxed text-ink/70 text-pretty lg:col-span-6 lg:col-start-7 lg:mt-3">
+                Interfaces reais de quem trabalha no chão da operação — sem ruído, sem cliques perdidos. Quatro telas
+                que ilustram o dia a dia: chamados de manutenção, mapa de UHs, central de reservas e indicadores
+                gerenciais.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-6 lg:grid-cols-2">
-              <div>
-                <BrowserFrame url="royal-pms.app/recepcao">
-                  <RoomMapPreview />
-                </BrowserFrame>
-                <p className="mt-4 text-sm font-bold text-stone-900">Mapa operacional de UHs</p>
-                <p className="mt-1 text-sm leading-6 text-stone-600">
-                  Status de limpeza, ocupação e bloqueio em uma visão única. Recepção e governança trabalham com a mesma fonte.
-                </p>
-              </div>
-
-              <div>
-                <BrowserFrame url="royal-pms.app/reservas">
-                  <ReservationsPreview />
-                </BrowserFrame>
-                <p className="mt-4 text-sm font-bold text-stone-900">Central de reservas</p>
-                <p className="mt-1 text-sm leading-6 text-stone-600">
-                  Disponibilidade, garantias, empresas e canais em um fluxo único de criação e alteração.
-                </p>
-              </div>
-
-              <div>
-                <BrowserFrame url="royal-pms.app/admin">
-                  <DashboardPreview />
-                </BrowserFrame>
-                <p className="mt-4 text-sm font-bold text-stone-900">Gestão Pro</p>
-                <p className="mt-1 text-sm leading-6 text-stone-600">
-                  Ocupação, performance e indicadores financeiros para decisão rápida da gestão.
-                </p>
-              </div>
-
-              <div>
-                <BrowserFrame url="royal-pms.app/financeiro">
-                  <BillingPreview />
-                </BrowserFrame>
-                <p className="mt-4 text-sm font-bold text-stone-900">Faturamento e cobrança</p>
-                <p className="mt-1 text-sm leading-6 text-stone-600">
-                  Notas, faturas, AR e conciliação. Trilha de auditoria entre lançamento e baixa.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* BENEFITS / VALUE */}
-        <section className="border-b border-stone-100 bg-stone-950 text-white">
-          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-            <div className="max-w-3xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-300">Por que migrar</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
-                Um sistema que organiza a hotelaria onde ela mais perde tempo, controle e dinheiro.
-              </h2>
-            </div>
-
-            <div className="mt-12 grid gap-5 lg:grid-cols-3">
-              {benefits.map((item) => (
-                <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-6">
-                  <BadgeCheck className="h-6 w-6 text-amber-300" />
-                  <h3 className="mt-4 text-lg font-bold text-white">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-white/75">{item.description}</p>
-                </div>
+            <div className="mt-16 grid gap-10 lg:grid-cols-2">
+              {[
+                { url: 'royalpms.app/manutencao', title: 'Fila de chamados', desc: 'Tarefas com priorização, direcionamento por colaborador e SLA visível para a recepção e governança.', preview: <WorkQueuePreview /> },
+                { url: 'royalpms.app/recepcao', title: 'Mapa operacional de UHs', desc: 'Status de limpeza, ocupação e bloqueio em uma visão única. Recepção e governança com a mesma fonte.', preview: <RoomMapPreview /> },
+                { url: 'royalpms.app/reservas', title: 'Central de reservas', desc: 'Disponibilidade, garantias, empresas e canais em um fluxo único de criação e alteração.', preview: <ReservationsPreview /> },
+                { url: 'royalpms.app/admin', title: 'Indicadores da gestão', desc: 'Ocupação, ADR, RevPAR e receita acumulada em tempo real para decisão rápida.', preview: <DashboardPreview /> },
+              ].map((s, i) => (
+                <motion.div
+                  key={s.url}
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-10%' }}
+                  transition={{ duration: 0.6, delay: (i % 2) * 0.12 }}
+                >
+                  <BrowserFrame url={s.url}>{s.preview}</BrowserFrame>
+                  <div className="mt-5 flex items-baseline gap-4">
+                    <span className="font-display text-sm tracking-[0.2em] text-stone-500/70">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <div>
+                      <h3 className="font-display text-xl font-medium text-ink">{s.title}</h3>
+                      <p className="mt-1 text-sm leading-relaxed text-ink/65 text-pretty">{s.desc}</p>
+                    </div>
+                  </div>
+                </motion.div>
               ))}
             </div>
           </div>
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="como-funciona" className="border-b border-stone-100">
-          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+        <section id="operacao" className="relative bg-ink py-28 text-paper lg:py-36">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-[0.06]"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 20% 0%, oklch(0.72 0.12 75) 0%, transparent 40%), radial-gradient(circle at 90% 100%, oklch(0.36 0.04 145) 0%, transparent 50%)',
+            }}
+          />
+          <div className="relative mx-auto max-w-7xl px-6 lg:px-10">
             <div className="max-w-3xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Como funciona</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
-                Da primeira conversa até a operação no ar em poucas semanas.
+              <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Como implantamos</p>
+              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:text-5xl lg:text-6xl">
+                Do <span className="italic text-gold">caderno de turno</span> a decisões em tempo real — em quatro etapas.
               </h2>
             </div>
 
-            <div className="mt-12 grid gap-5 lg:grid-cols-3">
-              {howItWorks.map((step) => (
-                <div key={step.step} className="rounded-2xl border border-stone-200 bg-white p-7">
-                  <p className="text-5xl font-black text-amber-700">{step.step}</p>
-                  <h3 className="mt-4 text-xl font-bold text-stone-950">{step.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-stone-600">{step.description}</p>
-                </div>
+            <div className="mt-20 grid gap-px bg-paper/10 lg:grid-cols-4">
+              {steps.map((s, i) => (
+                <motion.div
+                  key={s.n}
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-10%' }}
+                  transition={{ duration: 0.6, delay: i * 0.1 }}
+                  className="relative bg-ink p-8 lg:p-10"
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-display text-5xl font-light italic text-gold">{s.n}</span>
+                    <span className="text-[10px] uppercase tracking-[0.22em] text-paper/40">{s.weeks}</span>
+                  </div>
+                  <h3 className="mt-8 font-display text-xl font-medium leading-tight text-paper">{s.title}</h3>
+                  <p className="mt-3 text-sm leading-relaxed text-paper/65 text-pretty">{s.desc}</p>
+                </motion.div>
               ))}
+            </div>
+
+            <div className="mt-20 grid gap-10 border-t border-paper/15 pt-12 sm:grid-cols-3">
+              <div>
+                <p className="font-display text-5xl font-light text-paper">
+                  <span className="text-gold">×</span> 0
+                </p>
+                <p className="mt-2 text-sm text-paper/60">Servidores locais para gerenciar — tudo na nuvem.</p>
+              </div>
+              <div>
+                <p className="font-display text-5xl font-light text-paper">100%</p>
+                <p className="mt-2 text-sm text-paper/60">Acesso via navegador — qualquer dispositivo, em qualquer lugar.</p>
+              </div>
+              <div>
+                <p className="font-display text-5xl font-light text-paper">LGPD</p>
+                <p className="mt-2 text-sm text-paper/60">Infraestrutura em nuvem brasileira, com backups criptografados.</p>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* SOCIAL PROOF / WHO USES */}
-        <section className="border-b border-stone-100 bg-stone-50">
-          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_1fr] lg:items-center lg:px-8">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Quem está usando</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
-                Validado em operação real.
+        {/* GUESTS / BOOKING */}
+        <section id="hospedes" className="relative py-28 lg:py-36">
+          <div className="mx-auto grid max-w-7xl items-start gap-16 px-6 lg:grid-cols-12 lg:gap-12 lg:px-10">
+            <div className="lg:col-span-5">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Para hóspedes</p>
+              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-[3.5rem]">
+                A discrição da hotelaria fina, <span className="italic">com a fluidez do digital.</span>
               </h2>
-              <p className="mt-5 text-base leading-7 text-stone-600">
-                O Royal PMS roda diariamente no Royal Macaé Palace — um hotel executivo com tradição na cidade desde 1990,
-                atendendo empresas, eventos e hóspedes individuais com a mesma plataforma integrada.
+              <p className="mt-6 max-w-md text-base leading-relaxed text-ink/70 text-pretty">
+                Pré-check-in pelo celular, conta sempre atualizada, comandas do restaurante assinadas no quarto e
+                pagamento em um toque. O hóspede sente serviço — não sistema.
               </p>
 
-              <div className="mt-8 flex items-start gap-4 rounded-2xl border border-stone-200 bg-white p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                  <Building2 className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-stone-950">Royal Macaé Palace</p>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">
-                    Hotel executivo em Macaé/RJ. Reservas corporativas, eventos e hospedagem operados 24/7 no Royal PMS.
-                  </p>
-                </div>
-              </div>
+              <ul className="mt-10 space-y-5">
+                {guestFeatures.map((t) => (
+                  <li key={t} className="flex items-start gap-4">
+                    <span className="mt-2 h-px w-6 shrink-0 bg-gold" />
+                    <span className="text-ink/80">{t}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="mt-10 font-display text-base italic text-ink/70">
+                "Hóspede do Royal Macaé Palace? Reserve direto no formulário ao lado e ganhe a melhor tarifa, sem intermediário."
+              </p>
             </div>
 
-            <div className="rounded-[2rem] border border-stone-200 bg-white p-8">
-              <div className="flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-amber-700" />
-                <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-700">Resultado percebido</p>
-              </div>
-              <p className="mt-6 text-2xl font-bold leading-snug text-stone-950">
-                "A operação ficou mais previsível. Reservas, recepção e financeiro pararam de viver de planilha
-                paralela e passaram a falar a mesma língua."
-              </p>
-              <div className="mt-6 flex items-center gap-3 border-t border-stone-200 pt-5">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-100 text-stone-700">
-                  <UsersRound className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-stone-900">Equipe operacional</p>
-                  <p className="text-xs text-stone-500">Royal Macaé Palace</p>
-                </div>
+            <div className="relative lg:col-span-7">
+              <div className="absolute -inset-12 -z-10 rounded-full bg-gold/15 blur-3xl" />
+              <div className="rounded-[2rem] border border-ink/10 bg-paper p-6 shadow-[0_30px_80px_-30px_rgba(20,15,10,0.25)] sm:p-8">
+                <PublicBookingEngine />
               </div>
             </div>
           </div>
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="border-b border-stone-100">
-          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:px-8">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Perguntas frequentes</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
-                Dúvidas comuns na hora de avaliar.
+        <section id="faq" className="relative py-28 lg:py-36">
+          <div className="mx-auto grid max-w-7xl gap-16 px-6 lg:grid-cols-12 lg:gap-12 lg:px-10">
+            <div className="lg:col-span-4">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Perguntas frequentes</p>
+              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl">
+                Antes de marcar a <span className="italic">demonstração.</span>
               </h2>
-              <p className="mt-5 text-base leading-7 text-stone-600">
-                Não encontrou sua dúvida? Fale direto com o time comercial — atendemos pelo WhatsApp.
+              <p className="mt-6 text-ink/65 text-pretty">
+                Não encontrou o que procurava? Fale direto com a nossa equipe comercial.
               </p>
               <a
                 href={WHATSAPP_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-6 inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
+                className="mt-6 inline-flex items-center gap-2 border-b border-ink/30 pb-1 text-sm font-medium text-ink hover:border-ink"
               >
-                <MessageCircle className="h-4 w-4" />
-                Falar no WhatsApp
+                Conversar pelo WhatsApp →
               </a>
             </div>
 
-            <div className="space-y-3">
-              {faq.map((item) => (
-                <details
-                  key={item.question}
-                  className="group rounded-2xl border border-stone-200 bg-white p-5 transition hover:border-stone-300"
-                >
-                  <summary className="flex cursor-pointer items-start justify-between gap-4 text-base font-bold text-stone-950 marker:hidden [&::-webkit-details-marker]:hidden">
-                    {item.question}
-                    <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-stone-300 text-stone-700 transition group-open:rotate-45">
-                      +
-                    </span>
-                  </summary>
-                  <p className="mt-3 text-sm leading-7 text-stone-600">{item.answer}</p>
-                </details>
-              ))}
+            <div className="divide-y divide-ink/10 border-y border-ink/10 lg:col-span-8">
+              {faqs.map((f, i) => {
+                const isOpen = openFaq === i;
+                return (
+                  <div key={i}>
+                    <button
+                      onClick={() => setOpenFaq(isOpen ? null : i)}
+                      className="group flex w-full items-center justify-between gap-6 py-6 text-left"
+                    >
+                      <span className="flex items-baseline gap-5">
+                        <span className="font-display text-sm tracking-[0.2em] text-stone-500/70">
+                          {String(i + 1).padStart(2, '0')}
+                        </span>
+                        <span className="font-display text-xl font-medium text-ink sm:text-2xl">{f.q}</span>
+                      </span>
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-ink/15 transition-all ${
+                          isOpen ? 'rotate-45 bg-ink text-paper' : 'text-ink/60'
+                        }`}
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                        </svg>
+                      </span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                          className="overflow-hidden"
+                        >
+                          <p className="max-w-2xl pb-7 pl-12 text-ink/70 text-pretty">{f.a}</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        </section>
-
-        {/* BOOKING ENGINE — for guests */}
-        <section id="reservar" className="border-b border-stone-100 bg-stone-50">
-          <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-            <div className="mb-8 max-w-3xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Para hóspedes</p>
-              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
-                Vai se hospedar no Royal Macaé Palace? Reserve direto.
-              </h2>
-              <p className="mt-4 text-base leading-7 text-stone-600">
-                Tarifa direta sem intermediário, com confirmação imediata pelo motor de reservas integrado ao PMS.
-              </p>
-            </div>
-            <PublicBookingEngine />
           </div>
         </section>
 
         {/* DEMO CTA */}
-        <section id="demo" className="border-b border-stone-100">
-          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-            <div className="rounded-[2rem] border border-stone-200 bg-stone-950 px-8 py-16 text-center text-white sm:px-16">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-300">Pronto para profissionalizar?</p>
-              <h2 className="mx-auto mt-5 max-w-3xl text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
-                Agende uma demonstração e veja o Royal PMS rodando na sua operação.
-              </h2>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/70">
-                Sem compromisso. Conhecemos seu hotel, mostramos o sistema e você decide se faz sentido seguir.
-              </p>
+        <section id="demo" className="relative overflow-hidden py-28 lg:py-36">
+          <div className="mx-auto max-w-7xl px-6 lg:px-10">
+            <div className="relative overflow-hidden rounded-[2rem] bg-ink p-10 text-paper sm:p-14 lg:p-20">
+              <div aria-hidden className="absolute -right-20 -top-20 h-80 w-80 rounded-full bg-gold/25 blur-3xl" />
+              <div aria-hidden className="absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-moss/30 blur-3xl" />
 
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                <a
-                  href={WHATSAPP_LINK}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-500 px-6 text-sm font-semibold text-stone-950 transition hover:-translate-y-0.5 hover:bg-amber-400"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Falar no WhatsApp
-                </a>
-                <button
-                  onClick={() => setLoginOpen(true)}
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 px-6 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/20"
-                >
-                  <LogIn className="h-4 w-4" />
-                  Já tenho acesso — entrar
-                </button>
+              <div className="relative grid gap-12 lg:grid-cols-12">
+                <div className="lg:col-span-7">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Solicitar demonstração</p>
+                  <h2 className="mt-5 font-display text-4xl font-light leading-[1.04] tracking-[-0.02em] text-balance sm:text-5xl lg:text-[3.5rem]">
+                    Veja o Royal PMS <span className="italic text-gold">no seu cenário.</span>
+                  </h2>
+                  <p className="mt-6 max-w-md text-paper/70 text-pretty">
+                    30 minutos, ao vivo, com um especialista em hotelaria. Sem apresentação comercial genérica —
+                    abrimos o sistema e simulamos a sua operação.
+                  </p>
+
+                  <ul className="mt-10 space-y-3 text-sm text-paper/75">
+                    {['Demonstração personalizada por porte do hotel', 'Proposta de implantação com prazo definido', 'Sem compromisso de contratação'].map((t) => (
+                      <li key={t} className="flex items-center gap-3">
+                        <span className="h-1 w-1 rounded-full bg-gold" />
+                        {t}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="lg:col-span-5">
+                  <div className="rounded-2xl border border-paper/15 bg-paper/5 p-6 backdrop-blur sm:p-8">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-paper/55">· Fale com o time comercial</p>
+                    <p className="mt-3 font-display text-2xl text-paper">Atendemos pelo WhatsApp.</p>
+                    <p className="mt-2 text-sm text-paper/65">
+                      Resposta em até 1 dia útil. Apresentamos o sistema, mapeamos a sua operação e enviamos uma proposta
+                      personalizada.
+                    </p>
+                    <a
+                      href={WHATSAPP_LINK}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group mt-7 flex w-full items-center justify-between rounded-full bg-gold px-7 py-4 text-sm font-medium text-ink transition hover:bg-gold-soft"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                        </svg>
+                        Falar no WhatsApp
+                      </span>
+                      <span className="transition-transform group-hover:translate-x-1">→</span>
+                    </a>
+                    <button
+                      onClick={() => setLoginOpen(true)}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-paper/25 bg-paper/0 px-7 py-3.5 text-sm font-medium text-paper transition hover:bg-paper/10"
+                    >
+                      Já tenho acesso — entrar
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -569,53 +660,35 @@ export default function MarketingLanding() {
       </main>
 
       {/* FOOTER */}
-      <footer className="bg-stone-950 text-white">
-        <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-            <div>
+      <footer className="border-t border-ink/10 bg-paper">
+        <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
+          <div className="grid gap-12 lg:grid-cols-12">
+            <div className="lg:col-span-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white p-1">
-                  <img src="/logo.png" alt="Royal PMS" className="h-full w-full object-contain" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-ink/15">
+                  <span className="font-display text-xl italic text-ink">R</span>
                 </div>
-                <div className="leading-tight">
-                  <p className="text-sm font-black uppercase tracking-tight text-white">Royal PMS</p>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">Plataforma de hotelaria</p>
+                <div>
+                  <p className="font-display text-lg text-ink">Royal PMS</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Plataforma de hotelaria</p>
                 </div>
               </div>
-              <p className="mt-5 max-w-sm text-sm leading-7 text-white/65">
-                Sistema integrado para profissionalizar reservas, recepção, governança, manutenção, restaurante,
-                eventos e financeiro.
+              <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink/65 text-pretty">
+                Software para hotéis e pousadas que valorizam padrão, discrição e uma operação realmente integrada — do
+                check-in ao fechamento.
               </p>
             </div>
 
-            {footerLinks.map((column) => (
-              <div key={column.title}>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-white/60">{column.title}</p>
-                <ul className="mt-5 space-y-3 text-sm">
-                  {column.links.map((link) => (
-                    <li key={link.label}>
-                      <a
-                        href={link.href}
-                        target={link.external ? '_blank' : undefined}
-                        rel={link.external ? 'noopener noreferrer' : undefined}
-                        className="text-white/75 transition hover:text-white"
-                      >
-                        {link.label}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+            <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-7">
+              <FCol title="Plataforma" items={[{ l: 'Módulos', h: '#modulos' }, { l: 'Telas do sistema', h: '#telas' }, { l: 'Como funciona', h: '#operacao' }, { l: 'Para hóspedes', h: '#hospedes' }]} />
+              <FCol title="Empresa" items={[{ l: 'Royal Macaé Palace', h: 'https://royalmacaepalace.com.br', external: true }, { l: 'Reservar hospedagem', h: '#hospedes' }, { l: 'Solicitar demonstração', h: '#demo' }]} />
+              <FCol title="Contato" items={[{ l: 'WhatsApp comercial', h: WHATSAPP_LINK, external: true }, { l: 'Macaé / RJ — Brasil', h: '#' }]} />
+            </div>
           </div>
 
-          <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/50 sm:flex-row sm:items-center">
-            <p>© {new Date().getFullYear()} Royal PMS. Todos os direitos reservados.</p>
-            <div className="flex flex-wrap gap-5">
-              <a href="#" className="transition hover:text-white">Política de privacidade</a>
-              <a href="#" className="transition hover:text-white">Termos de uso</a>
-              <a href="#" className="transition hover:text-white">LGPD</a>
-            </div>
+          <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t border-ink/10 pt-8 text-xs text-stone-500 sm:flex-row sm:items-center">
+            <p>© {new Date().getFullYear()} Royal PMS — Brasil</p>
+            <p className="font-display italic">"Hospitalidade é detalhe."</p>
           </div>
         </div>
       </footer>
@@ -630,7 +703,7 @@ export default function MarketingLanding() {
             className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
             onClick={() => setLoginOpen(false)}
           >
-            <div className="absolute inset-0 bg-stone-950/70 backdrop-blur-sm" />
+            <div className="absolute inset-0 bg-ink/70 backdrop-blur-sm" />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -642,7 +715,7 @@ export default function MarketingLanding() {
               <button
                 onClick={() => setLoginOpen(false)}
                 aria-label="Fechar"
-                className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-lg transition hover:bg-stone-50"
+                className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper text-ink shadow-lg transition hover:bg-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -655,24 +728,173 @@ export default function MarketingLanding() {
   );
 }
 
+function FCol({ title, items }: { title: string; items: Array<{ l: string; h: string; external?: boolean }> }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500">{title}</p>
+      <ul className="mt-5 space-y-3">
+        {items.map((i) => (
+          <li key={i.l}>
+            <a
+              href={i.h}
+              target={i.external ? '_blank' : undefined}
+              rel={i.external ? 'noopener noreferrer' : undefined}
+              className="text-sm text-ink/75 transition hover:text-ink"
+            >
+              {i.l}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ==========================================================
+ * HERO PANEL — Lovable-style editorial dashboard
+ * ========================================================== */
+function HeroPanel() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
+      className="relative"
+    >
+      <div className="absolute -inset-10 -z-10 rounded-[3rem] bg-gradient-to-br from-gold/30 via-transparent to-moss/10 blur-3xl" />
+
+      <div className="relative overflow-hidden rounded-3xl border border-ink/10 bg-white shadow-[0_30px_80px_-30px_rgba(20,15,10,0.25)]">
+        <div className="flex items-center justify-between border-b border-ink/10 bg-paper/60 px-6 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
+            <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
+            <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
+            <span className="ml-3 text-[10px] uppercase tracking-[0.2em] text-stone-500">royalpms.app / painel</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-full bg-moss/10 px-3 py-1">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-moss/60 animate-pulse-dot" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-moss" />
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-moss">ao vivo</span>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-5 sm:grid-cols-5 sm:p-6">
+          <div className="relative overflow-hidden rounded-2xl bg-ink p-6 text-paper sm:col-span-2 sm:row-span-2">
+            <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-gold/25 blur-2xl" />
+            <p className="text-[10px] uppercase tracking-[0.22em] text-paper/50">Ocupação · hoje</p>
+            <p className="mt-4 font-display text-6xl font-light tracking-tight">
+              <Counter to={84} suffix="%" />
+            </p>
+            <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-paper/10">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: '84%' }}
+                transition={{ duration: 1.4, delay: 0.6, ease: 'easeOut' }}
+                className="h-full rounded-full bg-gradient-to-r from-gold to-gold-soft"
+              />
+            </div>
+            <p className="mt-3 text-xs text-paper/60">68 das 81 UHs ocupadas</p>
+
+            <div className="mt-8 grid grid-cols-7 gap-1">
+              {Array.from({ length: 28 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-6 rounded-[3px] ${
+                    [0, 3, 5, 7, 9, 12, 13, 15, 18, 19, 22, 24, 25, 27].includes(i) ? 'bg-gold' : 'bg-paper/10'
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-paper/40">mapa do andar 3</p>
+          </div>
+
+          <div className="rounded-2xl border border-ink/10 bg-paper/40 p-5 sm:col-span-3">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Movimento do dia</p>
+            <div className="mt-4 grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-stone-500">Check-ins</p>
+                <p className="font-display text-3xl font-light text-ink"><Counter to={17} /></p>
+              </div>
+              <div>
+                <p className="text-xs text-stone-500">Check-outs</p>
+                <p className="font-display text-3xl font-light text-ink"><Counter to={13} /></p>
+              </div>
+              <div>
+                <p className="text-xs text-stone-500">Diária média</p>
+                <p className="font-display text-3xl font-light text-ink">R$<Counter to={286} /></p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-ink/10 bg-paper/40 p-5 sm:col-span-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Atividade recente</p>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500/70">últimos 30 min</p>
+            </div>
+            <ul className="mt-4 space-y-3 text-sm">
+              {[
+                { dot: 'bg-gold', text: 'UH 312 liberada para governança', t: 'há 2 min' },
+                { dot: 'bg-moss', text: 'Pagamento da reserva #1842 conciliado', t: 'há 12 min' },
+                { dot: 'bg-ink', text: 'Nova reserva (3 noites) registrada', t: 'há 18 min' },
+              ].map((a, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.8 + i * 0.15, duration: 0.5 }}
+                  className="flex items-start gap-3"
+                >
+                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${a.dot}`} />
+                  <p className="flex-1 text-ink/85">{a.text}</p>
+                  <span className="text-[10px] uppercase tracking-wider text-stone-500/70">{a.t}</span>
+                </motion.li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ delay: 1.1, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute -bottom-8 -left-6 hidden w-64 rounded-2xl border border-ink/10 bg-white p-4 shadow-2xl sm:block"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-moss/10 text-moss">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M3 12h4l3-9 4 18 3-9h4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Faturamento</p>
+            <p className="font-display text-xl font-medium text-ink">R$ 142,8 mil</p>
+            <p className="text-[10px] text-stone-500">acumulado do mês</p>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* ============================================================
- * UI PREVIEWS — renderizadas com as mesmas classes Tailwind
- * dos componentes reais do sistema. Sao essencialmente um
- * "screenshot vivo" do PMS rodando.
+ * UI PREVIEWS — telas do sistema (BrowserFrame)
  * ============================================================ */
 
 function BrowserFrame({ url, children }: { url: string; children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_28px_90px_rgba(20,12,7,0.10)]">
-      <div className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-3">
+    <div className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-[0_30px_80px_-30px_rgba(20,15,10,0.25)]">
+      <div className="flex items-center gap-2 border-b border-ink/10 bg-paper/60 px-4 py-3">
         <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
         </div>
-        <div className="ml-3 flex flex-1 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-1 text-xs text-stone-500">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          {url}
+        <div className="ml-3 flex flex-1 items-center gap-2 rounded-lg border border-ink/10 bg-white px-3 py-1 text-xs text-stone-500">
+          <span className="h-2 w-2 rounded-full bg-moss" />
+          <span className="font-mono text-[10px] uppercase tracking-widest">{url}</span>
         </div>
       </div>
       <div className="p-4 sm:p-5">{children}</div>
@@ -743,21 +965,11 @@ function WorkQueuePreview() {
 
 function RoomMapPreview() {
   const rooms: Array<{ n: string; status: 'clean' | 'dirty' | 'occupied' | 'block' | 'inspect' }> = [
-    { n: '301', status: 'clean' },
-    { n: '302', status: 'occupied' },
-    { n: '303', status: 'clean' },
-    { n: '304', status: 'dirty' },
-    { n: '305', status: 'occupied' },
-    { n: '306', status: 'clean' },
-    { n: '307', status: 'inspect' },
-    { n: '308', status: 'occupied' },
-    { n: '309', status: 'clean' },
-    { n: '310', status: 'block' },
-    { n: '311', status: 'dirty' },
-    { n: '312', status: 'clean' },
-    { n: '313', status: 'occupied' },
-    { n: '314', status: 'occupied' },
-    { n: '315', status: 'clean' },
+    { n: '301', status: 'clean' }, { n: '302', status: 'occupied' }, { n: '303', status: 'clean' },
+    { n: '304', status: 'dirty' }, { n: '305', status: 'occupied' }, { n: '306', status: 'clean' },
+    { n: '307', status: 'inspect' }, { n: '308', status: 'occupied' }, { n: '309', status: 'clean' },
+    { n: '310', status: 'block' }, { n: '311', status: 'dirty' }, { n: '312', status: 'clean' },
+    { n: '313', status: 'occupied' }, { n: '314', status: 'occupied' }, { n: '315', status: 'clean' },
     { n: '316', status: 'dirty' },
   ];
   const statusStyle = {
@@ -790,10 +1002,7 @@ function RoomMapPreview() {
 
       <div className="mt-3 grid grid-cols-8 gap-1.5">
         {rooms.map((r) => (
-          <div
-            key={r.n}
-            className={`flex flex-col items-center justify-center rounded-lg border px-1 py-2 ${statusStyle[r.status]}`}
-          >
+          <div key={r.n} className={`flex flex-col items-center justify-center rounded-lg border px-1 py-2 ${statusStyle[r.status]}`}>
             <BedDouble className="h-3 w-3" />
             <p className="mt-1 text-[10px] font-black">{r.n}</p>
           </div>
@@ -922,62 +1131,6 @@ function DashboardPreview() {
           <p className="mt-1 text-lg font-black text-neutral-950">R$ 18,4k</p>
           <p className="text-[9px] text-amber-700">12 títulos em aberto</p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function BillingPreview() {
-  const items = [
-    { doc: 'NFS-e 8421', empresa: 'Petrobras', valor: 'R$ 4.280,00', status: 'PAID' },
-    { doc: 'NFS-e 8422', empresa: 'Halliburton', valor: 'R$ 2.860,00', status: 'PAID' },
-    { doc: 'NFS-e 8423', empresa: 'Schlumberger', valor: 'R$ 1.720,00', status: 'PENDING' },
-    { doc: 'NFS-e 8424', empresa: 'Reserva direta', valor: 'R$ 980,00', status: 'PAID' },
-    { doc: 'NFS-e 8425', empresa: 'Booking.com', valor: 'R$ 540,00', status: 'CANCELLED' },
-  ];
-  const styles: Record<string, string> = {
-    PAID: 'bg-emerald-100 text-emerald-800',
-    PENDING: 'bg-amber-100 text-amber-800',
-    CANCELLED: 'bg-stone-200 text-stone-700',
-  };
-  return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Faturamento</p>
-          <h3 className="mt-1 text-base font-black text-neutral-950">Documentos emitidos — abril</h3>
-        </div>
-        <button className="rounded-xl bg-emerald-700 px-3 py-1.5 text-[10px] font-black text-white">Emitir NFS-e</button>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="rounded-xl bg-emerald-50 px-3 py-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Recebido</p>
-          <p className="text-lg font-black text-emerald-900">R$ 96,2k</p>
-        </div>
-        <div className="rounded-xl bg-amber-50 px-3 py-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">Em aberto</p>
-          <p className="text-lg font-black text-amber-900">R$ 18,4k</p>
-        </div>
-        <div className="rounded-xl bg-stone-100 px-3 py-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-stone-600">Cancelado</p>
-          <p className="text-lg font-black text-stone-800">R$ 2,1k</p>
-        </div>
-      </div>
-
-      <div className="mt-3 space-y-1.5">
-        {items.map((i) => (
-          <div key={i.doc} className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-3 py-2 text-[10px]">
-            <div>
-              <p className="font-black text-neutral-900">{i.doc}</p>
-              <p className="text-neutral-500">{i.empresa}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <p className="font-black text-neutral-900">{i.valor}</p>
-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${styles[i.status]}`}>{i.status}</span>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

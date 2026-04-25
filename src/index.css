@@ -1,8 +1,36 @@
 @import "tailwindcss";
 
+/* Editorial fonts for marketing landing (Fraunces + Inter) */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300..900;1,300..900&family=Inter:wght@300..700&display=swap");
+
 @theme {
   --color-primary: #b45309;
+
+  /* Editorial luxo palette — used by MarketingLanding only */
+  --color-paper: oklch(0.975 0.012 85);
+  --color-ink: oklch(0.16 0.012 60);
+  --color-gold: oklch(0.72 0.12 75);
+  --color-gold-soft: oklch(0.92 0.05 85);
+  --color-moss: oklch(0.36 0.04 145);
+
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
 }
+
+/* Editorial animations */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+.animate-pulse-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+@keyframes marquee-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee-slide 38s linear infinite; }
+
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }
 
 @media print {
   .no-print {
