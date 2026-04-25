@@ -10,6 +10,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 ).href;
 
 interface BillingRow {
+  solicitante: string;
+  oe: string;
   nota: string;
   checkin: string;
   checkout: string;
@@ -59,9 +61,10 @@ function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Column order: Solicitante | O.E. | N° Nota | Check-in | Check-out | Hóspede | Cliente | Noites | Tarifa | ISS | Extras | Saldo
+const TABLE_HEADERS = ['Solicitante', 'O.E.', 'N° Nota', 'Check-in', 'Check-out', 'Hóspede', 'Cliente', 'Noites', 'Tarifa', 'ISS (3,75%)', 'Extras', 'Saldo'];
+
 export default function PrioBillingGenerator({ profile: _profile }: Props) {
-  const [oe, setOe] = useState('');
-  const [solicitante, setSolicitante] = useState('');
   const [rows, setRows] = useState<BillingRow[]>([]);
   const [pdfName, setPdfName] = useState('');
   const [parsing, setParsing] = useState(false);
@@ -88,18 +91,16 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
         const content = await page.getTextContent();
         const items = content.items as any[];
 
-        // Group by approximate y-position to reconstruct lines
         const byY = new Map<number, { x: number; str: string }[]>();
         for (const item of items) {
           const y = Math.round(item.transform[5]);
           if (!byY.has(y)) byY.set(y, []);
           byY.get(y)!.push({ x: item.transform[4], str: item.str });
         }
-        // Sort y descending (top of page first), x ascending within line
         const sortedYs = [...byY.keys()].sort((a, b) => b - a);
         for (const y of sortedYs) {
           const lineItems = byY.get(y)!.sort((a, b) => a.x - b.x);
-          const lineText = lineItems.map(i => i.str).join(' ').trim();
+          const lineText = lineItems.map(it => it.str).join(' ').trim();
           if (lineText) pageTexts.push(lineText);
         }
       }
@@ -110,12 +111,10 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       const parsed = extractRows(full);
 
       if (parsed.length === 0) {
-        setParseError(
-          'Nenhuma nota encontrada. Use "Ver texto bruto" para inspecionar o conteúdo extraído.'
-        );
+        setParseError('Nenhuma nota encontrada. Use "Ver texto bruto" para inspecionar o conteúdo extraído.');
       } else {
         setRows(parsed);
-        toast.success(`${parsed.length} nota(s) encontrada(s) — ajuste as noites por linha se necessário`);
+        toast.success(`${parsed.length} nota(s) encontrada(s)`);
       }
     } catch (err: any) {
       setParseError(`Erro ao processar PDF: ${err.message}`);
@@ -127,14 +126,10 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
 
   function extractRows(text: string): BillingRow[] {
     const results: BillingRow[] = [];
-    const lines = text.split('\n');
-
-    for (const line of lines) {
-      // Must contain a monetary value (e.g. 384,71 or 1.059,43)
+    for (const line of text.split('\n')) {
       const valueMatches = line.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g);
       if (!valueMatches) continue;
 
-      // Must contain a note number like 56-589078
       const notaMatch = line.match(/\b(\d{2}-\d{5,})\b/);
       if (!notaMatch) continue;
 
@@ -142,14 +137,12 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       const totalValue = parseBRL(valueMatches[valueMatches.length - 1]);
       if (totalValue <= 0) continue;
 
-      // PDF columns: Data de Entrada | Data de Saída | Data de Emissão
-      // → use dates[0] (entrada/check-in) and dates[1] (saída/check-out)
+      // Data de Entrada = dates[0], Data de Saída = dates[1], Data de Emissão = dates[2] (ignored)
       const allDates = line.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
       const checkin  = allDates[0] || '';
       const checkout = allDates[1] || '';
       const noites   = nightsBetween(checkin, checkout);
 
-      // Hóspede: strip nota, dates, value, status keywords → remaining text
       let hospedeLine = line
         .replace(notaMatch[0], '')
         .replace(/\d{2}\/\d{2}\/\d{4}/g, '')
@@ -157,25 +150,22 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
         .replace(/\b(ATIVA|ATIVO|ENCERRADA|ENCERRADO|CANCELADA|CANCELADO|PENDENTE|PAGO|ABERTA?)\b/gi, '')
         .replace(/R\$\s*/g, '')
         .replace(/\s{2,}/g, ' ')
-        .trim();
-
-      hospedeLine = hospedeLine
+        .trim()
         .replace(/^[^A-Za-zÀ-ÿ]+/, '')
         .replace(/[^A-Za-zÀ-ÿ,.\s]+$/, '')
         .trim();
 
-      const hospede = hospedeLine || 'N/A';
-
-      results.push(calcRow({ nota, checkin, checkout, hospede, totalValue, noites }));
+      results.push(calcRow({ solicitante: '', oe: '', nota, checkin, checkout, hospede: hospedeLine || 'N/A', totalValue, noites }));
     }
-
     return results;
   }
 
-  // Update a single row's noites and recalculate
-  const updateNoites = (idx: number, val: string) => {
-    const n = Math.max(0, parseInt(val) || 0);
-    setRows(prev => prev.map((r, i) => i === idx ? calcRow({ ...r, noites: n }) : r));
+  const updateField = (idx: number, field: keyof BillingRow, val: string) => {
+    setRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      if (field === 'noites') return calcRow({ ...r, noites: Math.max(0, parseInt(val) || 0) });
+      return { ...r, [field]: val };
+    }));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,33 +183,20 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
   };
 
   const totals = rows.reduce(
-    (acc, r) => ({
-      noites: acc.noites + r.noites,
-      tarifa: acc.tarifa + r.tarifa,
-      iss: acc.iss + r.iss,
-      extras: acc.extras + r.extras,
-      saldo: acc.saldo + r.saldo,
-    }),
+    (acc, r) => ({ noites: acc.noites + r.noites, tarifa: acc.tarifa + r.tarifa, iss: acc.iss + r.iss, extras: acc.extras + r.extras, saldo: acc.saldo + r.saldo }),
     { noites: 0, tarifa: 0, iss: 0, extras: 0, saldo: 0 }
   );
 
   const generateExcel = async () => {
     if (rows.length === 0) return;
-
     try {
       const ExcelJS = await import('exceljs');
       const wb = new ExcelJS.Workbook();
       wb.creator = 'Royal PMS';
       wb.created = new Date();
-
       const ws = wb.addWorksheet('Faturamento Prio');
 
-      const metaRow1 = ws.addRow(['O.E.:', oe || '-', '', 'Solicitante:', solicitante || '-']);
-      metaRow1.font = { bold: true, size: 11 };
-      ws.addRow([]);
-
-      const COLS = ['N° Nota', 'Check-in', 'Check-out', 'Hóspede', 'Cliente', 'Noites', 'Tarifa', 'ISS (3,75%)', 'Extras', 'Saldo'];
-      const hdrRow = ws.addRow(COLS);
+      const hdrRow = ws.addRow(TABLE_HEADERS);
       hdrRow.eachCell(cell => {
         cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB45309' } };
@@ -228,49 +205,51 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       });
 
       const currFmt = '"R$"#,##0.00';
+      // Currency cols (1-based): Tarifa=9, ISS=10, Extras=11, Saldo=12
+      const currCols = [9, 10, 11, 12];
 
       rows.forEach((r, idx) => {
         const dataRow = ws.addRow([
+          r.solicitante,
+          r.oe,
           r.nota,
           r.checkin,
           r.checkout,
           r.hospede,
-          '',
+          '', // Cliente
           r.noites,
           r.tarifa,
           r.iss,
           r.extras,
           r.saldo,
         ]);
-
         const bg = idx % 2 === 0 ? 'FFFFFFFF' : 'FFFFF8E8';
         dataRow.eachCell({ includeEmpty: true }, cell => {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
           cell.font = { size: 10 };
         });
-        // Cols 7–10 = Tarifa, ISS, Extras, Saldo (1-based, now shifted +1 for checkout)
-        [7, 8, 9, 10].forEach(col => {
-          const cell = dataRow.getCell(col);
-          cell.numFmt = currFmt;
-          cell.alignment = { horizontal: 'right' };
+        currCols.forEach(col => {
+          dataRow.getCell(col).numFmt = currFmt;
+          dataRow.getCell(col).alignment = { horizontal: 'right' };
         });
-        dataRow.getCell(6).alignment = { horizontal: 'center' }; // Noites
+        dataRow.getCell(8).alignment = { horizontal: 'center' }; // Noites
       });
 
       ws.addRow([]);
-      const totalRow = ws.addRow(['', '', '', '', 'TOTAL', totals.noites, totals.tarifa, totals.iss, totals.extras, totals.saldo]);
+      const totalRow = ws.addRow(['', '', '', '', '', '', 'TOTAL', totals.noites, totals.tarifa, totals.iss, totals.extras, totals.saldo]);
       totalRow.eachCell({ includeEmpty: true }, cell => {
         cell.font = { bold: true, size: 10 };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
       });
-      [7, 8, 9, 10].forEach(col => {
-        const cell = totalRow.getCell(col);
-        cell.numFmt = currFmt;
-        cell.alignment = { horizontal: 'right' };
+      currCols.forEach(col => {
+        totalRow.getCell(col).numFmt = currFmt;
+        totalRow.getCell(col).alignment = { horizontal: 'right' };
       });
-      totalRow.getCell(6).alignment = { horizontal: 'center' };
+      totalRow.getCell(8).alignment = { horizontal: 'center' };
 
       ws.columns = [
+        { width: 22 }, // Solicitante
+        { width: 14 }, // O.E.
         { width: 14 }, // N° Nota
         { width: 12 }, // Check-in
         { width: 12 }, // Check-out
@@ -284,13 +263,11 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       ];
 
       const buffer = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `faturamento-prio${oe ? `-oe${oe}` : ''}.xlsx`;
+      a.download = 'faturamento-prio.xlsx';
       a.click();
       URL.revokeObjectURL(url);
       toast.success('Planilha gerada com sucesso!');
@@ -299,40 +276,15 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
     }
   };
 
+  const inputCls = 'w-full px-1.5 py-0.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white';
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-full mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Faturamento Prio</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Carregue o relatório "Notas a Faturar por Empresa" em PDF. Ajuste as noites por linha para calcular Tarifa, ISS e Extras.
+          Carregue o relatório "Notas a Faturar por Empresa" em PDF. Preencha Solicitante e O.E. por linha antes de baixar a planilha.
         </p>
-      </div>
-
-      {/* O.E. + Solicitante */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Informações do Pedido</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">O.E. (Ordem de Estadia)</label>
-            <input
-              type="text"
-              value={oe}
-              onChange={e => setOe(e.target.value)}
-              placeholder="Ex.: 2025-001"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Solicitante</label>
-            <input
-              type="text"
-              value={solicitante}
-              onChange={e => setSolicitante(e.target.value)}
-              placeholder="Nome do solicitante"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-            />
-          </div>
-        </div>
       </div>
 
       {/* PDF Upload */}
@@ -385,10 +337,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
               <Info className="w-3.5 h-3.5" />
               {rows.length > 0 ? `${rows.length} nota(s) extraída(s)` : 'Texto extraído — nenhuma nota reconhecida'}
             </p>
-            <button
-              onClick={() => setShowRaw(v => !v)}
-              className="text-xs text-amber-700 hover:underline"
-            >
+            <button onClick={() => setShowRaw(v => !v)} className="text-xs text-amber-700 hover:underline">
               {showRaw ? 'Ocultar texto bruto' : 'Ver texto bruto'}
             </button>
           </div>
@@ -405,17 +354,9 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       {rows.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-wrap gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-                Prévia — {rows.length} nota(s)
-              </h2>
-              {(oe || solicitante) && (
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {oe ? `O.E.: ${oe}` : ''}{oe && solicitante ? '  ·  ' : ''}{solicitante ? `Solicitante: ${solicitante}` : ''}
-                </p>
-              )}
-            </div>
-
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+              Prévia — {rows.length} nota(s)
+            </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setRows([]); setPdfName(''); setRawText(''); setParseError(''); }}
@@ -438,7 +379,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-amber-700 text-white">
-                  {['N° Nota', 'Check-in', 'Check-out', 'Hóspede', 'Cliente', 'Noites', 'Tarifa', 'ISS (3,75%)', 'Extras', 'Saldo'].map(h => (
+                  {TABLE_HEADERS.map(h => (
                     <th key={h} className="px-3 py-2.5 text-left font-semibold text-xs whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -446,17 +387,38 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-amber-50/40'}>
-                    <td className="px-3 py-2 font-mono text-xs">{r.nota}</td>
+                    {/* Solicitante — editable */}
+                    <td className="px-2 py-1.5 text-xs min-w-32">
+                      <input
+                        type="text"
+                        value={r.solicitante}
+                        onChange={e => updateField(i, 'solicitante', e.target.value)}
+                        placeholder="Solicitante"
+                        className={inputCls}
+                      />
+                    </td>
+                    {/* O.E. — editable */}
+                    <td className="px-2 py-1.5 text-xs min-w-24">
+                      <input
+                        type="text"
+                        value={r.oe}
+                        onChange={e => updateField(i, 'oe', e.target.value)}
+                        placeholder="O.E."
+                        className={inputCls}
+                      />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.nota}</td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{r.checkin || '—'}</td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{r.checkout || '—'}</td>
                     <td className="px-3 py-2 text-xs max-w-48 truncate" title={r.hospede}>{r.hospede}</td>
                     <td className="px-3 py-2 text-xs text-gray-400 italic">—</td>
-                    <td className="px-3 py-2 text-xs text-center">
+                    {/* Noites — editable */}
+                    <td className="px-2 py-1.5 text-xs text-center">
                       <input
                         type="number"
                         min={0}
                         value={r.noites}
-                        onChange={e => updateNoites(i, e.target.value)}
+                        onChange={e => updateField(i, 'noites', e.target.value)}
                         className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-center text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </td>
@@ -469,7 +431,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
               </tbody>
               <tfoot>
                 <tr className="bg-amber-100 border-t-2 border-amber-300 font-bold">
-                  <td colSpan={5} className="px-3 py-2.5 text-xs text-right text-gray-700 uppercase tracking-wide">Total</td>
+                  <td colSpan={7} className="px-3 py-2.5 text-xs text-right text-gray-700 uppercase tracking-wide">Total</td>
                   <td className="px-3 py-2.5 text-xs text-center">{totals.noites}</td>
                   <td className="px-3 py-2.5 text-xs text-right tabular-nums">{fmtBRL(totals.tarifa)}</td>
                   <td className="px-3 py-2.5 text-xs text-right tabular-nums text-amber-700">{fmtBRL(totals.iss)}</td>
@@ -483,7 +445,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
           <div className="px-6 py-3 border-t border-gray-100 bg-gray-50">
             <p className="text-xs text-gray-500">
               <strong className="text-gray-600">Fórmulas:</strong>{' '}
-              Tarifa = Noites × R$ {TARIFA_DIARIA},00  ·  ISS = Tarifa × {(ISS_RATE * 100).toFixed(2).replace('.', ',')}%  ·  Extras = Saldo − Tarifa − ISS  ·  Saldo = Valor Total do PDF
+              Tarifa = Noites × R${TARIFA_DIARIA},00  ·  ISS = Tarifa × {(ISS_RATE * 100).toFixed(2).replace('.', ',')}%  ·  Extras = Saldo − Tarifa − ISS
             </p>
           </div>
         </div>
