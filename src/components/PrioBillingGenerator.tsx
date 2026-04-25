@@ -49,7 +49,7 @@ interface Props { profile: UserProfile; }
 
 const TARIFA_DIARIA = 259;
 const ISS_RATE = 0.0375;
-const TABLE_HEADERS = ['Solicitante', 'O.E.', 'N° Nota', 'Check-in', 'Check-out', 'Hóspede', 'Cliente', 'Noites', 'Tarifa', 'ISS (3,75%)', 'Extras', 'Saldo'];
+const TABLE_HEADERS = ['Cliente', 'Solicitante', 'O.E.', 'N° Nota', 'Check-in', 'Check-out', 'Hóspede', 'Tarifa', 'ISS (3,75%)', 'Extras', 'Saldo'];
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
@@ -254,7 +254,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       wb.created    = new Date();
 
       const currFmt  = '"R$"#,##0.00';
-      const currCols = [9, 10, 11, 12]; // Tarifa, ISS, Extras, Saldo (1-based)
+      const currCols = [8, 9, 10, 11]; // Tarifa, ISS, Extras, Saldo (1-based)
 
       for (const client of active) {
         const sheetName = `${client.name}`.slice(0, 31);
@@ -282,18 +282,17 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
         const clientLabel = client.cnpj ? `${client.name}\n${client.cnpj}` : client.name;
         client.rows.forEach((r, idx) => {
           const dataRow = ws.addRow([
-            r.solicitante,
-            r.oe,
-            r.nota,
-            r.checkin,
-            r.checkout,
-            r.hospede,
-            clientLabel, // Cliente = nome + CNPJ em célula única
-            r.noites,
-            r.tarifa,
-            r.iss,
-            r.extras,
-            r.saldo,
+            clientLabel, // 1 — Cliente (nome + CNPJ)
+            r.solicitante, // 2
+            r.oe,          // 3
+            r.nota,        // 4
+            r.checkin,     // 5
+            r.checkout,    // 6
+            r.hospede,     // 7
+            r.tarifa,      // 8
+            r.iss,         // 9
+            r.extras,      // 10
+            r.saldo,       // 11
           ]);
 
           const bg = idx % 2 === 0 ? 'FFFFFFFF' : 'FFFFF8E8';
@@ -302,14 +301,12 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
             cell.font = { size: 10 };
           });
           // Cliente cell: wrapText so name + CNPJ appear on separate lines
-          const clientCell = dataRow.getCell(7);
-          clientCell.alignment = { wrapText: true, vertical: 'middle' };
+          dataRow.getCell(1).alignment = { wrapText: true, vertical: 'middle' };
 
           currCols.forEach(col => {
             dataRow.getCell(col).numFmt    = currFmt;
             dataRow.getCell(col).alignment = { horizontal: 'right' };
           });
-          dataRow.getCell(8).alignment = { horizontal: 'center' };
         });
 
         // Totals row
@@ -318,7 +315,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
           { noites: 0, tarifa: 0, iss: 0, extras: 0, saldo: 0 }
         );
         ws.addRow([]);
-        const totalRow = ws.addRow(['', '', '', '', '', '', 'TOTAL', totals.noites, totals.tarifa, totals.iss, totals.extras, totals.saldo]);
+        const totalRow = ws.addRow(['', '', '', '', '', '', 'TOTAL', totals.tarifa, totals.iss, totals.extras, totals.saldo]);
         totalRow.eachCell({ includeEmpty: true }, cell => {
           cell.font = { bold: true, size: 10 };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
@@ -327,17 +324,15 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
           totalRow.getCell(col).numFmt    = currFmt;
           totalRow.getCell(col).alignment = { horizontal: 'right' };
         });
-        totalRow.getCell(8).alignment = { horizontal: 'center' };
 
         ws.columns = [
+          { width: 26 }, // Cliente
           { width: 22 }, // Solicitante
           { width: 14 }, // O.E.
           { width: 14 }, // N° Nota
           { width: 12 }, // Check-in
           { width: 12 }, // Check-out
           { width: 32 }, // Hóspede
-          { width: 26 }, // Cliente
-          { width: 8  }, // Noites
           { width: 14 }, // Tarifa
           { width: 14 }, // ISS
           { width: 14 }, // Extras
@@ -548,6 +543,11 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
                     <tbody>
                       {client.rows.map((r, i) => (
                         <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-amber-50/40'}>
+                          {/* Cliente: nome + CNPJ juntos */}
+                          <td className="px-3 py-2 text-xs whitespace-nowrap">
+                            <span className="block font-medium text-gray-700">{client.name}</span>
+                            {client.cnpj && <span className="block text-gray-400">{client.cnpj}</span>}
+                          </td>
                           <td className="px-2 py-1.5 text-xs min-w-32">
                             <input type="text" value={r.solicitante} onChange={e => updateRow(client.id, i, 'solicitante', e.target.value)} placeholder="Solicitante" className={inputCls} />
                           </td>
@@ -558,14 +558,6 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
                           <td className="px-3 py-2 text-xs whitespace-nowrap">{r.checkin || '—'}</td>
                           <td className="px-3 py-2 text-xs whitespace-nowrap">{r.checkout || '—'}</td>
                           <td className="px-3 py-2 text-xs max-w-48 truncate" title={r.hospede}>{r.hospede}</td>
-                          {/* Cliente: nome + CNPJ juntos */}
-                          <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                            <span className="block font-medium text-gray-700">{client.name}</span>
-                            {client.cnpj && <span className="block text-gray-400">{client.cnpj}</span>}
-                          </td>
-                          <td className="px-2 py-1.5 text-xs text-center">
-                            <input type="number" min={0} value={r.noites} onChange={e => updateRow(client.id, i, 'noites', e.target.value)} className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-center text-xs focus:outline-none focus:ring-1 focus:ring-amber-500" />
-                          </td>
                           <td className="px-3 py-2 text-xs text-right tabular-nums">{fmtBRL(r.tarifa)}</td>
                           <td className="px-3 py-2 text-xs text-right tabular-nums text-amber-700">{fmtBRL(r.iss)}</td>
                           <td className="px-3 py-2 text-xs text-right tabular-nums">{fmtBRL(r.extras)}</td>
@@ -576,7 +568,6 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
                     <tfoot>
                       <tr className="bg-amber-100 border-t-2 border-amber-300 font-bold">
                         <td colSpan={7} className="px-3 py-2.5 text-xs text-right text-gray-700 uppercase tracking-wide">Total</td>
-                        <td className="px-3 py-2.5 text-xs text-center">{rowTotals.noites}</td>
                         <td className="px-3 py-2.5 text-xs text-right tabular-nums">{fmtBRL(rowTotals.tarifa)}</td>
                         <td className="px-3 py-2.5 text-xs text-right tabular-nums text-amber-700">{fmtBRL(rowTotals.iss)}</td>
                         <td className="px-3 py-2.5 text-xs text-right tabular-nums">{fmtBRL(rowTotals.extras)}</td>
