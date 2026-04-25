@@ -9,7 +9,6 @@ export type ViewType =
   | 'companies'
   | 'finance'
   | 'staff'
-  | 'settings'
   | 'tariffs'
   | 'tracking'
   | 'registration'

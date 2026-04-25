@@ -243,7 +243,7 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     if (!canAccessView(profile, currentView)) {
-      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'admin-control', 'professional', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
+      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'tariffs', 'admin-control', 'professional', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
       const next = order.find(v => canAccessView(profile, v));
       if (next && next !== currentView) setCurrentView(next);
     }

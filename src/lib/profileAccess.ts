@@ -25,7 +25,7 @@ export const APP_VIEW_LABELS: Record<AppView, string> = {
   staff: 'Equipe',
   audit: 'Auditoria',
   profile: 'Perfil',
-  settings: 'Configuracoes',
+  'prio-billing': 'Faturamento Prio',
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
