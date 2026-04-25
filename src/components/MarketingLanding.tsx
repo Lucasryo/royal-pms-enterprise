@@ -1,285 +1,255 @@
-import { ArrowRight, BadgeCheck, BarChart3, CalendarRange, Hotel, Layers3, Receipt, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  ArrowRight,
+  BadgeCheck,
+  BarChart3,
+  Building2,
+  CalendarRange,
+  CheckCircle2,
+  ClipboardList,
+  Hotel,
+  Layers3,
+  MessageCircle,
+  Receipt,
+  ShieldCheck,
+  Sparkles,
+  Users,
+  Utensils,
+  Wrench,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import Login from './Login';
 import PublicBookingEngine from './PublicBookingEngine';
 
-const highlights = [
-  {
-    title: 'Reservas e disponibilidade',
-    description: 'Organize acomodações, bloqueios, entradas, saídas e futuras hospedagens em um só fluxo.',
-    icon: CalendarRange,
-  },
-  {
-    title: 'Operação sem retrabalho',
-    description: 'Recepção, governança e atendimento trabalham melhor quando o time consulta o mesmo painel.',
-    icon: Layers3,
-  },
-  {
-    title: 'Visão gerencial',
-    description: 'Acompanhe ocupação, financeiro e performance da operação com mais previsibilidade.',
-    icon: BarChart3,
-  },
+const stats = [
+  { label: 'Hotelaria desde', value: '1990', sub: 'Tradição operacional do Royal Macaé Palace' },
+  { label: 'Módulos integrados', value: '8+', sub: 'Reservas, recepção, governança, faturamento e mais' },
+  { label: 'Operação', value: '24/7', sub: 'Plataforma web disponível em qualquer lugar' },
+  { label: 'Implantação', value: '100% web', sub: 'Sem instalação, sem servidor local' },
+];
+
+const modules = [
+  { name: 'Reservas', description: 'Disponibilidade, tarifa, garantia e ocupação em um só fluxo.', icon: CalendarRange },
+  { name: 'Recepção', description: 'Check-in, check-out, walk-in e conta corrente do hóspede.', icon: Hotel },
+  { name: 'Governança', description: 'Status de UH, limpeza, inspeção e bloqueios em tempo real.', icon: Layers3 },
+  { name: 'Manutenção', description: 'Chamados, fila por setor, direcionamento e SLA.', icon: Wrench },
+  { name: 'Restaurante / POS', description: 'Lançamentos em folio, venda direta e integração com a hospedagem.', icon: Utensils },
+  { name: 'Eventos', description: 'O.S., agenda, espelho de calendário e roteiro de equipe.', icon: ClipboardList },
+  { name: 'Faturamento', description: 'Notas, faturas, baixa, AR e conciliação por forma de pagamento.', icon: Receipt },
+  { name: 'Gestão Pro', description: 'Dashboards, ocupação, performance e auditoria entre módulos.', icon: BarChart3 },
 ];
 
 const benefits = [
-  'Arquitetura pensada para hotelaria independente',
-  'Base operacional pronta para crescimento comercial',
-  'Posicionamento claro para demonstração, implantação e venda',
-];
-
-const moduleMatrix = [
   {
-    name: 'Reservas',
-    audience: 'Login de reservas',
-    icon: CalendarRange,
-    tone: 'amber',
-    objective: 'Vender e organizar a ocupação antes da chegada do hóspede.',
-    canDo: [
-      'Criar, alterar e cancelar reservas',
-      'Consultar disponibilidade por período, UH e categoria',
-      'Aplicar tarifa, pacote, origem e garantia da reserva',
-      'Controlar no-show, confirmação e previsão de ocupação',
-    ],
-    missing: [
-      'Status comerciais completos da reserva',
-      'Pré-pagamento e garantia integrados ao financeiro',
-      'Forecast de ocupação mais forte',
-      'Regras tarifárias por canal, empresa e temporada',
-    ],
+    title: 'Menos retrabalho entre setores',
+    description: 'Reservas, recepção, governança e financeiro trabalham com a mesma base operacional, sem planilhas paralelas.',
   },
   {
-    name: 'Hotel / Recepção',
-    audience: 'Login de recepção',
-    icon: Hotel,
-    tone: 'stone',
-    objective: 'Operar a hospedagem com controle do check-in ao check-out.',
-    canDo: [
-      'Localizar reservas e transformar em hospedagem',
-      'Executar check-in, check-out e movimentações da estadia',
-      'Acompanhar status dos quartos e da hospedagem',
-      'Gerenciar conta corrente do hóspede durante a operação',
-    ],
-    missing: [
-      'Mapa operacional de quartos mais robusto',
-      'Fluxo de governança com limpeza, inspeção e bloqueio',
-      'Conta aberta por UH/hóspede com mais profundidade',
-      'Auditoria noturna e fechamentos operacionais',
-    ],
+    title: 'Leitura rápida da operação',
+    description: 'Ocupação, movimento do dia, pendências e responsabilidades visíveis em um painel único.',
   },
   {
-    name: 'Faturamento',
-    audience: 'Login de faturamento',
-    icon: Receipt,
-    tone: 'emerald',
-    objective: 'Cobrar, faturar, emitir e auditar o financeiro da hospedagem.',
-    canDo: [
-      'Gerar nota, fatura e títulos da hospedagem',
-      'Baixar recebimentos e controlar pendências',
-      'Tratar pré-pagamentos, empresas e contas a receber',
-      'Conferir documentos emitidos e divergências do período',
-    ],
-    missing: [
-      'NFS-e/RPS com fila de erros e reenvio',
-      'Faturamento automático por regra operacional',
-      'Conciliação financeira por forma de pagamento',
-      'Relatórios de faturado, recebido, cancelado e em aberto',
-    ],
+    title: 'Estrutura para crescer',
+    description: 'Arquitetura desenhada para padronizar processo e profissionalizar a gestão sem peso desnecessário.',
   },
 ];
 
-const crossModuleGoals = [
-  'Permissão por ação, não apenas por módulo',
-  'Trilha de auditoria entre reserva, hospedagem e faturamento',
-  'Dashboards específicos para cada login operacional',
-  'Regras de transição entre módulos com bloqueios e aprovações',
+const howItWorks = [
+  {
+    step: '01',
+    title: 'Conversa inicial',
+    description: 'Conhecemos sua operação, mapeamos pontos críticos e mostramos como o Royal PMS se encaixa no seu dia a dia.',
+  },
+  {
+    step: '02',
+    title: 'Implantação acompanhada',
+    description: 'Configuramos UHs, tarifas, perfis de acesso e treinamos o time. Tudo no navegador, sem instalação.',
+  },
+  {
+    step: '03',
+    title: 'Operação no ar',
+    description: 'Reservas, recepção, faturamento e governança rodando integrados. Suporte direto com quem implantou.',
+  },
 ];
 
-const executiveRoadmap = [
+const faq = [
   {
-    title: 'Já temos',
-    tone: 'stone',
-    items: [
-      'Separação operacional por login e função',
-      'Base de reservas, check-in/check-out e tarifas',
-      'Estrutura inicial de financeiro, auditoria e usuários',
-      'Uma arquitetura com cara de PMS e não de sistema genérico',
-      'Separação de contexto operacional por setor e responsabilidade',
+    question: 'Serve para uma operação menor, como pousadas?',
+    answer:
+      'Sim. A arquitetura atende pousadas e hotéis independentes que precisam profissionalizar a gestão sem adotar uma estrutura excessivamente pesada.',
+  },
+  {
+    question: 'Minha equipe vai ter dificuldade para usar?',
+    answer:
+      'Cada login entra direto no módulo da sua função. Reservas, recepção, governança e financeiro trabalham com interfaces especializadas e sem ruído.',
+  },
+  {
+    question: 'Precisa instalar algum software no hotel?',
+    answer:
+      'Não. O Royal PMS é 100% web. Funciona em qualquer navegador, em desktop, tablet ou celular. Atualizações são automáticas.',
+  },
+  {
+    question: 'Como funcionam as permissões e a auditoria?',
+    answer:
+      'Cada usuário tem permissões granulares por ação. Toda operação relevante (cancelar, alterar tarifa, baixar pagamento) fica registrada em trilha de auditoria consultável.',
+  },
+  {
+    question: 'É possível migrar nossos dados atuais?',
+    answer:
+      'Sim. Reservas, hóspedes, empresas e tarifas vigentes podem ser importados durante a implantação. Conversamos sobre o formato disponível e ajustamos.',
+  },
+];
+
+const footerLinks = [
+  {
+    title: 'Produto',
+    links: [
+      { label: 'Módulos', href: '#modulos' },
+      { label: 'Como funciona', href: '#como-funciona' },
+      { label: 'Acessar plataforma', href: '#login' },
     ],
   },
   {
-    title: 'Em construção',
-    tone: 'amber',
-    items: [
-      'Conexão mais forte entre reserva, hospedagem e faturamento',
-      'Dashboards próprios para cada módulo operacional',
-      'Conta corrente da hospedagem e fluxo de governança',
-      'Mais profundidade na operação diária da recepção',
-      'Narrativa comercial mais forte para venda consultiva',
+    title: 'Empresa',
+    links: [
+      { label: 'Royal Macaé Palace', href: 'https://royalmacaepalace.com.br', external: true },
+      { label: 'Reservar hospedagem', href: '#reservar' },
+      { label: 'Solicitar demonstração', href: '#demo' },
     ],
   },
   {
-    title: 'Crítico para vender',
-    tone: 'emerald',
-    items: [
-      'Faturamento com NFS-e, erros fiscais e baixa robusta',
-      'Permissões por ação com trilha de auditoria forte',
-      'Mapa operacional de quartos realmente confiável',
-      'Relatórios gerenciais, financeiros e fiscais de nível profissional',
-      'Mais previsibilidade para implantação em novas operações',
+    title: 'Contato',
+    links: [
+      { label: 'WhatsApp comercial', href: 'https://wa.me/5522999999999', external: true },
+      { label: 'Suporte técnico', href: 'mailto:suporte@royalpms.com.br', external: true },
+      { label: 'Macaé / RJ — Brasil', href: '#' },
     ],
   },
-];
-
-const proofPoints = [
-  {
-    title: 'Menos dependência de controles paralelos',
-    description: 'Reservas, recepção e faturamento passam a trabalhar com uma base operacional mais integrada e confiável.',
-  },
-  {
-    title: 'Mais clareza sobre a rotina do hotel',
-    description: 'A gestão ganha leitura mais rápida de ocupação, pendências, movimento do dia e responsabilidades por setor.',
-  },
-  {
-    title: 'Mais confiança para vender e implantar',
-    description: 'O produto passa a ser percebido como uma plataforma profissional, com estrutura para crescer e padronizar operação.',
-  },
-];
-
-const objections = [
-  {
-    question: '“Minha equipe vai ter dificuldade para usar?”',
-    answer: 'A proposta do Royal PMS é organizar a operação por contexto de trabalho. Cada login entra no módulo que faz sentido para sua rotina, reduzindo ruído e complexidade.',
-  },
-  {
-    question: '“Serve para uma operação menor?”',
-    answer: 'Sim. A arquitetura atende pousadas e hotéis independentes que precisam profissionalizar a gestão sem adotar uma estrutura excessivamente pesada.',
-  },
-  {
-    question: '“O sistema está pronto para crescer?”',
-    answer: 'A base foi pensada para evoluir em reservas, operação e faturamento, permitindo amadurecimento gradual sem perder consistência de produto.',
-  },
-];
-
-const salesArguments = [
-  'Separação de módulos por login reforça governança e responsabilidade operacional.',
-  'O produto fala com três dores centrais da hotelaria: vender, operar e faturar.',
-  'A plataforma reduz improviso e ajuda a criar padrão de trabalho entre setores.',
-  'A proposta comercial transmite maturidade mesmo enquanto o produto continua evoluindo.',
 ];
 
 export default function MarketingLanding() {
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8f2e8_0%,#f1e7d8_45%,#efe4d2_100%)] text-stone-900">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-12 pt-4 sm:px-6 lg:px-8">
-        <header className="sticky top-4 z-20 rounded-full border border-white/60 bg-white/75 px-5 py-4 shadow-lg shadow-amber-950/5 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <a href="#inicio" className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-amber-200 bg-white p-1 shadow-sm">
-                <img src="/logo.png" alt="Royal PMS" className="h-full w-full object-contain" />
-              </div>
-              <div>
-                <p className="text-base font-black uppercase tracking-tight text-amber-700">Royal PMS</p>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">Hospitalidade com controle</p>
-              </div>
-            </a>
+    <div className="min-h-screen bg-white text-stone-900">
+      <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/85 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <a href="#inicio" className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-stone-200 bg-white p-1">
+              <img src="/logo.png" alt="Royal PMS" className="h-full w-full object-contain" />
+            </div>
+            <div className="leading-tight">
+              <p className="text-sm font-black uppercase tracking-tight text-stone-950">Royal PMS</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-500">
+                Plataforma de hotelaria
+              </p>
+            </div>
+          </a>
 
-            <nav className="hidden items-center gap-6 text-sm font-medium text-stone-600 md:flex">
-              <a href="#reservar" className="transition hover:text-amber-700">Reservar</a>
-              <a href="#modulos" className="transition hover:text-amber-700">Módulos</a>
-              <a href="#beneficios" className="transition hover:text-amber-700">Benefícios</a>
-              <a href="#login" className="transition hover:text-amber-700">Entrar</a>
-            </nav>
+          <nav className="hidden items-center gap-7 text-sm font-medium text-stone-600 md:flex">
+            <a href="#modulos" className="transition hover:text-stone-950">Módulos</a>
+            <a href="#como-funciona" className="transition hover:text-stone-950">Como funciona</a>
+            <a href="#faq" className="transition hover:text-stone-950">Perguntas</a>
+            <a href="#reservar" className="transition hover:text-stone-950">Para hóspedes</a>
+            <a href="#login" className="transition hover:text-stone-950">Acessar</a>
+          </nav>
 
-            <a
-              href="#reservar"
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-stone-950 px-5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-stone-800"
-            >
-              Reservar agora
-            </a>
-          </div>
-        </header>
+          <a
+            href="#demo"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-amber-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-800"
+          >
+            Solicitar demonstração
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      </header>
 
-        <main className="flex-1">
-          <section id="inicio" className="grid gap-8 py-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-16">
+      <main>
+        {/* HERO */}
+        <section id="inicio" className="border-b border-stone-100">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-12 lg:px-8 lg:py-24">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
               <p className="mb-4 text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">
-                PMS para pousadas, hotéis independentes e operações em crescimento
+                PMS para hotelaria independente
               </p>
-              <h1 className="max-w-4xl font-serif text-5xl leading-none tracking-[-0.04em] text-stone-950 sm:text-6xl lg:text-7xl">
-                Um PMS para profissionalizar
-                <span className="block text-stone-700">operação, reservas e faturamento em um só ecossistema.</span>
+              <h1 className="max-w-3xl text-4xl font-black leading-[1.05] tracking-tight text-stone-950 sm:text-5xl lg:text-6xl">
+                Profissionalize reservas, operação e faturamento em um só sistema.
               </h1>
-              <p className="mt-6 max-w-2xl text-base leading-8 text-stone-600 sm:text-lg">
-                O Royal PMS foi desenhado para meios de hospedagem que precisam sair da dependência de processos soltos
-                e assumir uma rotina mais confiável, escalável e comercialmente preparada.
+              <p className="mt-6 max-w-xl text-base leading-7 text-stone-600 sm:text-lg">
+                O Royal PMS organiza a rotina do hotel — reservas, recepção, governança, manutenção, restaurante,
+                eventos e financeiro — para meios de hospedagem que querem trocar improviso por padrão.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
                 <a
-                  href="#reservar"
-                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-700 px-6 text-sm font-semibold text-white shadow-lg shadow-amber-900/20 transition hover:-translate-y-0.5 hover:bg-amber-800"
+                  href="#demo"
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-700 px-6 text-sm font-semibold text-white shadow-md shadow-amber-900/20 transition hover:-translate-y-0.5 hover:bg-amber-800"
                 >
-                  Fazer reserva direta
+                  Solicitar demonstração
                   <ArrowRight className="h-4 w-4" />
                 </a>
                 <a
                   href="#modulos"
-                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white/70 px-6 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5"
+                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
                 >
-                  Ver módulos
+                  Conhecer os módulos
                 </a>
               </div>
 
-              <div className="mt-10 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-3xl border border-stone-200 bg-white/70 p-5 shadow-lg shadow-amber-950/5">
-                  <p className="text-sm font-bold text-stone-900">Mais controle</p>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">Operação mais previsível com leitura rápida da hospedagem, da disponibilidade e da rotina do dia.</p>
+              <div className="mt-8 flex flex-wrap items-center gap-4 text-xs font-semibold text-stone-500">
+                <div className="inline-flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  100% web
                 </div>
-                <div className="rounded-3xl border border-stone-200 bg-white/70 p-5 shadow-lg shadow-amber-950/5">
-                  <p className="text-sm font-bold text-stone-900">Mais eficiência operacional</p>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">Menos retrabalho entre reservas, recepção, governança e faturamento.</p>
+                <div className="inline-flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  Operando em produção
                 </div>
-                <div className="rounded-3xl border border-stone-200 bg-white/70 p-5 shadow-lg shadow-amber-950/5">
-                  <p className="text-sm font-bold text-stone-900">Mais capacidade de crescimento</p>
-                  <p className="mt-2 text-sm leading-6 text-stone-600">Uma base mais sólida para vender melhor, implantar com segurança e escalar a operação.</p>
+                <div className="inline-flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  Trilha de auditoria
                 </div>
               </div>
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
               className="relative"
             >
-              <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_28px_90px_rgba(68,37,15,0.12)] backdrop-blur">
+              <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-[0_28px_90px_rgba(20,12,7,0.10)]">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-amber-800">Painel operacional</span>
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Ao vivo</span>
+                  <span className="rounded-full bg-stone-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-stone-700">
+                    Painel operacional
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Ao vivo
+                  </span>
                 </div>
 
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-3xl bg-stone-950 p-5 text-white">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/60">Ocupação</p>
+                  <div className="rounded-2xl bg-stone-950 p-5 text-white">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Ocupação hoje</p>
                     <p className="mt-3 text-4xl font-black">84%</p>
-                    <p className="mt-3 text-sm leading-6 text-white/70">Indicadores operacionais com leitura imediata para decisões mais rápidas no dia a dia.</p>
+                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+                      <div className="h-full w-[84%] rounded-full bg-amber-400" />
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-white/70">68 das 81 UHs ocupadas</p>
                   </div>
-                  <div className="rounded-3xl border border-stone-200 bg-stone-50 p-5">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">Movimento do dia</p>
-                    <div className="mt-4 space-y-3 text-sm text-stone-700">
-                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                  <div className="rounded-2xl border border-stone-200 bg-stone-50 p-5">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Movimento do dia</p>
+                    <div className="mt-3 space-y-2 text-sm text-stone-700">
+                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
                         <span>Check-ins</span>
                         <strong>17</strong>
                       </div>
-                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
                         <span>Check-outs</span>
                         <strong>13</strong>
                       </div>
-                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                      <div className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
                         <span>Diária média</span>
                         <strong>R$ 286</strong>
                       </div>
@@ -287,341 +257,366 @@ export default function MarketingLanding() {
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-3xl border border-stone-200 bg-white p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">Rotina da operação</p>
-                  <div className="mt-4 space-y-4">
+                <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Atividade recente</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">Últimos 30min</p>
+                  </div>
+                  <div className="mt-4 space-y-3">
                     <div className="flex items-start gap-3">
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-amber-600" />
-                      <div>
-                        <p className="text-sm font-semibold text-stone-900">Quarto 12 liberado para governança</p>
-                        <p className="text-sm text-stone-500">09:20</p>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-stone-900">UH 312 liberada para governança</p>
+                        <p className="text-xs text-stone-500">há 2 min</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-600" />
-                      <div>
-                        <p className="text-sm font-semibold text-stone-900">Pagamento da reserva 08 conciliado</p>
-                        <p className="text-sm text-stone-500">10:05</p>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-stone-900">Pagamento da reserva #1842 conciliado</p>
+                        <p className="text-xs text-stone-500">há 12 min</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-sky-600" />
-                      <div>
-                        <p className="text-sm font-semibold text-stone-900">Nova reserva criada para o feriado</p>
-                        <p className="text-sm text-stone-500">10:42</p>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-stone-900">Nova reserva (3 noites) — empresa Petrobras</p>
+                        <p className="text-xs text-stone-500">há 18 min</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="absolute -bottom-5 -left-4 hidden rounded-3xl border border-emerald-200 bg-emerald-950 px-5 py-4 text-emerald-50 shadow-2xl lg:block">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-200">Financeiro</p>
-                <p className="mt-2 text-lg font-bold">Receitas, cobrança e conferência</p>
-                <p className="mt-1 max-w-52 text-sm leading-6 text-emerald-100/80">Mais segurança para acompanhar recebimentos, pendências e fechamento com consistência.</p>
+              <div className="absolute -bottom-4 -left-4 hidden rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-xl lg:block">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
+                    <Receipt className="h-4 w-4 text-emerald-700" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Faturamento</p>
+                    <p className="text-sm font-bold text-stone-900">R$ 142,8 mil</p>
+                    <p className="text-[10px] text-stone-500">acumulado do mês</p>
+                  </div>
+                </div>
               </div>
             </motion.div>
-          </section>
+          </div>
+        </section>
 
-          <section id="reservar" className="py-8 sm:py-12">
-            <PublicBookingEngine />
-          </section>
+        {/* STATS BANNER */}
+        <section className="border-b border-stone-100 bg-stone-50">
+          <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-12 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
+            {stats.map((stat) => (
+              <div key={stat.label} className="border-l-2 border-amber-700 pl-4">
+                <p className="text-3xl font-black tracking-tight text-stone-950 sm:text-4xl">{stat.value}</p>
+                <p className="mt-2 text-sm font-bold uppercase tracking-widest text-stone-700">{stat.label}</p>
+                <p className="mt-1 text-xs leading-5 text-stone-500">{stat.sub}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-          <section id="beneficios" className="py-8 sm:py-12">
-            <div className="grid gap-4 rounded-[2rem] border border-white/70 bg-white/65 p-6 shadow-lg shadow-amber-950/5 sm:grid-cols-3">
-              {benefits.map((item) => (
-                <div key={item} className="flex items-start gap-3 rounded-2xl bg-white/70 p-4">
-                  <BadgeCheck className="mt-0.5 h-5 w-5 text-amber-700" />
-                  <p className="text-sm font-medium leading-6 text-stone-700">{item}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="valor" className="py-12 sm:py-16">
-            <div className="max-w-4xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Prova de valor</p>
-              <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-stone-950 sm:text-5xl">
-                Um produto que organiza a hotelaria onde ela mais perde tempo, controle e previsibilidade.
-              </h2>
-              <p className="mt-6 text-base leading-8 text-stone-600">
-                O Royal PMS nasce com uma proposta simples de entender e forte na prática: dar mais consistência para
-                reservas, hospedagem e faturamento sem obrigar a operação a viver de remendo, planilha e retrabalho.
-              </p>
-            </div>
-
-            <div className="mt-8 grid gap-5 lg:grid-cols-3">
-              {proofPoints.map((item) => (
-                <div key={item.title} className="rounded-[2rem] border border-stone-200 bg-white/80 p-6 shadow-lg shadow-amber-950/5">
-                  <p className="text-sm font-black uppercase tracking-[0.22em] text-stone-500">Resultado percebido</p>
-                  <h3 className="mt-4 text-xl font-bold text-stone-950">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="modulos" className="py-12 sm:py-16">
+        {/* MODULES GRID */}
+        <section id="modulos" className="border-b border-stone-100">
+          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
             <div className="max-w-3xl">
               <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Módulos do sistema</p>
-              <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-stone-950 sm:text-5xl">
-                Três frentes críticas da hotelaria integradas em uma mesma plataforma.
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
+                Toda a operação do hotel em uma plataforma única.
               </h2>
-              <p className="mt-6 text-base leading-8 text-stone-600">
-                A proposta do Royal PMS não é apenas informatizar tarefas. É estruturar reservas, operação e faturamento
-                de forma mais madura para apoiar gestão, atendimento e crescimento.
+              <p className="mt-5 max-w-2xl text-base leading-7 text-stone-600">
+                Cada módulo é especializado para a função que executa, mas todos compartilham a mesma base de dados —
+                evitando retrabalho e divergências entre setores.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-5 lg:grid-cols-3">
-              {highlights.map((item) => (
-                <div key={item.title} className="rounded-[2rem] border border-stone-200 bg-white/80 p-6 shadow-lg shadow-amber-950/5">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-                    <item.icon className="h-6 w-6" />
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {modules.map((module) => (
+                <div
+                  key={module.name}
+                  className="group rounded-2xl border border-stone-200 bg-white p-6 transition hover:-translate-y-1 hover:border-amber-300 hover:shadow-lg"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700 transition group-hover:bg-amber-100">
+                    <module.icon className="h-5 w-5" />
                   </div>
-                  <h3 className="mt-5 text-xl font-bold text-stone-950">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-stone-600">{item.description}</p>
+                  <h3 className="mt-4 text-base font-bold text-stone-950">{module.name}</h3>
+                  <p className="mt-2 text-sm leading-6 text-stone-600">{module.description}</p>
                 </div>
               ))}
             </div>
+          </div>
+        </section>
 
-            <div className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-[2rem] border border-stone-200 bg-stone-950 p-7 text-white shadow-[0_24px_70px_rgba(20,12,7,0.18)]">
-                <div className="flex items-center gap-3">
-                  <Hotel className="h-6 w-6 text-amber-400" />
-                  <p className="text-sm font-black uppercase tracking-[0.22em] text-amber-300">Posicionamento comercial</p>
-                </div>
-                <p className="mt-6 font-serif text-4xl leading-none tracking-[-0.04em] text-white">
-                  Um produto para operações que querem trocar improviso por padrão.
-                </p>
-                <p className="mt-5 max-w-2xl text-sm leading-7 text-white/75">
-                  A linguagem desta página foi construída para sustentar uma venda mais consultiva, mostrando valor operacional,
-                  ganho de controle e maturidade de gestão sem prometer além do que o produto ainda vai evoluir.
-                </p>
-              </div>
+        {/* BENEFITS / VALUE */}
+        <section className="border-b border-stone-100 bg-stone-950 text-white">
+          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+            <div className="max-w-3xl">
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-300">Por que migrar</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
+                Um sistema que organiza a hotelaria onde ela mais perde tempo, controle e dinheiro.
+              </h2>
+            </div>
 
-              <div className="rounded-[2rem] border border-stone-200 bg-white/80 p-7 shadow-lg shadow-amber-950/5">
-                <div className="flex items-center gap-3">
-                  <ShieldCheck className="h-5 w-5 text-emerald-700" />
-                  <p className="text-sm font-black uppercase tracking-[0.22em] text-stone-500">Estrutura para crescer</p>
+            <div className="mt-12 grid gap-5 lg:grid-cols-3">
+              {benefits.map((item) => (
+                <div key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                  <BadgeCheck className="h-6 w-6 text-amber-300" />
+                  <h3 className="mt-4 text-lg font-bold text-white">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-white/75">{item.description}</p>
                 </div>
-                <ul className="mt-5 space-y-4 text-sm leading-7 text-stone-600">
-                  <li>Mais clareza sobre quem faz o quê dentro da operação.</li>
-                  <li>Mais previsibilidade para gestão, recepção e financeiro.</li>
-                  <li>Mais consistência para expansão comercial e implantação futura.</li>
-                </ul>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* HOW IT WORKS */}
+        <section id="como-funciona" className="border-b border-stone-100">
+          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+            <div className="max-w-3xl">
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Como funciona</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl lg:text-5xl">
+                Da primeira conversa até a operação no ar em poucas semanas.
+              </h2>
+            </div>
+
+            <div className="mt-12 grid gap-5 lg:grid-cols-3">
+              {howItWorks.map((step) => (
+                <div key={step.step} className="rounded-2xl border border-stone-200 bg-white p-7">
+                  <p className="text-5xl font-black text-amber-700">{step.step}</p>
+                  <h3 className="mt-4 text-xl font-bold text-stone-950">{step.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-stone-600">{step.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* SOCIAL PROOF / WHO USES */}
+        <section className="border-b border-stone-100 bg-stone-50">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_1fr] lg:items-center lg:px-8">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Quem está usando</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
+                Validado em operação real.
+              </h2>
+              <p className="mt-5 text-base leading-7 text-stone-600">
+                O Royal PMS roda diariamente no Royal Macaé Palace — um hotel executivo com tradição na cidade desde 1990,
+                atendendo empresas, eventos e hóspedes individuais com a mesma plataforma integrada.
+              </p>
+
+              <div className="mt-8 flex items-start gap-4 rounded-2xl border border-stone-200 bg-white p-5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                  <Building2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-stone-950">Royal Macaé Palace</p>
+                  <p className="mt-1 text-sm leading-6 text-stone-600">
+                    Hotel executivo em Macaé/RJ. Reservas corporativas, eventos e hospedagem operados 24/7 no Royal PMS.
+                  </p>
+                </div>
               </div>
             </div>
-          </section>
 
-          <section id="argumentos" className="py-12 sm:py-16">
-            <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-[2rem] border border-stone-200 bg-white/80 p-7 shadow-lg shadow-amber-950/5">
-                <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Argumentos de venda</p>
-                <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-stone-950 sm:text-5xl">
-                  Uma narrativa comercial pensada para sustentar demonstração e prospecção.
-                </h2>
-                <ul className="mt-6 space-y-4 text-sm leading-7 text-stone-700">
-                  {salesArguments.map((item) => (
-                    <li key={item} className="flex items-start gap-3 rounded-2xl bg-stone-50 px-4 py-4">
-                      <BadgeCheck className="mt-1 h-4 w-4 shrink-0 text-amber-700" />
-                      <span>{item}</span>
+            <div className="rounded-[2rem] border border-stone-200 bg-white p-8">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-amber-700" />
+                <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-700">Resultado percebido</p>
+              </div>
+              <p className="mt-6 text-2xl font-bold leading-snug text-stone-950">
+                "A operação ficou mais previsível. Reservas, recepção e financeiro pararam de viver de planilha
+                paralela e passaram a falar a mesma língua."
+              </p>
+              <div className="mt-6 flex items-center gap-3 border-t border-stone-200 pt-5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-100 text-stone-700">
+                  <Users className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-stone-900">Equipe operacional</p>
+                  <p className="text-xs text-stone-500">Royal Macaé Palace</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="border-b border-stone-100">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:px-8">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Perguntas frequentes</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
+                Dúvidas comuns na hora de avaliar.
+              </h2>
+              <p className="mt-5 text-base leading-7 text-stone-600">
+                Não encontrou sua dúvida? Fale direto com o time comercial — atendemos pelo WhatsApp.
+              </p>
+              <a
+                href="https://wa.me/5522999999999"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-6 inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-800 transition hover:-translate-y-0.5 hover:border-stone-400"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Falar no WhatsApp
+              </a>
+            </div>
+
+            <div className="space-y-3">
+              {faq.map((item) => (
+                <details
+                  key={item.question}
+                  className="group rounded-2xl border border-stone-200 bg-white p-5 transition hover:border-stone-300"
+                >
+                  <summary className="flex cursor-pointer items-start justify-between gap-4 text-base font-bold text-stone-950 marker:hidden [&::-webkit-details-marker]:hidden">
+                    {item.question}
+                    <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-stone-300 text-stone-700 transition group-open:rotate-45">
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm leading-7 text-stone-600">{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* BOOKING ENGINE — for guests */}
+        <section id="reservar" className="border-b border-stone-100 bg-stone-50">
+          <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+            <div className="mb-8 max-w-3xl">
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Para hóspedes</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
+                Vai se hospedar no Royal Macaé Palace? Reserve direto.
+              </h2>
+              <p className="mt-4 text-base leading-7 text-stone-600">
+                Tarifa direta sem intermediário, com confirmação imediata pelo motor de reservas integrado ao PMS.
+              </p>
+            </div>
+            <PublicBookingEngine />
+          </div>
+        </section>
+
+        {/* DEMO CTA */}
+        <section id="demo" className="border-b border-stone-100">
+          <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+            <div className="rounded-[2rem] border border-stone-200 bg-stone-950 px-8 py-16 text-center text-white sm:px-16">
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-300">Pronto para profissionalizar?</p>
+              <h2 className="mx-auto mt-5 max-w-3xl text-3xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
+                Agende uma demonstração e veja o Royal PMS rodando na sua operação.
+              </h2>
+              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/70">
+                Sem compromisso. Conhecemos seu hotel, mostramos o sistema e você decide se faz sentido seguir.
+              </p>
+
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href="https://wa.me/5522999999999"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-500 px-6 text-sm font-semibold text-stone-950 transition hover:-translate-y-0.5 hover:bg-amber-400"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Falar no WhatsApp
+                </a>
+                <a
+                  href="#login"
+                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/30 bg-white/10 px-6 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/20"
+                >
+                  Já tenho acesso — entrar
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* LOGIN */}
+        <section id="login" className="border-b border-stone-100">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_0.85fr] lg:items-center lg:px-8">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Acessar plataforma</p>
+              <h2 className="mt-4 text-3xl font-black leading-tight tracking-tight text-stone-950 sm:text-4xl">
+                Entre com seu login operacional.
+              </h2>
+              <p className="mt-5 text-base leading-7 text-stone-600">
+                Cada usuário entra direto no módulo da sua função — reservas, recepção, governança, financeiro,
+                manutenção, eventos ou administração geral.
+              </p>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <ShieldCheck className="h-5 w-5 text-amber-700" />
+                  <p className="mt-2 text-sm font-bold text-stone-900">Permissões granulares</p>
+                </div>
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  <p className="mt-2 text-sm font-bold text-stone-900">Trilha de auditoria</p>
+                </div>
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <Sparkles className="h-5 w-5 text-amber-700" />
+                  <p className="mt-2 text-sm font-bold text-stone-900">Atualização contínua</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:justify-self-end">
+              <Login embedded />
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* FOOTER */}
+      <footer className="bg-stone-950 text-white">
+        <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+          <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white p-1">
+                  <img src="/logo.png" alt="Royal PMS" className="h-full w-full object-contain" />
+                </div>
+                <div className="leading-tight">
+                  <p className="text-sm font-black uppercase tracking-tight text-white">Royal PMS</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">Plataforma de hotelaria</p>
+                </div>
+              </div>
+              <p className="mt-5 max-w-sm text-sm leading-7 text-white/65">
+                Sistema integrado para profissionalizar reservas, recepção, governança, manutenção, restaurante,
+                eventos e financeiro.
+              </p>
+            </div>
+
+            {footerLinks.map((column) => (
+              <div key={column.title}>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-white/60">{column.title}</p>
+                <ul className="mt-5 space-y-3 text-sm">
+                  {column.links.map((link) => (
+                    <li key={link.label}>
+                      <a
+                        href={link.href}
+                        target={link.external ? '_blank' : undefined}
+                        rel={link.external ? 'noopener noreferrer' : undefined}
+                        className="text-white/75 transition hover:text-white"
+                      >
+                        {link.label}
+                      </a>
                     </li>
                   ))}
                 </ul>
               </div>
+            ))}
+          </div>
 
-              <div className="rounded-[2rem] border border-stone-200 bg-stone-950 p-7 text-white shadow-[0_24px_70px_rgba(20,12,7,0.18)]">
-                <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-300">Objeções comuns</p>
-                <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-white sm:text-5xl">
-                  Respostas claras para dúvidas que travam a decisão de compra.
-                </h2>
-                <div className="mt-6 space-y-4">
-                  {objections.map((item) => (
-                    <div key={item.question} className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                      <p className="text-sm font-bold text-white">{item.question}</p>
-                      <p className="mt-3 text-sm leading-7 text-white/75">{item.answer}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/50 sm:flex-row sm:items-center">
+            <p>© {new Date().getFullYear()} Royal PMS. Todos os direitos reservados.</p>
+            <div className="flex flex-wrap gap-5">
+              <a href="#" className="transition hover:text-white">Política de privacidade</a>
+              <a href="#" className="transition hover:text-white">Termos de uso</a>
+              <a href="#" className="transition hover:text-white">LGPD</a>
             </div>
-          </section>
-
-          <section id="matriz" className="py-12 sm:py-16">
-            <div className="max-w-4xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Arquitetura por login</p>
-              <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-stone-950 sm:text-5xl">
-                Cada acesso representa uma responsabilidade operacional distinta.
-              </h2>
-              <p className="mt-6 text-base leading-8 text-stone-600">
-                Em vez de tratar tudo como uma única interface, o Royal PMS pode ser apresentado como uma plataforma
-                com acessos específicos para reservas, hotel e faturamento. Isso reforça governança, responsabilidade
-                e especialização operacional.
-              </p>
-            </div>
-
-            <div className="mt-8 grid gap-5 xl:grid-cols-3">
-              {moduleMatrix.map((module) => (
-                <div key={module.name} className="rounded-[2rem] border border-stone-200 bg-white/80 p-6 shadow-lg shadow-amber-950/5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.22em] text-stone-500">{module.audience}</p>
-                      <h3 className="mt-3 text-2xl font-bold text-stone-950">{module.name}</h3>
-                    </div>
-                    <div
-                      className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
-                        module.tone === 'amber'
-                          ? 'bg-amber-100 text-amber-700'
-                          : module.tone === 'emerald'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-stone-100 text-stone-700'
-                      }`}
-                    >
-                      <module.icon className="h-6 w-6" />
-                    </div>
-                  </div>
-
-                  <p className="mt-5 text-sm leading-7 text-stone-600">{module.objective}</p>
-
-                  <div className="mt-6 rounded-3xl bg-stone-50 p-5">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-stone-500">O que esse login deve fazer</p>
-                    <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700">
-                      {module.canDo.map((item) => (
-                        <li key={item} className="flex items-start gap-3">
-                          <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="mt-4 rounded-3xl border border-dashed border-stone-200 p-5">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-stone-500">O que ainda falta profissionalizar</p>
-                    <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-600">
-                      {module.missing.map((item) => (
-                        <li key={item} className="flex items-start gap-3">
-                          <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-stone-400" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-[2rem] border border-stone-200 bg-stone-950 p-7 text-white shadow-[0_24px_70px_rgba(20,12,7,0.18)]">
-                <p className="text-sm font-black uppercase tracking-[0.22em] text-amber-300">Objetivos transversais</p>
-                <p className="mt-5 font-serif text-4xl leading-none tracking-[-0.04em] text-white">
-                  Separar por login só gera valor quando a plataforma também separa contexto, responsabilidade e rastreabilidade.
-                </p>
-                <ul className="mt-6 space-y-4 text-sm leading-7 text-white/80">
-                  {crossModuleGoals.map((goal) => (
-                    <li key={goal} className="flex items-start gap-3">
-                      <ShieldCheck className="mt-1 h-4 w-4 shrink-0 text-amber-300" />
-                      <span>{goal}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="rounded-[2rem] border border-stone-200 bg-white/80 p-7 shadow-lg shadow-amber-950/5">
-                <p className="text-sm font-black uppercase tracking-[0.22em] text-stone-500">Prioridade de evolução</p>
-                <div className="mt-5 space-y-4">
-                  <div className="rounded-3xl bg-amber-50 p-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">Fase 1</p>
-                    <p className="mt-2 text-sm leading-7 text-stone-700">Clarificar o papel de cada módulo, reforçar os dashboards por setor e conectar melhor reserva, hospedagem e cobrança.</p>
-                  </div>
-                  <div className="rounded-3xl bg-stone-50 p-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-stone-500">Fase 2</p>
-                    <p className="mt-2 text-sm leading-7 text-stone-700">Aprofundar permissões, conta corrente da hospedagem, governança e faturamento para reduzir dependência de controles paralelos.</p>
-                  </div>
-                  <div className="rounded-3xl bg-emerald-50 p-5">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Fase 3</p>
-                    <p className="mt-2 text-sm leading-7 text-stone-700">Fechar o produto com NFS-e, automações, conciliação, forecast e auditoria completa entre módulos.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <div className="max-w-4xl">
-                <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Leitura executiva</p>
-                <h3 className="mt-4 font-serif text-3xl leading-none tracking-[-0.04em] text-stone-950 sm:text-4xl">
-                  Um resumo direto do produto para guiar evolução e discurso comercial.
-                </h3>
-              </div>
-
-              <div className="mt-8 grid gap-5 xl:grid-cols-3">
-                {executiveRoadmap.map((column) => (
-                  <div key={column.title} className="rounded-[2rem] border border-stone-200 bg-white/80 p-6 shadow-lg shadow-amber-950/5">
-                    <div
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.22em] ${
-                        column.tone === 'amber'
-                          ? 'bg-amber-100 text-amber-800'
-                          : column.tone === 'emerald'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-stone-100 text-stone-700'
-                      }`}
-                    >
-                      {column.title}
-                    </div>
-
-                    <ul className="mt-5 space-y-4 text-sm leading-7 text-stone-700">
-                      {column.items.map((item) => (
-                        <li key={item} className="flex items-start gap-3 rounded-2xl bg-stone-50 px-4 py-3">
-                          <span
-                            className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${
-                              column.tone === 'amber'
-                                ? 'bg-amber-600'
-                                : column.tone === 'emerald'
-                                  ? 'bg-emerald-600'
-                                  : 'bg-stone-500'
-                            }`}
-                          />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section id="login" className="py-10 sm:py-16">
-            <div className="grid gap-8 lg:grid-cols-[0.95fr_0.75fr] lg:items-center">
-              <div>
-                <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-amber-700">Entrar ou demonstrar</p>
-                <h2 className="mt-4 font-serif text-4xl leading-none tracking-[-0.04em] text-stone-950 sm:text-5xl">
-                  Uma vitrine comercial para apresentar o produto sem perder o acesso operacional.
-                </h2>
-                <p className="mt-6 max-w-2xl text-base leading-8 text-stone-600">
-                  A página posiciona o Royal PMS como produto. O login mantém o fluxo prático de quem já usa a plataforma no dia a dia.
-                </p>
-
-                <div className="mt-8 rounded-[2rem] border border-amber-200 bg-amber-50/80 p-6">
-                  <div className="flex items-start gap-3">
-                    <Sparkles className="mt-1 h-5 w-5 text-amber-700" />
-                    <div>
-                      <p className="text-sm font-bold text-stone-900">Próximo passo recomendado</p>
-                      <p className="mt-2 text-sm leading-7 text-stone-600">
-                        O próximo passo natural é conectar esta vitrine a um canal real de captação, como WhatsApp, formulário comercial ou CRM.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lg:justify-self-end">
-                <Login embedded />
-              </div>
-            </div>
-          </section>
-        </main>
-      </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
