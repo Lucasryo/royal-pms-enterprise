@@ -21,6 +21,7 @@ import HousekeepingDashboard from './components/HousekeepingDashboard';
 import OperationsDashboard from './components/OperationsDashboard';
 import POSDashboard from './components/POSDashboard';
 import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
+import PrioBillingGenerator from './components/PrioBillingGenerator';
 import {
   AdminControlModuleDashboard,
   EventsModuleDashboard,
@@ -34,7 +35,7 @@ import {
   Loader2, User as UserIcon, LogOut, Search, X as CloseIcon,
   Building2, FileText, Users, Sparkles, LayoutDashboard,
   CalendarDays, UserCircle, Settings, Menu, Bell, Search as SearchIcon,
-  ChevronRight, Hotel, Globe, ShieldCheck, UserPlus, DollarSign, KeyRound, BedDouble, ClipboardList, Utensils, BarChart3, Wrench
+  ChevronRight, Hotel, Globe, ShieldCheck, UserPlus, DollarSign, KeyRound, BedDouble, ClipboardList, Utensils, BarChart3, Wrench, Receipt
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { tryFocusElement, consumeFocusTarget } from './lib/focusTarget';
@@ -278,6 +279,7 @@ export default function App() {
       { id: 'companies' as ViewType, label: 'Empresas', icon: Building2 },
       { id: 'tracking' as ViewType, label: 'Rastreio', icon: Search },
       { id: 'finance' as ViewType, label: 'Finanças', icon: FileText },
+      { id: 'prio-billing' as ViewType, label: 'Faturamento Prio', icon: Receipt },
       { id: 'tariffs' as ViewType, label: 'Tarifas', icon: DollarSign },
       { id: 'registration' as ViewType, label: 'Cadastro', icon: UserPlus },
       { id: 'staff' as ViewType, label: 'Equipe', icon: Users },
@@ -330,6 +332,7 @@ export default function App() {
       case 'registration': return <AdminDashboard profile={profile} initialTab="registration" />;
       case 'events': return <EventsModuleDashboard profile={profile} />;
       case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance'} /> : <ClientDashboard profile={profile} initialTab="active" />;
+      case 'prio-billing': return <PrioBillingGenerator profile={profile} />;
       case 'companies': return <AdminDashboard profile={profile} initialTab="companies" />;
       case 'staff': return <AdminDashboard profile={profile} initialTab="users" />;
       case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;

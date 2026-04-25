@@ -73,6 +73,8 @@ export function canAccessView(
       return hasPermission(profile, 'canViewStaff', ['admin']);
     case 'audit':
       return false;
+    case 'prio-billing':
+      return hasPermission(profile, 'canViewFinance', ['admin', 'faturamento', 'finance', 'manager']);
     case 'profile':
       return true;
     default:
