@@ -69,7 +69,6 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
   const [showRaw, setShowRaw] = useState(false);
   const [rawText, setRawText] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const [defaultNoites, setDefaultNoites] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parsePDF = useCallback(async (file: File) => {
@@ -108,7 +107,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       const full = pageTexts.join('\n');
       setRawText(full);
 
-      const parsed = extractRows(full, defaultNoites);
+      const parsed = extractRows(full);
 
       if (parsed.length === 0) {
         setParseError(
@@ -124,9 +123,9 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
     } finally {
       setParsing(false);
     }
-  }, [defaultNoites]);
+  }, []);
 
-  function extractRows(text: string, noitesPadrao: number): BillingRow[] {
+  function extractRows(text: string): BillingRow[] {
     const results: BillingRow[] = [];
     const lines = text.split('\n');
 
@@ -148,7 +147,7 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
       const allDates = line.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
       const checkin  = allDates[0] || '';
       const checkout = allDates[1] || '';
-      const noites   = checkin && checkout ? nightsBetween(checkin, checkout) : noitesPadrao;
+      const noites   = nightsBetween(checkin, checkout);
 
       // Hóspede: strip nota, dates, value, status keywords → remaining text
       let hospedeLine = line
@@ -177,10 +176,6 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
   const updateNoites = (idx: number, val: string) => {
     const n = Math.max(0, parseInt(val) || 0);
     setRows(prev => prev.map((r, i) => i === idx ? calcRow({ ...r, noites: n }) : r));
-  };
-
-  const applyDefaultNoites = () => {
-    setRows(prev => prev.map(r => calcRow({ ...r, noites: defaultNoites })));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -419,24 +414,6 @@ export default function PrioBillingGenerator({ profile: _profile }: Props) {
                   {oe ? `O.E.: ${oe}` : ''}{oe && solicitante ? '  ·  ' : ''}{solicitante ? `Solicitante: ${solicitante}` : ''}
                 </p>
               )}
-            </div>
-
-            {/* Default noites control */}
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              <span className="text-xs font-medium text-amber-800">Noites padrão:</span>
-              <input
-                type="number"
-                min={0}
-                value={defaultNoites}
-                onChange={e => setDefaultNoites(Math.max(0, parseInt(e.target.value) || 0))}
-                className="w-14 px-2 py-1 border border-amber-300 rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-              <button
-                onClick={applyDefaultNoites}
-                className="text-xs font-semibold text-amber-800 hover:text-amber-900 underline whitespace-nowrap"
-              >
-                Aplicar a todos
-              </button>
             </div>
 
             <div className="flex items-center gap-2">
