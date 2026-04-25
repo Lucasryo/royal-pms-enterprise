@@ -65,8 +65,9 @@ export function MaintenanceModuleDashboard({ profile, canManage }: { profile: Us
       description="Fila de chamados, tratamento, justificativa, notificacao, acesso as UHs e plano preventivo para manutencao."
       profile={profile}
       queueDepartment="maintenance"
+      hideTopQueue
       tabs={[
-        { id: 'tickets', label: 'Chamados', icon: Wrench, render: () => <OperationsDashboard profile={profile} /> },
+        { id: 'tickets', label: 'Chamados', icon: Wrench, render: () => <OperationalWorkQueue profile={profile} department="maintenance" /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
         {
           id: 'preventive',
@@ -176,6 +177,7 @@ function ModuleShell<T extends string>({
   profile,
   queueDepartment,
   adminQueue = false,
+  hideTopQueue = false,
 }: {
   eyebrow: string;
   title: string;
@@ -184,6 +186,7 @@ function ModuleShell<T extends string>({
   profile: UserProfile;
   queueDepartment: OperationalDepartment;
   adminQueue?: boolean;
+  hideTopQueue?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<T>(tabs[0].id);
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
@@ -197,7 +200,7 @@ function ModuleShell<T extends string>({
       </div>
 
       <SharedHotelCalendar compact />
-      <OperationalWorkQueue profile={profile} department={queueDepartment} adminView={adminQueue} />
+      {!hideTopQueue && <OperationalWorkQueue profile={profile} department={queueDepartment} adminView={adminQueue} />}
 
       <div className="flex gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
         {tabs.map((tab) => {

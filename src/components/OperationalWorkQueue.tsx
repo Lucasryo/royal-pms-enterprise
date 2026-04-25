@@ -2,7 +2,20 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Send, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
-import { UserProfile } from '../types';
+import { UserProfile, UserRole } from '../types';
+
+type Collaborator = Pick<UserProfile, 'id' | 'name' | 'role'>;
+
+const ROLES_BY_DEPARTMENT: Record<OperationalDepartment, UserRole[]> = {
+  reservations: ['reservations'],
+  reception: ['reception'],
+  maintenance: ['maintenance'],
+  finance: ['finance', 'faturamento'],
+  restaurant: ['restaurant'],
+  events: ['eventos'],
+  housekeeping: ['housekeeping'],
+  admin: ['admin', 'manager'],
+};
 
 export type OperationalDepartment =
   | 'reservations'
@@ -74,8 +87,12 @@ export default function OperationalWorkQueue({
   const [showCreate, setShowCreate] = useState(false);
   const [tab, setTab] = useState<'active' | 'in_progress' | 'history'>('active');
   const [noteByTask, setNoteByTask] = useState<Record<string, string>>({});
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [directingTaskId, setDirectingTaskId] = useState<string | null>(null);
+  const [directTargetId, setDirectTargetId] = useState<string>('');
 
   const MAX_ACTIVE_PER_USER = 2;
+  const canDirect = profile.role === 'admin' || profile.role === 'manager';
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -88,6 +105,27 @@ export default function OperationalWorkQueue({
   useEffect(() => {
     fetchQueue();
   }, [department, adminView]);
+
+  useEffect(() => {
+    if (!canDirect) return;
+    loadCollaborators();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canDirect, department]);
+
+  async function loadCollaborators() {
+    const deptRoles = ROLES_BY_DEPARTMENT[department] || [];
+    const allowedRoles = Array.from(new Set<UserRole>([...deptRoles, 'manager', 'admin']));
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, role')
+      .in('role', allowedRoles)
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('Erro ao carregar colaboradores:', error.message);
+      return;
+    }
+    setCollaborators((data || []) as Collaborator[]);
+  }
 
   async function fetchQueue() {
     setLoading(true);
@@ -211,6 +249,49 @@ export default function OperationalWorkQueue({
 
   async function addHistory(taskId: string, action: string, note?: string) {
     await supabase.from('operational_task_history').insert([{ task_id: taskId, user_id: profile.id, action, note }]);
+  }
+
+  async function directTask(task: OperationalTask) {
+    if (!canDirect) return;
+    if (!directTargetId) {
+      toast.error('Selecione um colaborador para direcionar.');
+      return;
+    }
+
+    const targetActiveCount = tasks.filter(
+      (item) => item.assigned_to === directTargetId && item.status === 'in_progress',
+    ).length;
+    if (targetActiveCount >= MAX_ACTIVE_PER_USER) {
+      toast.error(`O colaborador escolhido ja possui ${MAX_ACTIVE_PER_USER} demandas em andamento.`);
+      return;
+    }
+
+    const collaborator = collaborators.find((item) => item.id === directTargetId);
+    const note = noteByTask[task.id]?.trim();
+
+    const { error } = await supabase
+      .from('operational_tasks')
+      .update({
+        status: 'in_progress',
+        assigned_to: directTargetId,
+        last_note: note || task.last_note || null,
+      })
+      .eq('id', task.id);
+    if (error) {
+      toast.error('Erro ao direcionar tarefa: ' + error.message);
+      return;
+    }
+
+    await addHistory(
+      task.id,
+      'directed',
+      `Direcionada para ${collaborator?.name || directTargetId} por ${profile.name}${note ? ` - ${note}` : ''}`,
+    );
+    setNoteByTask((current) => ({ ...current, [task.id]: '' }));
+    setDirectingTaskId(null);
+    setDirectTargetId('');
+    toast.success(`Chamado direcionado para ${collaborator?.name || 'colaborador'}.`);
+    fetchQueue();
   }
 
   const scopedTasks = tasks.filter((task) => adminView || task.target_department === department || task.origin_department === department);
@@ -339,17 +420,63 @@ export default function OperationalWorkQueue({
                   <div className="min-w-[280px] space-y-2">
                     <input value={noteByTask[task.id] || ''} onChange={(event) => setNoteByTask((current) => ({ ...current, [task.id]: event.target.value }))} className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Nota/justificativa" />
                     {tab === 'active' ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => updateTask(task, 'in_progress')}
-                          disabled={assumeBlocked}
-                          title={assumeBlocked ? `Limite de ${MAX_ACTIVE_PER_USER} demandas em andamento atingido` : undefined}
-                          className={`rounded-xl px-3 py-2 text-xs font-black text-white ${assumeBlocked ? 'cursor-not-allowed bg-neutral-300' : 'bg-blue-950'}`}
-                        >
-                          Assumir
-                        </button>
-                        <button onClick={() => updateTask(task, 'cancelled')} className="rounded-xl bg-neutral-500 px-3 py-2 text-xs font-black text-white">Cancelar</button>
-                      </div>
+                      directingTaskId === task.id ? (
+                        <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Direcionar para colaborador</p>
+                          <select
+                            value={directTargetId}
+                            onChange={(event) => setDirectTargetId(event.target.value)}
+                            className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                          >
+                            <option value="">Escolher colaborador...</option>
+                            {collaborators
+                              .filter((collab) => collab.id !== profile.id)
+                              .map((collab) => {
+                                const count = tasks.filter((item) => item.assigned_to === collab.id && item.status === 'in_progress').length;
+                                return (
+                                  <option key={collab.id} value={collab.id} disabled={count >= MAX_ACTIVE_PER_USER}>
+                                    {collab.name} ({collab.role}) - {count}/{MAX_ACTIVE_PER_USER}
+                                  </option>
+                                );
+                              })}
+                          </select>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button onClick={() => directTask(task)} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white">Confirmar</button>
+                            <button
+                              onClick={() => {
+                                setDirectingTaskId(null);
+                                setDirectTargetId('');
+                              }}
+                              className="rounded-xl bg-neutral-300 px-3 py-2 text-xs font-black text-neutral-700"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => updateTask(task, 'in_progress')}
+                            disabled={assumeBlocked}
+                            title={assumeBlocked ? `Limite de ${MAX_ACTIVE_PER_USER} demandas em andamento atingido` : undefined}
+                            className={`rounded-xl px-3 py-2 text-xs font-black text-white ${assumeBlocked ? 'cursor-not-allowed bg-neutral-300' : 'bg-blue-950'}`}
+                          >
+                            Assumir
+                          </button>
+                          {canDirect ? (
+                            <button
+                              onClick={() => {
+                                setDirectingTaskId(task.id);
+                                setDirectTargetId('');
+                              }}
+                              className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white"
+                            >
+                              Direcionar
+                            </button>
+                          ) : null}
+                          <button onClick={() => updateTask(task, 'cancelled')} className={`rounded-xl bg-neutral-500 px-3 py-2 text-xs font-black text-white ${canDirect ? 'col-span-2' : ''}`}>Cancelar (req. justif.)</button>
+                        </div>
+                      )
                     ) : (
                       <div className="grid grid-cols-2 gap-2">
                         <button onClick={() => updateTask(task, 'done')} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Concluir</button>
