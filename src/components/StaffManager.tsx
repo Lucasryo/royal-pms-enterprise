@@ -49,9 +49,10 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
 
     try {
       if (editingUser) {
+        const { status: _status, ...fieldsToUpdate } = formData;
         const { error } = await supabase
           .from('profiles')
-          .update({ ...formData, permissions: formPermissions })
+          .update({ ...fieldsToUpdate, permissions: formPermissions })
           .eq('id', editingUser.id);
         
         if (error) throw error;
