@@ -72,7 +72,10 @@ export default function OperationalWorkQueue({
   const [history, setHistory] = useState<TaskHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [tab, setTab] = useState<'active' | 'history'>('active');
   const [noteByTask, setNoteByTask] = useState<Record<string, string>>({});
+
+  const MAX_ACTIVE_PER_USER = 2;
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -131,6 +134,11 @@ export default function OperationalWorkQueue({
     return { active: active.length, critical: critical.length, waiting: waiting.length, overdue: overdue.length };
   }, [tasks]);
 
+  const myActiveCount = useMemo(
+    () => tasks.filter((task) => task.assigned_to === profile.id && task.status === 'in_progress').length,
+    [tasks, profile.id],
+  );
+
   async function createTask(event: FormEvent) {
     event.preventDefault();
     if (!form.title.trim()) return;
@@ -159,10 +167,26 @@ export default function OperationalWorkQueue({
   }
 
   async function updateTask(task: OperationalTask, status: OperationalTask['status']) {
+    if (status === 'in_progress') {
+      const alreadyMineInProgress = task.assigned_to === profile.id && task.status === 'in_progress';
+      if (!alreadyMineInProgress && myActiveCount >= MAX_ACTIVE_PER_USER) {
+        toast.error(`Limite atingido: voce ja tem ${MAX_ACTIVE_PER_USER} demandas em andamento. Conclua ou libere uma antes de assumir outra.`);
+        return;
+      }
+    }
+
     const note = noteByTask[task.id]?.trim();
+    const updates: Record<string, unknown> = {
+      status,
+      last_note: note || task.last_note || null,
+    };
+    if (status === 'in_progress') {
+      updates.assigned_to = profile.id;
+    }
+
     const { error } = await supabase
       .from('operational_tasks')
-      .update({ status, last_note: note || task.last_note || null })
+      .update(updates)
       .eq('id', task.id);
     if (error) {
       toast.error('Erro ao atualizar tarefa: ' + error.message);
@@ -178,7 +202,10 @@ export default function OperationalWorkQueue({
     await supabase.from('operational_task_history').insert([{ task_id: taskId, user_id: profile.id, action, note }]);
   }
 
-  const visibleTasks = tasks.filter((task) => adminView || task.target_department === department || task.origin_department === department);
+  const scopedTasks = tasks.filter((task) => adminView || task.target_department === department || task.origin_department === department);
+  const activeTasks = scopedTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
+  const historyTasks = scopedTasks.filter((task) => ['done', 'cancelled'].includes(task.status));
+  const visibleTasks = tab === 'active' ? activeTasks : historyTasks;
 
   return (
     <div className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
@@ -202,6 +229,26 @@ export default function OperationalWorkQueue({
         <QueueMetric icon={AlertTriangle} label="Criticas" value={String(metrics.critical)} danger={metrics.critical > 0} />
         <QueueMetric icon={Send} label="Aguardando setor" value={String(metrics.waiting)} />
         <QueueMetric icon={Clock} label="SLA vencido" value={String(metrics.overdue)} danger={metrics.overdue > 0} />
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-2xl border border-neutral-200 bg-neutral-50 p-1">
+          <button
+            onClick={() => setTab('active')}
+            className={`rounded-xl px-4 py-2 text-xs font-black uppercase tracking-widest transition ${tab === 'active' ? 'bg-neutral-950 text-white' : 'text-neutral-500'}`}
+          >
+            Ativas ({activeTasks.length})
+          </button>
+          <button
+            onClick={() => setTab('history')}
+            className={`rounded-xl px-4 py-2 text-xs font-black uppercase tracking-widest transition ${tab === 'history' ? 'bg-neutral-950 text-white' : 'text-neutral-500'}`}
+          >
+            Historico ({historyTasks.length})
+          </button>
+        </div>
+        <p className={`text-xs font-black uppercase tracking-widest ${myActiveCount >= MAX_ACTIVE_PER_USER ? 'text-red-700' : 'text-neutral-500'}`}>
+          Minhas em andamento: {myActiveCount}/{MAX_ACTIVE_PER_USER}
+        </p>
       </div>
 
       {showCreate && (
@@ -228,11 +275,14 @@ export default function OperationalWorkQueue({
           <div className="rounded-2xl bg-neutral-50 p-5 text-sm font-bold text-neutral-400">Carregando filas...</div>
         ) : visibleTasks.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-8 text-center text-sm font-bold text-neutral-400">
-            Nenhuma pendencia operacional para este modulo.
+            {tab === 'active' ? 'Nenhuma pendencia operacional para este modulo.' : 'Nenhuma tarefa concluida ou cancelada no historico.'}
           </div>
         ) : visibleTasks.map((task) => {
           const latestHistory = history.find((item) => item.task_id === task.id);
           const overdue = task.due_at && new Date(task.due_at) < new Date() && !['done', 'cancelled'].includes(task.status);
+          const isClosed = ['done', 'cancelled'].includes(task.status);
+          const alreadyMine = task.assigned_to === profile.id && task.status === 'in_progress';
+          const assumeBlocked = !alreadyMine && myActiveCount >= MAX_ACTIVE_PER_USER;
           return (
             <div key={task.id} className={`rounded-3xl border p-4 ${overdue ? 'border-red-200 bg-red-50/70' : 'border-neutral-200 bg-neutral-50'}`}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -251,15 +301,24 @@ export default function OperationalWorkQueue({
                   </p>
                   {latestHistory ? <p className="mt-2 text-xs text-neutral-400">Ultimo historico: {latestHistory.action} - {latestHistory.note || 'sem nota'}</p> : null}
                 </div>
-                <div className="min-w-[280px] space-y-2">
-                  <input value={noteByTask[task.id] || ''} onChange={(event) => setNoteByTask((current) => ({ ...current, [task.id]: event.target.value }))} className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Nota/justificativa" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => updateTask(task, 'in_progress')} className="rounded-xl bg-blue-950 px-3 py-2 text-xs font-black text-white">Assumir</button>
-                    <button onClick={() => updateTask(task, 'waiting_other_department')} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white">Aguardar</button>
-                    <button onClick={() => updateTask(task, 'done')} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Concluir</button>
-                    <button onClick={() => updateTask(task, 'cancelled')} className="rounded-xl bg-neutral-500 px-3 py-2 text-xs font-black text-white">Cancelar</button>
+                {isClosed ? null : (
+                  <div className="min-w-[280px] space-y-2">
+                    <input value={noteByTask[task.id] || ''} onChange={(event) => setNoteByTask((current) => ({ ...current, [task.id]: event.target.value }))} className="w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm" placeholder="Nota/justificativa" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => updateTask(task, 'in_progress')}
+                        disabled={assumeBlocked}
+                        title={assumeBlocked ? `Limite de ${MAX_ACTIVE_PER_USER} demandas em andamento atingido` : undefined}
+                        className={`rounded-xl px-3 py-2 text-xs font-black text-white ${assumeBlocked ? 'cursor-not-allowed bg-neutral-300' : 'bg-blue-950'}`}
+                      >
+                        Assumir
+                      </button>
+                      <button onClick={() => updateTask(task, 'waiting_other_department')} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white">Aguardar</button>
+                      <button onClick={() => updateTask(task, 'done')} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Concluir</button>
+                      <button onClick={() => updateTask(task, 'cancelled')} className="rounded-xl bg-neutral-500 px-3 py-2 text-xs font-black text-white">Cancelar</button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           );
