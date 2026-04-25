@@ -170,7 +170,10 @@ export default function App() {
           permissions: data.permissions ?? undefined,
         } as UserProfile;
         setProfile(userProfile);
-        setCurrentView(ROLE_HOME_VIEW[userProfile.role] || 'dashboard');
+        // Só redireciona para a home view no primeiro login — não em recargas de página
+        if (!sessionStorage.getItem('pms_current_view')) {
+          setCurrentView(ROLE_HOME_VIEW[userProfile.role] || 'dashboard');
+        }
         return userProfile;
       }
       return null;
