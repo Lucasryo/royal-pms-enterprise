@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CalendarRange, CheckCircle2, Loader2, Send, Users, Info } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarRange, CheckCircle2, Loader2, Send, Users } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { toast } from 'sonner';
 import RatesCalendar from './RatesCalendar';
@@ -20,6 +21,9 @@ type Quote =
 const formatBRL = (n: number) =>
   n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+const formatDateShort = (iso: string) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+
 export default function PublicBookingEngine() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const tomorrow = useMemo(() => {
@@ -32,6 +36,8 @@ export default function PublicBookingEngine() {
   const [sentCode, setSentCode] = useState('');
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const calendarRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     guest_name: '',
     contact_email: '',
@@ -44,15 +50,36 @@ export default function PublicBookingEngine() {
     notes: '',
   });
 
-  const nights = useMemo(() => {
-    const start = new Date(`${formData.check_in}T12:00:00`);
-    const end = new Date(`${formData.check_out}T12:00:00`);
-    return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-  }, [formData.check_in, formData.check_out]);
+  // Close calendar on outside click
+  useEffect(() => {
+    if (!calendarOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setCalendarOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setCalendarOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [calendarOpen]);
+
+  // Auto-close calendar when both dates picked (full range)
+  useEffect(() => {
+    if (calendarOpen && formData.check_in && formData.check_out && formData.check_out > formData.check_in) {
+      const handle = setTimeout(() => setCalendarOpen(false), 250);
+      return () => clearTimeout(handle);
+    }
+  }, [calendarOpen, formData.check_in, formData.check_out]);
 
   // Fetch quote when relevant inputs change (debounced)
   useEffect(() => {
-    if (formData.check_out <= formData.check_in) {
+    if (!formData.check_in || !formData.check_out || formData.check_out <= formData.check_in) {
       setQuote(null);
       return;
     }
@@ -138,85 +165,60 @@ export default function PublicBookingEngine() {
     }
   }
 
+  const datesPicked = formData.check_in && formData.check_out;
+  const totalGuests = Number(formData.adults) + Number(formData.children);
+
   return (
-    <div className="rounded-[2rem] border border-stone-200 bg-white/85 p-6 shadow-[0_28px_90px_rgba(68,37,15,0.12)] backdrop-blur">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-amber-700">Reservas diretas</p>
-          <h2 className="mt-3 font-display text-4xl leading-none tracking-[-0.04em] text-stone-950">
+    <div className="rounded-[2rem] border border-stone-200 bg-white/85 p-6 shadow-[0_28px_90px_rgba(68,37,15,0.12)] backdrop-blur sm:p-8">
+      {/* Header */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.28em] text-amber-700">Reservas diretas</p>
+          <h2 className="mt-2 font-display text-3xl leading-[1.05] tracking-[-0.02em] text-stone-950 sm:text-4xl">
             Reserve direto com o hotel.
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600">
-            Tarifa publica calculada na hora. A central de reservas confirma disponibilidade e garantia da reserva.
+          <p className="mt-3 text-sm leading-7 text-stone-600">
+            Tarifa publica calculada na hora. A central confirma disponibilidade e garantia da reserva.
           </p>
         </div>
 
-        {/* Price box */}
-        <div className={`min-w-[230px] rounded-3xl px-5 py-4 text-white ${isPriceAvailable ? 'bg-stone-950' : 'bg-stone-700'}`}>
+        {/* Price card */}
+        <div className={`min-w-[260px] rounded-2xl px-5 py-4 text-white ${isPriceAvailable ? 'bg-stone-950' : 'bg-stone-700'}`}>
           {quoteLoading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/55">Calculando...</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">Calculando...</p>
             </div>
           ) : isPriceAvailable ? (
             <>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/55">Estimativa total</p>
-              <p className="mt-1 text-3xl font-black">{totalLabel}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">Estimativa total</p>
+              <p className="mt-1 font-display text-3xl font-light leading-tight">{totalLabel}</p>
               <p className="mt-1 text-xs text-white/65">
                 {quote.nights} noite{quote.nights > 1 ? 's' : ''} · diaria media {formatBRL(quote.nightly_total / quote.nights)}
               </p>
             </>
           ) : quote && quote.ok && !quote.available ? (
             <>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">Cotacao manual</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300">Cotacao manual</p>
               <p className="mt-1 text-sm leading-5 text-white/85">{quote.reason}</p>
             </>
           ) : quote && !quote.ok ? (
             <>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-300">Erro</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-red-300">Erro</p>
               <p className="mt-1 text-sm leading-5 text-white/85">{quote.error}</p>
             </>
           ) : (
             <>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/55">Periodo</p>
-              <p className="mt-2 text-2xl font-black">
-                {nights} noite{nights > 1 ? 's' : ''}
-              </p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">Reserva direta</p>
+              <p className="mt-1 font-display text-2xl font-light">Selecione as datas</p>
+              <p className="mt-1 text-xs text-white/65">para ver o preco</p>
             </>
           )}
         </div>
       </div>
 
-      {/* Breakdown by night (when price available and >1 night) */}
-      {isPriceAvailable && quote.breakdown.length > 0 && (
-        <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4">
-          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-stone-700">
-            <Info className="h-4 w-4 text-amber-700" />
-            Desdobramento por noite
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {quote.breakdown.map((b) => (
-              <div key={b.date} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-xs">
-                <div>
-                  <p className="font-bold text-stone-900">{new Date(`${b.date}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}</p>
-                  <p className="text-[10px] uppercase tracking-widest text-stone-500">
-                    {b.label}{b.weekend ? ' · fim de semana' : ''}
-                  </p>
-                </div>
-                <p className="font-black text-stone-900">{formatBRL(b.rate)}</p>
-              </div>
-            ))}
-          </div>
-          {quote.extra_guest_total > 0 && (
-            <p className="mt-3 text-xs text-amber-800">
-              + {formatBRL(quote.extra_guest_total)} por hospede adicional ({quote.extra_guests} hospede(s) acima do incluido na tarifa).
-            </p>
-          )}
-        </div>
-      )}
-
       {sentCode && (
-        <div className="mt-5 flex items-start gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+        <div className="mt-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-bold">Solicitacao recebida: {sentCode}</p>
@@ -229,124 +231,218 @@ export default function PublicBookingEngine() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="mt-6 grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-4">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Nome completo</label>
-          <input
-            required
-            value={formData.guest_name}
-            onChange={(event) => setFormData({ ...formData, guest_name: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-            placeholder="Hospede principal"
-          />
+      <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
+        {/* Row 1: Datas + Adultos + Criancas + Categoria */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
+          {/* Date range trigger */}
+          <div ref={calendarRef} className="relative lg:col-span-6">
+            <Label>Periodo da estadia</Label>
+            <button
+              type="button"
+              onClick={() => setCalendarOpen((v) => !v)}
+              className="mt-2 flex w-full items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-left text-sm transition hover:border-stone-300 hover:bg-white focus:border-amber-500 focus:bg-white focus:outline-none"
+            >
+              <div className="flex flex-1 items-center gap-3">
+                <CalendarRange className="h-4 w-4 shrink-0 text-amber-700" />
+                <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-bold text-stone-900">
+                    {formData.check_in ? formatDateShort(formData.check_in) : '—'}
+                  </span>
+                  <span className="text-stone-400">→</span>
+                  <span className="font-bold text-stone-900">
+                    {formData.check_out ? formatDateShort(formData.check_out) : 'selecionar saida'}
+                  </span>
+                  {isPriceAvailable && (
+                    <span className="text-[11px] uppercase tracking-widest text-stone-500">
+                      · {quote.nights} noite{quote.nights > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className="text-xs text-stone-400">
+                {calendarOpen ? 'fechar' : 'alterar'}
+              </span>
+            </button>
+
+            <AnimatePresence>
+              {calendarOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                  className="absolute left-0 right-0 top-full z-30 mt-2 lg:right-auto lg:w-[min(720px,calc(100vw-3rem))]"
+                >
+                  <RatesCalendar
+                    category={formData.category}
+                    value={{ check_in: formData.check_in, check_out: formData.check_out }}
+                    onChange={(v) =>
+                      setFormData((current) => ({
+                        ...current,
+                        check_in: v.check_in,
+                        check_out: v.check_out,
+                      }))
+                    }
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Hospedes (combinado) */}
+          <div className="lg:col-span-3">
+            <Label>Hospedes</Label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-widest text-stone-400">Adultos</p>
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={formData.adults}
+                  onChange={(event) => setFormData({ ...formData, adults: Number(event.target.value) })}
+                  className="mt-0.5 w-full bg-transparent text-base font-bold text-stone-900 outline-none"
+                />
+              </div>
+              <div className="rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-widest text-stone-400">Criancas</p>
+                <input
+                  type="number"
+                  min={0}
+                  max={6}
+                  value={formData.children}
+                  onChange={(event) => setFormData({ ...formData, children: Number(event.target.value) })}
+                  className="mt-0.5 w-full bg-transparent text-base font-bold text-stone-900 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Categoria */}
+          <div className="lg:col-span-3">
+            <Label>Categoria</Label>
+            <select
+              value={formData.category}
+              onChange={(event) => setFormData({ ...formData, category: event.target.value })}
+              className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold text-stone-900 outline-none transition focus:border-amber-500 focus:bg-white"
+            >
+              {roomCategories.map((category) => (
+                <option key={category.value} value={category.value}>{category.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="lg:col-span-4">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">E-mail</label>
-          <input
-            required
-            type="email"
-            value={formData.contact_email}
-            onChange={(event) => setFormData({ ...formData, contact_email: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-            placeholder="voce@email.com"
-          />
-        </div>
-        <div className="lg:col-span-4">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Telefone / WhatsApp</label>
-          <input
-            required
-            value={formData.contact_phone}
-            onChange={(event) => setFormData({ ...formData, contact_phone: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-            placeholder="(00) 00000-0000"
-          />
-        </div>
-        <div className="lg:col-span-12">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Periodo da estadia</label>
-          <div className="mt-2">
-            <RatesCalendar
-              category={formData.category}
-              value={{ check_in: formData.check_in, check_out: formData.check_out }}
-              onChange={(v) =>
-                setFormData((current) => ({
-                  ...current,
-                  check_in: v.check_in,
-                  check_out: v.check_out,
-                }))
-              }
+
+        {/* Row 2: Nome + Email + Telefone */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <Label>Nome completo</Label>
+            <input
+              required
+              value={formData.guest_name}
+              onChange={(event) => setFormData({ ...formData, guest_name: event.target.value })}
+              className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
+              placeholder="Hospede principal"
+            />
+          </div>
+          <div>
+            <Label>E-mail</Label>
+            <input
+              required
+              type="email"
+              value={formData.contact_email}
+              onChange={(event) => setFormData({ ...formData, contact_email: event.target.value })}
+              className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
+              placeholder="voce@email.com"
+            />
+          </div>
+          <div>
+            <Label>Telefone / WhatsApp</Label>
+            <input
+              required
+              value={formData.contact_phone}
+              onChange={(event) => setFormData({ ...formData, contact_phone: event.target.value })}
+              className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
+              placeholder="(00) 00000-0000"
             />
           </div>
         </div>
-        <div className="lg:col-span-2">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Adultos</label>
-          <input
-            required
-            type="number"
-            min={1}
-            max={8}
-            value={formData.adults}
-            onChange={(event) => setFormData({ ...formData, adults: Number(event.target.value) })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-          />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Criancas</label>
-          <input
-            type="number"
-            min={0}
-            max={6}
-            value={formData.children}
-            onChange={(event) => setFormData({ ...formData, children: Number(event.target.value) })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-          />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Categoria</label>
-          <select
-            value={formData.category}
-            onChange={(event) => setFormData({ ...formData, category: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-          >
-            {roomCategories.map((category) => (
-              <option key={category.value} value={category.value}>{category.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="lg:col-span-9">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Observacoes</label>
+
+        {/* Row 3: Observacoes */}
+        <div>
+          <Label>Observacoes</Label>
           <textarea
             value={formData.notes}
             onChange={(event) => setFormData({ ...formData, notes: event.target.value })}
-            rows={3}
+            rows={2}
             className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
             placeholder="Pedidos especiais, horario previsto, acessibilidade, garagem..."
           />
         </div>
-        <div className="flex flex-col justify-end gap-3 lg:col-span-3">
-          <div className={`rounded-3xl px-4 py-3 text-sm ${isPriceAvailable ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
-            <div className="flex items-center gap-2 font-bold">
-              <CalendarRange className="h-4 w-4" />
-              {isPriceAvailable ? 'Tarifa publica calculada' : 'Confirmacao manual'}
+
+        {/* Row 4: Submit row */}
+        <div className="flex flex-col gap-3 border-t border-stone-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${isPriceAvailable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+              <CalendarRange className="h-3.5 w-3.5" />
+              <span className="font-bold">
+                {isPriceAvailable ? 'Tarifa publica calculada' : 'Confirmacao manual'}
+              </span>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <Users className="h-4 w-4" />
-              {Number(formData.adults) + Number(formData.children)} hospede(s)
+            <div className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1.5 text-stone-700">
+              <Users className="h-3.5 w-3.5" />
+              <span className="font-bold">{totalGuests} hospede{totalGuests > 1 ? 's' : ''}</span>
             </div>
+            {isPriceAvailable && quote.breakdown.length > 0 && (
+              <details className="text-stone-500">
+                <summary className="cursor-pointer text-xs font-bold underline-offset-4 hover:underline">
+                  Ver desdobramento por noite
+                </summary>
+                <div className="mt-2 space-y-1 rounded-xl bg-stone-50 p-3 text-[11px]">
+                  {quote.breakdown.map((b) => (
+                    <div key={b.date} className="flex items-center justify-between gap-3">
+                      <span>
+                        {new Date(`${b.date}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                        <span className={`ml-2 text-[9px] uppercase tracking-widest ${b.weekend ? 'text-amber-700' : 'text-stone-400'}`}>
+                          {b.label}{b.weekend ? ' · fds' : ''}
+                        </span>
+                      </span>
+                      <span className="font-bold text-stone-900">{formatBRL(b.rate)}</span>
+                    </div>
+                  ))}
+                  {quote.extra_guest_total > 0 && (
+                    <div className="mt-2 border-t border-stone-200 pt-2 text-amber-800">
+                      + {formatBRL(quote.extra_guest_total)} hospede(s) extra
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
           <button
             type="submit"
-            disabled={loading || !formData.check_in || !formData.check_out}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 text-sm font-bold text-white shadow-lg shadow-stone-950/15 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading || !datesPicked}
+            className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-stone-950 px-6 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {isPriceAvailable
-              ? `Reservar por ${totalLabel}`
-              : formData.check_in && formData.check_out
-                ? 'Solicitar cotacao'
-                : 'Selecione as datas'}
+            <span>
+              {isPriceAvailable
+                ? `Reservar por ${totalLabel}`
+                : datesPicked
+                  ? 'Solicitar cotacao'
+                  : 'Selecione as datas'}
+            </span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-stone-950 transition-transform group-hover:translate-x-0.5">
+              →
+            </span>
           </button>
         </div>
       </form>
     </div>
   );
+}
+
+function Label({ children }: { children: string }) {
+  return <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">{children}</label>;
 }
