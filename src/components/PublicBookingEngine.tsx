@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarRange, CheckCircle2, Loader2, Send, Users } from 'lucide-react';
+import { Banknote, CalendarRange, CheckCircle2, CreditCard, Loader2, QrCode, Send, Users } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { toast } from 'sonner';
@@ -9,6 +9,14 @@ const roomCategories = [
   { value: 'executivo', label: 'Executivo' },
   { value: 'master', label: 'Master' },
   { value: 'suite presidencial', label: 'Suite presidencial' },
+];
+
+type PaymentMethod = 'CREDIT_CARD' | 'PIX' | 'CASH';
+
+const paymentMethods: Array<{ value: PaymentMethod; label: string; sub: string; icon: typeof CreditCard }> = [
+  { value: 'CREDIT_CARD', label: 'Cartão de crédito', sub: 'Cobrança na chegada ou link', icon: CreditCard },
+  { value: 'PIX', label: 'PIX', sub: 'Link enviado após confirmação', icon: QrCode },
+  { value: 'CASH', label: 'Dinheiro', sub: 'Pagamento direto no check-in', icon: Banknote },
 ];
 
 type QuoteBreakdown = { date: string; rate: number; label: string; weekend: boolean };
@@ -47,6 +55,7 @@ export default function PublicBookingEngine() {
     adults: 2,
     children: 0,
     category: 'executivo',
+    payment_method: 'CREDIT_CARD' as PaymentMethod,
     notes: '',
   });
 
@@ -243,6 +252,7 @@ export default function PublicBookingEngine() {
               {isPriceAvailable
                 ? `Tarifa estimada ${totalLabel}. Nossa central confirma disponibilidade e a forma de garantia.`
                 : 'Nossa central vai confirmar disponibilidade, tarifa final e garantia da reserva.'}
+              {' '}Forma de pagamento escolhida: <strong>{paymentMethods.find((p) => p.value === formData.payment_method)?.label}</strong>.
             </p>
           </div>
         </div>
@@ -411,7 +421,37 @@ export default function PublicBookingEngine() {
           </div>
         </div>
 
-        {/* Row 3: Observacoes */}
+        {/* Row 3: Forma de pagamento */}
+        <div>
+          <Label>Forma de pagamento</Label>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {paymentMethods.map((m) => {
+              const selected = formData.payment_method === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, payment_method: m.value })}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                    selected
+                      ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-200'
+                      : 'border-stone-200 bg-stone-50 hover:border-stone-300 hover:bg-white'
+                  }`}
+                >
+                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${selected ? 'bg-amber-700 text-white' : 'bg-white text-stone-700'}`}>
+                    <m.icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${selected ? 'text-amber-900' : 'text-stone-900'}`}>{m.label}</p>
+                    <p className={`text-[11px] leading-4 ${selected ? 'text-amber-700' : 'text-stone-500'}`}>{m.sub}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Row 4: Observacoes */}
         <div>
           <Label>Observacoes</Label>
           <textarea

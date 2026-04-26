@@ -39,6 +39,14 @@ serve(async (req) => {
     const adults = clampNumber(body?.adults, 1, 12, 1);
     const children = clampNumber(body?.children, 0, 12, 0);
     const guestsPerUh = clampNumber(body?.guests_per_uh, 1, 24, adults + children);
+    const allowedPayments = ["CREDIT_CARD", "PIX", "CASH"];
+    const requestedPayment = String(body?.payment_method ?? "").trim().toUpperCase();
+    const paymentMethod = allowedPayments.includes(requestedPayment) ? requestedPayment : "CREDIT_CARD";
+    const paymentLabels: Record<string, string> = {
+      CREDIT_CARD: "Cartao de credito",
+      PIX: "PIX",
+      CASH: "Dinheiro (no check-in)",
+    };
 
     if (!guestName || !contactEmail || !contactPhone || !checkIn || !checkOut) {
       return json({ error: "Missing required booking fields." }, 400);
@@ -92,6 +100,7 @@ serve(async (req) => {
       `Telefone: ${contactPhone}`,
       `Adultos: ${adults}`,
       `Criancas: ${children}`,
+      `Forma de pagamento: ${paymentLabels[paymentMethod] || paymentMethod}`,
       quoteResult.available
         ? `Tarifa calculada: R$ ${quoteResult.total.toFixed(2)} (${quoteResult.nights} noite(s))`
         : `Tarifa: COTACAO MANUAL (${quoteResult.reason ?? "sem tarifa publica vigente"})`,
@@ -123,7 +132,7 @@ serve(async (req) => {
       children,
       iss_tax: 0,
       service_tax: 0,
-      payment_method: "BILLED",
+      payment_method: paymentMethod,
       requested_by: guestName,
     }]);
 
@@ -138,13 +147,14 @@ serve(async (req) => {
 
     if (reservationTeam?.length) {
       const quoteSummary = quoteResult.available
-        ? `Tarifa estimada R$ ${quoteResult.total.toFixed(2)} (${quoteResult.nights} noite(s)).`
+        ? `Tarifa estimada R$ ${quoteResult.total.toFixed(2)} (${quoteResult.nights} noite(s)). Slots restantes na categoria: ${availability.min_left}.`
         : "Sem tarifa publica vigente — cotacao manual necessaria.";
+      const paymentSummary = `Pagamento: ${paymentLabels[paymentMethod] || paymentMethod}.`;
       await adminClient.from("notifications").insert(
         reservationTeam.map((member: { id: string }) => ({
           user_id: member.id,
           title: "Nova reserva publica",
-          message: `${guestName} solicitou reserva direta (${reservationCode}) para ${checkIn}. ${quoteSummary}`,
+          message: `${guestName} solicitou reserva direta (${reservationCode}) para ${checkIn}. ${quoteSummary} ${paymentSummary}`,
           link: "/dashboard",
           read: false,
           timestamp: new Date().toISOString(),
