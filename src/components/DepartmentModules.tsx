@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useState } from 'react';
-import { BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
+import { Activity, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
 import { UserProfile } from '../types';
 import SharedHotelCalendar from './SharedHotelCalendar';
 import ReservationsDashboard from './ReservationsDashboard';
@@ -14,6 +14,7 @@ import ProfessionalPMSDashboard from './ProfessionalPMSDashboard';
 import EnterpriseExtensionsDashboard, { EnterpriseTab } from './EnterpriseExtensionsDashboard';
 import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQueue';
 import PublicRatesManager from './PublicRatesManager';
+import OccupancyChart from './OccupancyChart';
 
 type ModuleTab<T extends string> = {
   id: T;
@@ -34,6 +35,7 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
       queueDepartment="reservations"
       tabs={[
         { id: 'central', label: 'Central de reservas', icon: CalendarDays, render: () => <ReservationsDashboard profile={profile} /> },
+        { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
         { id: 'tariffs', label: 'Tarifas corporativas', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="tariffs" /> },
         { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
@@ -147,6 +149,7 @@ export function AdminControlModuleDashboard({ profile, canManage }: { profile: U
       adminQueue
       tabs={[
         { id: 'overview', label: 'Gestao Pro', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
+        { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'enterprise', label: 'Enterprise', icon: Building2, render: () => <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} /> },
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
