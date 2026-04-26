@@ -68,6 +68,64 @@ function pickRate(rates: Rate[], dateISO: string): Rate | null {
   return candidates[0];
 }
 
+async function checkAvailability(category: string, checkIn: string, checkOut: string) {
+  // Inventario total da categoria
+  const { data: roomRows } = await adminClient
+    .from("rooms")
+    .select("id")
+    .eq("category", category)
+    .eq("is_virtual", false);
+  const total = (roomRows || []).length;
+
+  if (total === 0) {
+    return { available: false, min_left: 0, total: 0, full_dates: [] as string[], reason: "Categoria sem inventario cadastrado." };
+  }
+
+  // Reservas + requests que sobrepoem o range (categoria + status validos)
+  const [resvRes, reqRes] = await Promise.all([
+    adminClient
+      .from("reservations")
+      .select("check_in, check_out, status")
+      .eq("category", category)
+      .neq("status", "CANCELLED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+    adminClient
+      .from("reservation_requests")
+      .select("check_in, check_out, status")
+      .eq("category", category)
+      .neq("status", "REJECTED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+  ]);
+
+  type Booked = { check_in: string; check_out: string };
+  const all: Booked[] = [
+    ...((resvRes.data || []) as Booked[]),
+    ...((reqRes.data || []) as Booked[]),
+  ];
+
+  let minLeft = total;
+  const fullDates: string[] = [];
+
+  for (const date of iterDates(checkIn, checkOut)) {
+    const occupied = all.filter((r) => r.check_in <= date && r.check_out > date).length;
+    const left = total - occupied;
+    if (left < minLeft) minLeft = left;
+    if (left <= 0) fullDates.push(date);
+  }
+
+  return {
+    available: minLeft > 0,
+    min_left: Math.max(0, minLeft),
+    total,
+    full_dates: fullDates,
+    reason: fullDates.length > 0
+      ? `Sem disponibilidade nesta categoria para ${fullDates.length} data(s) do periodo.`
+      : "",
+  };
+}
+
 export async function quote(body: any) {
   const checkIn = parseDate(body?.check_in);
   const checkOut = parseDate(body?.check_out);
@@ -84,6 +142,20 @@ export async function quote(body: any) {
 
   const dates = iterDates(checkIn, checkOut);
   const nights = dates.length;
+
+  // Check de disponibilidade antes de calcular preco
+  const availability = await checkAvailability(category, checkIn, checkOut);
+  if (!availability.available) {
+    return {
+      ok: true,
+      available: false,
+      nights,
+      reason: availability.reason,
+      sold_out: true,
+      full_dates: availability.full_dates,
+      slots_left: 0,
+    };
+  }
 
   const { data: rates, error } = await adminClient
     .from("public_rates")
@@ -142,6 +214,8 @@ export async function quote(body: any) {
     extra_guests: Math.max(0, guests - lastRateGuestsIncluded),
     breakdown,
     currency: "BRL",
+    slots_left: availability.min_left,
+    inventory_total: availability.total,
   };
 }
 

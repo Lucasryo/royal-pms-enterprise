@@ -14,8 +14,8 @@ const roomCategories = [
 type QuoteBreakdown = { date: string; rate: number; label: string; weekend: boolean };
 
 type Quote =
-  | { ok: true; available: true; nights: number; total: number; nightly_total: number; extra_guest_total: number; extra_guests: number; breakdown: QuoteBreakdown[]; currency: string }
-  | { ok: true; available: false; nights: number; reason: string }
+  | { ok: true; available: true; nights: number; total: number; nightly_total: number; extra_guest_total: number; extra_guests: number; breakdown: QuoteBreakdown[]; currency: string; slots_left?: number; inventory_total?: number }
+  | { ok: true; available: false; nights: number; reason: string; sold_out?: boolean; full_dates?: string[]; slots_left?: number }
   | { ok: false; error: string };
 
 const formatBRL = (n: number) =>
@@ -112,6 +112,10 @@ export default function PublicBookingEngine() {
   }, [formData.check_in, formData.check_out, formData.category, formData.adults, formData.children]);
 
   const isPriceAvailable = quote && quote.ok && 'available' in quote && quote.available === true;
+  const isSoldOut = quote && quote.ok && 'available' in quote && quote.available === false && (quote as { sold_out?: boolean }).sold_out === true;
+  const slotsLeft = isPriceAvailable && typeof (quote as { slots_left?: number }).slots_left === 'number'
+    ? (quote as { slots_left?: number }).slots_left
+    : undefined;
   const totalLabel = isPriceAvailable ? formatBRL(quote.total) : null;
 
   async function handleSubmit(event: FormEvent) {
@@ -138,6 +142,14 @@ export default function PublicBookingEngine() {
       });
 
       if (error) throw error;
+
+      // Servidor pode bloquear por overbooking — sinaliza ao usuario sem criar request
+      if (data?.blocked || data?.sold_out) {
+        toast.error(data?.reason || 'Sem disponibilidade para essas datas.');
+        setQuote({ ok: true, available: false, nights: 0, reason: data?.reason || 'Sem disponibilidade.', sold_out: true, full_dates: data?.full_dates });
+        return;
+      }
+
       setSentCode(data?.reservation_code || '');
       toast.success(
         isPriceAvailable
@@ -177,7 +189,7 @@ export default function PublicBookingEngine() {
         </div>
 
         {/* Price card */}
-        <div className={`min-w-[260px] rounded-2xl px-5 py-4 text-white ${isPriceAvailable ? 'bg-stone-950' : 'bg-stone-700'}`}>
+        <div className={`min-w-[260px] rounded-2xl px-5 py-4 text-white ${isPriceAvailable ? 'bg-stone-950' : isSoldOut ? 'bg-red-700' : 'bg-stone-700'}`}>
           {quoteLoading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -190,6 +202,17 @@ export default function PublicBookingEngine() {
               <p className="mt-1 text-xs text-white/65">
                 {quote.nights} noite{quote.nights > 1 ? 's' : ''} · diaria media {formatBRL(quote.nightly_total / quote.nights)}
               </p>
+              {typeof slotsLeft === 'number' && slotsLeft <= 5 && (
+                <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-200">
+                  Apenas {slotsLeft} disponivel{slotsLeft === 1 ? '' : 'is'}
+                </p>
+              )}
+            </>
+          ) : isSoldOut ? (
+            <>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-red-200">Sem disponibilidade</p>
+              <p className="mt-1 font-display text-xl font-light leading-tight">Lotado nestas datas</p>
+              <p className="mt-1 text-xs text-white/85">{quote.reason}</p>
             </>
           ) : quote && quote.ok && !quote.available ? (
             <>
@@ -221,6 +244,27 @@ export default function PublicBookingEngine() {
                 ? `Tarifa estimada ${totalLabel}. Nossa central confirma disponibilidade e a forma de garantia.`
                 : 'Nossa central vai confirmar disponibilidade, tarifa final e garantia da reserva.'}
             </p>
+          </div>
+        </div>
+      )}
+
+      {isSoldOut && !sentCode && (
+        <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <CalendarRange className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="flex-1">
+            <p className="font-bold">Sem disponibilidade nas datas escolhidas.</p>
+            <p className="mt-1 leading-6">
+              {quote && 'reason' in quote ? quote.reason : 'Estamos lotados nesta categoria para o periodo solicitado.'}
+              {' '}Experimente outras datas no calendario, ou fale conosco direto pelo WhatsApp para ver alternativas.
+            </p>
+            <a
+              href={`https://wa.me/5522996105104?text=${encodeURIComponent(`Ola, gostaria de reservar ${formData.category} de ${formData.check_in} a ${formData.check_out} mas vi que esta lotado. Tem alguma alternativa?`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-2 rounded-full bg-red-700 px-4 py-2 text-xs font-bold text-white transition hover:bg-red-800"
+            >
+              Falar no WhatsApp →
+            </a>
           </div>
         </div>
       )}
@@ -420,16 +464,20 @@ export default function PublicBookingEngine() {
           </div>
           <button
             type="submit"
-            disabled={loading || !datesPicked}
-            className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-stone-950 px-6 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading || !datesPicked || isSoldOut}
+            className={`group inline-flex min-h-12 items-center justify-center gap-3 rounded-full px-6 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              isSoldOut ? 'bg-red-700 hover:bg-red-800' : 'bg-stone-950 hover:bg-stone-800'
+            }`}
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             <span>
-              {isPriceAvailable
-                ? `Reservar por ${totalLabel}`
-                : datesPicked
-                  ? 'Solicitar cotacao'
-                  : 'Selecione as datas'}
+              {isSoldOut
+                ? 'Lotado — escolha outras datas'
+                : isPriceAvailable
+                  ? `Reservar por ${totalLabel}`
+                  : datesPicked
+                    ? 'Solicitar cotacao'
+                    : 'Selecione as datas'}
             </span>
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-stone-950 transition-transform group-hover:translate-x-0.5">
               →

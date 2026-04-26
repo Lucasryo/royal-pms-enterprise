@@ -48,6 +48,34 @@ serve(async (req) => {
       return json({ error: "check_out must be after check_in." }, 400);
     }
 
+    // Check de disponibilidade ANTES de aceitar a reserva — evita overbooking
+    const availability = await checkAvailability(category.toLowerCase(), checkIn, checkOut);
+    if (!availability.available) {
+      // Notifica time de reservas sobre tentativa bloqueada (lost demand)
+      const { data: reservationTeam } = await adminClient
+        .from("profiles")
+        .select("id")
+        .in("role", ["admin", "reservations"]);
+      if (reservationTeam?.length) {
+        await adminClient.from("notifications").insert(
+          reservationTeam.map((member: { id: string }) => ({
+            user_id: member.id,
+            title: "Tentativa de reserva bloqueada (lotado)",
+            message: `${guestName} (${contactEmail}, ${contactPhone}) tentou reservar ${category} de ${checkIn} a ${checkOut} — sem disponibilidade. Possivel oportunidade comercial.`,
+            link: "/dashboard",
+            read: false,
+            timestamp: new Date().toISOString(),
+          })),
+        );
+      }
+      return json({
+        blocked: true,
+        sold_out: true,
+        reason: availability.reason,
+        full_dates: availability.full_dates,
+      });
+    }
+
     // Calcula tarifa com base em public_rates antes de gravar
     const quoteResult = await computeQuote({
       checkIn,
@@ -249,4 +277,59 @@ async function computeQuote(args: { checkIn: string; checkOut: string; category:
   }
 
   return { available: true, nights, total: nightlyTotal + extraGuestTotal, nightly_total: nightlyTotal, extra_guest_total: extraGuestTotal, breakdown };
+}
+
+async function checkAvailability(category: string, checkIn: string, checkOut: string): Promise<{ available: boolean; min_left: number; total: number; full_dates: string[]; reason: string }> {
+  const { data: roomRows } = await adminClient
+    .from("rooms")
+    .select("id")
+    .eq("category", category)
+    .eq("is_virtual", false);
+  const total = (roomRows || []).length;
+
+  if (total === 0) {
+    return { available: false, min_left: 0, total: 0, full_dates: [], reason: "Categoria sem inventario cadastrado." };
+  }
+
+  const [resvRes, reqRes] = await Promise.all([
+    adminClient
+      .from("reservations")
+      .select("check_in, check_out")
+      .eq("category", category)
+      .neq("status", "CANCELLED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+    adminClient
+      .from("reservation_requests")
+      .select("check_in, check_out")
+      .eq("category", category)
+      .neq("status", "REJECTED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+  ]);
+
+  type Booked = { check_in: string; check_out: string };
+  const all: Booked[] = [
+    ...((resvRes.data || []) as Booked[]),
+    ...((reqRes.data || []) as Booked[]),
+  ];
+
+  let minLeft = total;
+  const fullDates: string[] = [];
+  for (const date of iterDates(checkIn, checkOut)) {
+    const occupied = all.filter((r) => r.check_in <= date && r.check_out > date).length;
+    const left = total - occupied;
+    if (left < minLeft) minLeft = left;
+    if (left <= 0) fullDates.push(date);
+  }
+
+  return {
+    available: minLeft > 0,
+    min_left: Math.max(0, minLeft),
+    total,
+    full_dates: fullDates,
+    reason: fullDates.length > 0
+      ? `Sem disponibilidade nesta categoria para ${fullDates.length} data(s) do periodo.`
+      : "",
+  };
 }
