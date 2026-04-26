@@ -54,6 +54,7 @@ export function ReceptionModuleDashboard({ profile }: { profile: UserProfile }) 
       queueDepartment="reception"
       tabs={[
         { id: 'checkin', label: 'Check-in/out', icon: KeyRound, render: () => <CheckInOutDashboard profile={profile} /> },
+        { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'housekeeping', label: 'Governanca e UHs', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
         { id: 'shift', label: 'Turno e ocorrencias', icon: ClipboardList, render: () => <OperationsDashboard profile={profile} /> },
       ]}
