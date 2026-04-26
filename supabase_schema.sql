@@ -69,6 +69,7 @@ create table if not exists public.rooms (
   room_number text not null unique,
   floor integer not null,
   category text not null,
+  sea_view boolean not null default false,
   status text not null default 'available' check (status in ('available', 'occupied', 'maintenance', 'reserved')),
   housekeeping_status text not null default 'clean' check (housekeeping_status in ('clean', 'dirty', 'inspected', 'out_of_order')),
   maintenance_notes text,
@@ -77,6 +78,8 @@ create table if not exists public.rooms (
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
 );
+-- Compat: garante coluna sea_view em bases antigas
+alter table public.rooms add column if not exists sea_view boolean not null default false;
 
 create table if not exists public.folio_charges (
   id uuid default gen_random_uuid() primary key,
@@ -995,6 +998,8 @@ create index if not exists idx_reservations_company on public.reservations(compa
 create index if not exists idx_reservations_code on public.reservations(reservation_code);
 create index if not exists idx_rooms_number on public.rooms(room_number);
 create index if not exists idx_rooms_floor on public.rooms(floor);
+create index if not exists idx_rooms_category on public.rooms(category);
+create index if not exists idx_rooms_sea_view on public.rooms(sea_view) where sea_view = true;
 create index if not exists idx_folio_reservation on public.folio_charges(reservation_id);
 create index if not exists idx_pos_orders_created on public.pos_orders(created_at desc);
 create index if not exists idx_pos_orders_reservation on public.pos_orders(reservation_id);

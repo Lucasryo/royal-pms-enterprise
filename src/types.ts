@@ -134,6 +134,7 @@ export interface Room {
   room_number: string;
   floor: number;
   category: string;
+  sea_view?: boolean;
   status: 'available' | 'occupied' | 'maintenance' | 'reserved';
   housekeeping_status: 'clean' | 'dirty' | 'inspected' | 'out_of_order';
   maintenance_notes?: string;
