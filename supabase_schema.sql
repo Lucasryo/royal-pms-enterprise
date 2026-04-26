@@ -346,6 +346,40 @@ create table if not exists public.tariffs (
   updated_at timestamptz default timezone('utc', now()) not null
 );
 
+-- Tarifas publicas (motor de reservas da landing page) — separadas das tarifas corporativas
+create table if not exists public.public_rates (
+  id uuid default gen_random_uuid() primary key,
+  category text not null check (category in ('executivo', 'master', 'suite presidencial')),
+  label text not null,
+  start_date date not null,
+  end_date date not null,
+  weekday_rate numeric(12,2) not null check (weekday_rate >= 0),
+  weekend_rate numeric(12,2) check (weekend_rate is null or weekend_rate >= 0),
+  guests_included int not null default 2 check (guests_included >= 1),
+  extra_guest_fee numeric(12,2) not null default 0 check (extra_guest_fee >= 0),
+  min_nights int not null default 1 check (min_nights >= 1),
+  active boolean not null default true,
+  priority int not null default 0,
+  description text,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  check (end_date >= start_date)
+);
+create index if not exists idx_public_rates_active on public.public_rates(active, category, start_date, end_date);
+create index if not exists idx_public_rates_priority on public.public_rates(priority desc, created_at desc);
+alter table public.public_rates enable row level security;
+create policy "public_rates_select_staff" on public.public_rates
+  for select to authenticated using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  );
+create policy "public_rates_manage_staff" on public.public_rates
+  for all to authenticated using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  ) with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  );
+
 create table if not exists public.bank_statements (
   id uuid default gen_random_uuid() primary key,
   name text not null,

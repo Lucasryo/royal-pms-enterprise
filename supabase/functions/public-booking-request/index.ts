@@ -48,6 +48,15 @@ serve(async (req) => {
       return json({ error: "check_out must be after check_in." }, 400);
     }
 
+    // Calcula tarifa com base em public_rates antes de gravar
+    const quoteResult = await computeQuote({
+      checkIn,
+      checkOut,
+      category: category.toLowerCase(),
+      adults,
+      children,
+    });
+
     const reservationCode = `WEB-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const billingObs = [
       "Origem: WEB-DIRETO",
@@ -55,8 +64,16 @@ serve(async (req) => {
       `Telefone: ${contactPhone}`,
       `Adultos: ${adults}`,
       `Criancas: ${children}`,
+      quoteResult.available
+        ? `Tarifa calculada: R$ ${quoteResult.total.toFixed(2)} (${quoteResult.nights} noite(s))`
+        : `Tarifa: COTACAO MANUAL (${quoteResult.reason ?? "sem tarifa publica vigente"})`,
       notes ? `Observacoes: ${notes}` : "",
     ].filter(Boolean).join("\n");
+
+    const computedTotal = quoteResult.available ? Number(quoteResult.total.toFixed(2)) : 0;
+    const computedTariff = quoteResult.available && quoteResult.nights > 0
+      ? Number((quoteResult.nightly_total / quoteResult.nights).toFixed(2))
+      : 0;
 
     const { error } = await adminClient.from("reservation_requests").insert([{
       guest_name: guestName,
@@ -64,11 +81,11 @@ serve(async (req) => {
       check_out: checkOut,
       status: "REQUESTED",
       company_id: null,
-      total_amount: 0,
+      total_amount: computedTotal,
       reservation_code: reservationCode,
       cost_center: "WEB-DIRETO",
       billing_obs: billingObs,
-      tariff: 0,
+      tariff: computedTariff,
       category,
       guests_per_uh: guestsPerUh,
       contact_phone: contactPhone,
@@ -92,11 +109,14 @@ serve(async (req) => {
       .in("role", ["admin", "reservations"]);
 
     if (reservationTeam?.length) {
+      const quoteSummary = quoteResult.available
+        ? `Tarifa estimada R$ ${quoteResult.total.toFixed(2)} (${quoteResult.nights} noite(s)).`
+        : "Sem tarifa publica vigente — cotacao manual necessaria.";
       await adminClient.from("notifications").insert(
         reservationTeam.map((member: { id: string }) => ({
           user_id: member.id,
           title: "Nova reserva publica",
-          message: `${guestName} solicitou reserva direta (${reservationCode}) para ${checkIn}.`,
+          message: `${guestName} solicitou reserva direta (${reservationCode}) para ${checkIn}. ${quoteSummary}`,
           link: "/dashboard",
           read: false,
           timestamp: new Date().toISOString(),
@@ -104,7 +124,10 @@ serve(async (req) => {
       );
     }
 
-    return json({ reservation_code: reservationCode });
+    return json({
+      reservation_code: reservationCode,
+      quote: quoteResult,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return json({ error: message }, 500);
@@ -139,4 +162,91 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
+type RateRow = {
+  id: string;
+  category: string;
+  label: string;
+  start_date: string;
+  end_date: string;
+  weekday_rate: number;
+  weekend_rate: number | null;
+  guests_included: number;
+  extra_guest_fee: number;
+  min_nights: number;
+  priority: number;
+};
+
+type QuoteResult =
+  | { available: true; nights: number; total: number; nightly_total: number; extra_guest_total: number; breakdown: Array<{ date: string; rate: number; label: string; weekend: boolean }>; reason?: undefined }
+  | { available: false; nights: number; total: 0; nightly_total: 0; extra_guest_total: 0; breakdown: []; reason: string };
+
+function iterDates(startISO: string, endISO: string): string[] {
+  const out: string[] = [];
+  const start = new Date(`${startISO}T12:00:00Z`);
+  const end = new Date(`${endISO}T12:00:00Z`);
+  for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function isWeekend(dateISO: string): boolean {
+  const d = new Date(`${dateISO}T12:00:00Z`).getUTCDay();
+  return d === 5 || d === 6;
+}
+
+function pickRate(rates: RateRow[], dateISO: string): RateRow | null {
+  const candidates = rates.filter((r) => r.start_date <= dateISO && r.end_date >= dateISO);
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.priority - a.priority);
+  return candidates[0];
+}
+
+async function computeQuote(args: { checkIn: string; checkOut: string; category: string; adults: number; children: number }): Promise<QuoteResult> {
+  const dates = iterDates(args.checkIn, args.checkOut);
+  const nights = dates.length;
+  const guests = args.adults + args.children;
+
+  if (!["executivo", "master", "suite presidencial"].includes(args.category)) {
+    return { available: false, nights, total: 0, nightly_total: 0, extra_guest_total: 0, breakdown: [], reason: "Categoria nao reconhecida pela tabela de tarifas." };
+  }
+
+  const { data: rates, error } = await adminClient
+    .from("public_rates")
+    .select("id, category, label, start_date, end_date, weekday_rate, weekend_rate, guests_included, extra_guest_fee, min_nights, priority")
+    .eq("category", args.category)
+    .eq("active", true)
+    .lte("start_date", args.checkOut)
+    .gte("end_date", args.checkIn);
+
+  if (error) {
+    return { available: false, nights, total: 0, nightly_total: 0, extra_guest_total: 0, breakdown: [], reason: error.message };
+  }
+
+  const breakdown: Array<{ date: string; rate: number; label: string; weekend: boolean }> = [];
+  let nightlyTotal = 0;
+  let extraGuestTotal = 0;
+  let minNightsRequired = 1;
+
+  for (const date of dates) {
+    const rate = pickRate((rates ?? []) as RateRow[], date);
+    if (!rate) {
+      return { available: false, nights, total: 0, nightly_total: 0, extra_guest_total: 0, breakdown: [], reason: `Sem tarifa publica vigente para ${date}.` };
+    }
+    const weekend = isWeekend(date);
+    const dayRate = weekend && rate.weekend_rate != null ? Number(rate.weekend_rate) : Number(rate.weekday_rate);
+    nightlyTotal += dayRate;
+    breakdown.push({ date, rate: dayRate, label: rate.label, weekend });
+    minNightsRequired = Math.max(minNightsRequired, rate.min_nights);
+    const extra = Math.max(0, guests - rate.guests_included);
+    extraGuestTotal += extra * Number(rate.extra_guest_fee);
+  }
+
+  if (nights < minNightsRequired) {
+    return { available: false, nights, total: 0, nightly_total: 0, extra_guest_total: 0, breakdown: [], reason: `Estadia minima ${minNightsRequired} noite(s).` };
+  }
+
+  return { available: true, nights, total: nightlyTotal + extraGuestTotal, nightly_total: nightlyTotal, extra_guest_total: extraGuestTotal, breakdown };
 }
