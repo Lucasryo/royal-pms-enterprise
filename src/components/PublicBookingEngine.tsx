@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { CalendarRange, CheckCircle2, Loader2, Send, Users, Info } from 'lucide-react';
 import { supabase } from '../supabase';
 import { toast } from 'sonner';
+import RatesCalendar from './RatesCalendar';
 
 const roomCategories = [
   { value: 'executivo', label: 'Executivo' },
@@ -96,6 +97,10 @@ export default function PublicBookingEngine() {
     event.preventDefault();
     setSentCode('');
 
+    if (!formData.check_in || !formData.check_out) {
+      toast.error('Selecione a entrada e a saida no calendario.');
+      return;
+    }
     if (formData.check_out <= formData.check_in) {
       toast.error('A data de saida precisa ser posterior a entrada.');
       return;
@@ -256,27 +261,21 @@ export default function PublicBookingEngine() {
             placeholder="(00) 00000-0000"
           />
         </div>
-        <div className="lg:col-span-3">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Entrada</label>
-          <input
-            required
-            type="date"
-            min={today}
-            value={formData.check_in}
-            onChange={(event) => setFormData({ ...formData, check_in: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-          />
-        </div>
-        <div className="lg:col-span-3">
-          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Saida</label>
-          <input
-            required
-            type="date"
-            min={formData.check_in}
-            value={formData.check_out}
-            onChange={(event) => setFormData({ ...formData, check_out: event.target.value })}
-            className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
-          />
+        <div className="lg:col-span-12">
+          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Periodo da estadia</label>
+          <div className="mt-2">
+            <RatesCalendar
+              category={formData.category}
+              value={{ check_in: formData.check_in, check_out: formData.check_out }}
+              onChange={(v) =>
+                setFormData((current) => ({
+                  ...current,
+                  check_in: v.check_in,
+                  check_out: v.check_out,
+                }))
+              }
+            />
+          </div>
         </div>
         <div className="lg:col-span-2">
           <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">Adultos</label>
@@ -336,11 +335,15 @@ export default function PublicBookingEngine() {
           </div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !formData.check_in || !formData.check_out}
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 text-sm font-bold text-white shadow-lg shadow-stone-950/15 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {isPriceAvailable ? `Reservar por ${totalLabel}` : 'Solicitar cotacao'}
+            {isPriceAvailable
+              ? `Reservar por ${totalLabel}`
+              : formData.check_in && formData.check_out
+                ? 'Solicitar cotacao'
+                : 'Selecione as datas'}
           </button>
         </div>
       </form>
