@@ -69,13 +69,7 @@ export default function PublicBookingEngine() {
     };
   }, [calendarOpen]);
 
-  // Auto-close calendar when both dates picked (full range)
-  useEffect(() => {
-    if (calendarOpen && formData.check_in && formData.check_out && formData.check_out > formData.check_in) {
-      const handle = setTimeout(() => setCalendarOpen(false), 250);
-      return () => clearTimeout(handle);
-    }
-  }, [calendarOpen, formData.check_in, formData.check_out]);
+  // (auto-close handled in onChange of RatesCalendar — only after user picks check_out)
 
   // Fetch quote when relevant inputs change (debounced)
   useEffect(() => {
@@ -276,13 +270,17 @@ export default function PublicBookingEngine() {
                   <RatesCalendar
                     category={formData.category}
                     value={{ check_in: formData.check_in, check_out: formData.check_out }}
-                    onChange={(v) =>
+                    onChange={(v) => {
                       setFormData((current) => ({
                         ...current,
                         check_in: v.check_in,
                         check_out: v.check_out,
-                      }))
-                    }
+                      }));
+                      // Auto-close so when user completes a range (clicks check_out)
+                      if (v.check_in && v.check_out && v.check_out > v.check_in) {
+                        setTimeout(() => setCalendarOpen(false), 250);
+                      }
+                    }}
                   />
                 </motion.div>
               )}
