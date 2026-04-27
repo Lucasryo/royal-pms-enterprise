@@ -9,6 +9,7 @@ import { UserProfile, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
+import PushNotificationBanner from './components/PushNotificationBanner';
 import MarketingLanding from './components/MarketingLanding';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
@@ -49,8 +50,7 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Registra Web Push assim que o usuario esta autenticado
-  usePushNotifications(profile?.id);
+  const { status: pushStatus, subscribe: subscribePush } = usePushNotifications(profile?.id);
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
     () => (sessionStorage.getItem('pms_current_view') as ViewType) || 'dashboard'
   );
@@ -364,6 +364,7 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
       <Toaster position="top-right" richColors />
+      <PushNotificationBanner status={pushStatus} onSubscribe={subscribePush} />
 
       {/* Sidebar Navigation */}
       <motion.aside 
