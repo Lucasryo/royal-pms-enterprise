@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, FiscalFile, Company, Room } from '../types';
-import { 
-  TrendingUp, Users, Calendar, Clock, ArrowUpRight, 
-  ArrowDownRight, Hotel, CheckCircle2, AlertCircle, 
-  DollarSign, Activity, ChevronRight, FileText, Building2
+import {
+  TrendingUp, Users, Calendar, Clock, ArrowUpRight,
+  ArrowDownRight, Hotel, CheckCircle2, AlertCircle,
+  DollarSign, Activity, ChevronRight, FileText, Building2,
+  Ban, Globe, ShieldCheck
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
@@ -23,7 +24,8 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
   const isReservationsProfile = profile.role === 'reservations';
   const isBillingProfile = profile.role === 'faturamento' || profile.role === 'finance';
   const isEventsProfile = profile.role === 'eventos';
-  const isOperationsProfile = !isReservationsProfile && !isBillingProfile;
+  const isAdminProfile = profile.role === 'admin' || profile.role === 'manager';
+  const isOperationsProfile = !isReservationsProfile && !isBillingProfile && !isAdminProfile;
   const activityTargetView = profile.role === 'admin' ? 'audit' : 'tracking';
   const quickActions = isReservationsProfile
     ? [
@@ -88,31 +90,54 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
               target: 'companies',
             },
           ]
-      : [
-          {
-            title: 'Novo Check-in',
-            description: 'Registre a entrada de um hospede',
-            icon: PlusIcon,
-            target: 'checkin',
-          },
-          {
-            title: 'Governanca',
-            description: 'Acompanhe limpeza, bloqueios e liberacao de UHs',
-            icon: Hotel,
-            target: 'housekeeping',
-          },
-          {
-            title: 'Operacoes',
-            description: 'Abra chamados e registre passagem de turno',
-            icon: Activity,
-            target: 'operations',
-          },
-        ];
+      : isAdminProfile
+        ? [
+            {
+              title: 'Bloqueio de datas',
+              description: 'Feche o motor de reservas para datas especificas como Reveillon',
+              icon: Ban,
+              target: 'reservations',
+            },
+            {
+              title: 'Tarifas publicas',
+              description: 'Gerencie diarias, periodos e regras do motor de reservas diretas',
+              icon: Globe,
+              target: 'reservations',
+            },
+            {
+              title: 'Controle geral',
+              description: 'Usuarios, permissoes, empresas, auditoria e configuracoes do PMS',
+              icon: ShieldCheck,
+              target: 'admin-control',
+            },
+          ]
+        : [
+            {
+              title: 'Novo Check-in',
+              description: 'Registre a entrada de um hospede',
+              icon: PlusIcon,
+              target: 'checkin',
+            },
+            {
+              title: 'Governanca',
+              description: 'Acompanhe limpeza, bloqueios e liberacao de UHs',
+              icon: Hotel,
+              target: 'housekeeping',
+            },
+            {
+              title: 'Operacoes',
+              description: 'Abra chamados e registre passagem de turno',
+              icon: Activity,
+              target: 'operations',
+            },
+          ];
   const focusTitle = isReservationsProfile
     ? 'Prioridades de Reservas'
     : isBillingProfile
       ? 'Prioridades do Faturamento'
-      : 'Prioridades da Operacao';
+      : isAdminProfile
+        ? 'Prioridades do Admin'
+        : 'Prioridades da Operacao';
   const focusItems = isReservationsProfile
     ? [
         'Trate primeiro as solicitacoes pendentes e confirme o que precisa chegar na recepcao hoje.',
@@ -125,11 +150,17 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
           'Concilie rapidamente o que veio do checkout para nao deixar o fluxo travado.',
           'Use o rastreio para separar o que e cobranca operacional do que foi criado manualmente.',
         ]
-      : [
-          'Priorize check-ins e check-outs do dia para manter a operacao limpa.',
-          'Monitore ocupacao e pendencias financeiras antes que virem retrabalho.',
-          'Use o painel como entrada rapida para recepcao e faturamento.',
-        ];
+      : isAdminProfile
+        ? [
+            'Use "Bloqueio de datas" (aba em Reservas) para fechar o motor de reservas diretas em datas esgotadas.',
+            'Gerencie tarifas publicas, periodos e regras de preco diretamente pelo modulo de Reservas.',
+            'Acesse Controle Geral para gerenciar usuarios, permissoes, empresas e auditoria do PMS.',
+          ]
+        : [
+            'Priorize check-ins e check-outs do dia para manter a operacao limpa.',
+            'Monitore ocupacao e pendencias financeiras antes que virem retrabalho.',
+            'Use o painel como entrada rapida para recepcao e faturamento.',
+          ];
   
   const TOTAL_ROOMS = 120;
   const [monthlyGoal, setMonthlyGoal] = useState<number>(0);
