@@ -889,10 +889,10 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
         {activeSubTab === 'requests' ? (
           <div className="divide-y divide-neutral-100">
-            {reservationRequests.length === 0 ? (
+            {reservationRequests.filter((r) => r.status === 'REQUESTED').length === 0 ? (
               <div className="p-20 text-center text-neutral-400 italic">Nenhuma solicitacao pendente no momento.</div>
             ) : (
-              reservationRequests.map(req => (
+              reservationRequests.filter((r) => r.status === 'REQUESTED').map(req => (
                 <div key={req.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-neutral-50 transition-colors">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
