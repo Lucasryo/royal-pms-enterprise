@@ -21,6 +21,27 @@ export type ViewType =
   | 'profile'
   | 'prio-billing';
 
+export interface EventItem {
+  id: string;
+  name: string;
+  description?: string;
+  unit: 'por_pessoa' | 'por_hora' | 'por_unidade' | 'por_dia';
+  default_price: number;
+  category?: string;
+  active?: boolean;
+  created_at: string;
+  created_by?: string;
+}
+
+export interface QuoteItem {
+  item_id?: string;
+  name: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+}
+
 export interface HotelEvent {
   id: string;
   name: string;
@@ -30,9 +51,16 @@ export interface HotelEvent {
   start_time?: string;
   end_time?: string;
   hall_name: string;
+  halls?: string[];
   event_type: string;
   attendees_count: number;
   total_value: number;
+  subtotal_value?: number;
+  pricing_model?: 'fixed' | 'itemized';
+  quote_items?: QuoteItem[];
+  iss_enabled?: boolean;
+  iss_rate?: number;
+  iss_amount?: number;
   status: 'planned' | 'confirmed' | 'ongoing' | 'completed' | 'cancelled';
   items_included: string;
   client_profile?: string;

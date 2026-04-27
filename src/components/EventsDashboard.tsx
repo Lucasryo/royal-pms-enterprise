@@ -54,6 +54,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     start_time: '08:00',
     end_time: '18:00',
     hall_name: HALLS[0],
+    halls: [] as string[],
     event_type: EVENT_TYPES[0],
     attendees_count: 0,
     total_value: 0,
@@ -112,10 +113,18 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     setLoading(true);
 
     try {
+      const hallsToSave = formData.halls.length > 0 ? formData.halls : [formData.hall_name];
+      const savePayload = {
+        ...formData,
+        halls: hallsToSave,
+        hall_name: hallsToSave[0] || formData.hall_name,
+        company_id: formData.company_id || null,
+      };
+
       if (editingId) {
         const { error } = await supabase
           .from('hotel_events')
-          .update({ ...formData, company_id: formData.company_id || null })
+          .update(savePayload)
           .eq('id', editingId);
 
         if (error) throw error;
@@ -124,8 +133,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       } else {
         const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
         const newEvent = {
-          ...formData,
-          company_id: formData.company_id || null,
+          ...savePayload,
           os_number: osNumber,
           created_at: new Date().toISOString(),
           created_by: profile.id
@@ -167,6 +175,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         start_time: '08:00',
         end_time: '18:00',
         hall_name: HALLS[0],
+        halls: [],
         event_type: EVENT_TYPES[0],
         attendees_count: 0,
         total_value: 0,
@@ -190,6 +199,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   };
 
   const handleEdit = (event: HotelEvent) => {
+    const halls = event.halls && event.halls.length > 0
+      ? event.halls
+      : event.hall_name ? [event.hall_name] : [];
     setFormData({
       name: event.name,
       description: event.description || '',
@@ -198,6 +210,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       start_time: event.start_time || '08:00',
       end_time: event.end_time || '18:00',
       hall_name: event.hall_name,
+      halls,
       event_type: event.event_type,
       attendees_count: event.attendees_count,
       total_value: event.total_value,
@@ -431,7 +444,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                               <div className="flex items-center gap-3 mt-1">
                                  <span className="flex items-center gap-1 text-[10px] font-bold text-neutral-500 uppercase">
                                     <MapPin className="w-3 h-3 text-neutral-400" />
-                                    {event.hall_name}
+                                    {event.halls && event.halls.length > 0 ? event.halls.join(' · ') : event.hall_name}
                                  </span>
                                  <span className="flex items-center gap-1 text-[10px] font-bold text-neutral-500 uppercase">
                                     <Users className="w-3 h-3 text-neutral-400" />
@@ -486,15 +499,42 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Local (Salão)</label>
-                       <select
-                         value={formData.hall_name}
-                         onChange={e => setFormData({...formData, hall_name: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                       >
-                         {HALLS.map(h => <option key={h} value={h}>{h}</option>)}
-                       </select>
+                    <div className="md:col-span-2">
+                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-2 block ml-1">
+                         Salões
+                         {formData.halls.length > 0 && (
+                           <span className="ml-2 text-amber-700 normal-case tracking-normal font-bold">
+                             ({formData.halls.length} selecionado{formData.halls.length > 1 ? 's' : ''})
+                           </span>
+                         )}
+                       </label>
+                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                         {HALLS.map(h => {
+                           const selected = formData.halls.includes(h);
+                           return (
+                             <button
+                               key={h}
+                               type="button"
+                               onClick={() => {
+                                 const next = selected
+                                   ? formData.halls.filter(x => x !== h)
+                                   : [...formData.halls, h];
+                                 setFormData({ ...formData, halls: next });
+                               }}
+                               className={`px-3 py-2.5 rounded-xl border text-left text-xs font-bold transition-all ${
+                                 selected
+                                   ? 'bg-amber-700 border-amber-700 text-white shadow-sm'
+                                   : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:border-neutral-300'
+                               }`}
+                             >
+                               {h}
+                             </button>
+                           );
+                         })}
+                       </div>
+                       {formData.halls.length === 0 && (
+                         <p className="text-[10px] text-red-400 mt-1 ml-1">Selecione ao menos um salão</p>
+                       )}
                     </div>
 
                     <div>
@@ -744,7 +784,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                            {[
                              { label: 'Contratante', value: formData.client_category || '—' },
                              { label: 'Tipo de Evento', value: formData.event_type || '—' },
-                             { label: 'Local / Salão', value: formData.hall_name || '—' },
+                             { label: 'Local / Salão', value: formData.halls.length > 0 ? formData.halls.join(' · ') : formData.hall_name || '—' },
                              { label: 'Data de Início', value: formData.start_date ? format(parseISO(formData.start_date), 'dd/MM/yyyy') : '—' },
                              { label: 'Data de Término', value: formData.end_date ? format(parseISO(formData.end_date), 'dd/MM/yyyy') : '—' },
                              { label: 'Horário', value: formData.start_time && formData.end_time ? `${formData.start_time} – ${formData.end_time}` : '—' },
@@ -886,7 +926,11 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     </div>
                     <div className="flex items-center gap-2">
                       <MapPin className="w-3.5 h-3.5 text-gold/70" />
-                      <span>{viewingEvent.hall_name}</span>
+                      <span>
+                        {viewingEvent.halls && viewingEvent.halls.length > 0
+                          ? viewingEvent.halls.join(' · ')
+                          : viewingEvent.hall_name}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="w-3.5 h-3.5 text-gold/70" />
@@ -1015,7 +1059,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         const infoRows = [
           ['Contratante', d.client_category || '—'],
           ['Tipo de Evento', d.event_type || '—'],
-          ['Local / Salão', d.hall_name || '—'],
+          ['Local / Salão', (d.halls && d.halls.length > 0) ? d.halls.join(' · ') : (d.hall_name || '—')],
           ['Data de Início', d.start_date ? format(parseISO(d.start_date), 'dd/MM/yyyy') : '—'],
           ['Data de Término', d.end_date ? format(parseISO(d.end_date), 'dd/MM/yyyy') : '—'],
           ['Horário', (d.start_time && d.end_time) ? `${d.start_time} – ${d.end_time}` : '—'],
