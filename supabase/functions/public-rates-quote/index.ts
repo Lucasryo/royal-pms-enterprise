@@ -69,6 +69,37 @@ function pickRate(rates: Rate[], dateISO: string): Rate | null {
 }
 
 async function checkAvailability(category: string, checkIn: string, checkOut: string) {
+  const dates = iterDates(checkIn, checkOut);
+
+  // Verifica bloqueios manuais antes de checar inventario
+  const { data: blockedRows } = await adminClient
+    .from("booking_blocked_dates")
+    .select("start_date, end_date, reason, category")
+    .eq("active", true)
+    .lte("start_date", checkOut)
+    .gte("end_date", checkIn)
+    .or(`category.is.null,category.eq.${category}`);
+
+  type BlockedRow = { start_date: string; end_date: string; reason: string | null };
+  const blocked = (blockedRows ?? []) as BlockedRow[];
+  const blockedDatesInRange = dates.filter((d) =>
+    blocked.some((b) => b.start_date <= d && b.end_date >= d)
+  );
+
+  if (blockedDatesInRange.length > 0) {
+    const firstBlock = blocked.find((b) => b.start_date <= blockedDatesInRange[0] && b.end_date >= blockedDatesInRange[0]);
+    return {
+      available: false,
+      min_left: 0,
+      total: 0,
+      full_dates: blockedDatesInRange,
+      reason: firstBlock?.reason
+        ? `Reservas bloqueadas para este periodo: ${firstBlock.reason}`
+        : `Reservas bloqueadas para ${blockedDatesInRange.length} data(s) do periodo.`,
+      blocked: true,
+    };
+  }
+
   // Inventario total da categoria
   const { data: roomRows } = await adminClient
     .from("rooms")
@@ -78,7 +109,7 @@ async function checkAvailability(category: string, checkIn: string, checkOut: st
   const total = (roomRows || []).length;
 
   if (total === 0) {
-    return { available: false, min_left: 0, total: 0, full_dates: [] as string[], reason: "Categoria sem inventario cadastrado." };
+    return { available: false, min_left: 0, total: 0, full_dates: [] as string[], reason: "Categoria sem inventario cadastrado.", blocked: false };
   }
 
   // Reservas + requests que sobrepoem o range (categoria + status validos)
@@ -108,7 +139,7 @@ async function checkAvailability(category: string, checkIn: string, checkOut: st
   let minLeft = total;
   const fullDates: string[] = [];
 
-  for (const date of iterDates(checkIn, checkOut)) {
+  for (const date of dates) {
     const occupied = all.filter((r) => r.check_in <= date && r.check_out > date).length;
     const left = total - occupied;
     if (left < minLeft) minLeft = left;
@@ -123,6 +154,7 @@ async function checkAvailability(category: string, checkIn: string, checkOut: st
     reason: fullDates.length > 0
       ? `Sem disponibilidade nesta categoria para ${fullDates.length} data(s) do periodo.`
       : "",
+    blocked: false,
   };
 }
 

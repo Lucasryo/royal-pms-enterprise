@@ -3,9 +3,10 @@ import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { supabase } from '../supabase';
 
 type DayInfo = { rate: number; weekend: boolean; label: string; min_nights: number };
+type BlockedInfo = { reason: string };
 
 type CalendarResponse =
-  | { ok: true; rates_by_date: Record<string, DayInfo>; min_rate: number | null; max_rate: number | null; currency: string }
+  | { ok: true; rates_by_date: Record<string, DayInfo>; blocked_dates?: Record<string, BlockedInfo>; min_rate: number | null; max_rate: number | null; currency: string }
   | { ok: false; error: string };
 
 const WEEKDAY_LABELS = ['Do.', '2ª', '3ª', '4ª', '5ª', '6ª', 'Sa.'];
@@ -66,6 +67,7 @@ export default function RatesCalendar({
   }, []);
   const [anchor, setAnchor] = useState<MonthAnchor>(initialAnchor);
   const [ratesMap, setRatesMap] = useState<Record<string, DayInfo>>({});
+  const [blockedMap, setBlockedMap] = useState<Record<string, BlockedInfo>>({});
   const [loading, setLoading] = useState(false);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [phase, setPhase] = useState<'pick-in' | 'pick-out'>('pick-in');
@@ -89,8 +91,12 @@ export default function RatesCalendar({
           return;
         }
         const resp = data as CalendarResponse;
-        if (resp.ok) setRatesMap((current) => ({ ...current, ...resp.rates_by_date }));
-        else setRatesMap({});
+        if (resp.ok) {
+          setRatesMap((current) => ({ ...current, ...resp.rates_by_date }));
+          setBlockedMap((current) => ({ ...current, ...(resp.blocked_dates ?? {}) }));
+        } else {
+          setRatesMap({});
+        }
       } catch {
         if (!cancelled) setRatesMap({});
       } finally {
@@ -106,8 +112,13 @@ export default function RatesCalendar({
   const months: MonthAnchor[] = [anchor, addMonths(anchor, 1)];
   const canGoBack = !(anchor.y === initialAnchor.y && anchor.m === initialAnchor.m);
 
+  function isBlocked(dateISO: string): boolean {
+    return !!blockedMap[dateISO];
+  }
+
   function handleDayClick(dateISO: string) {
     if (dateISO < todayDate) return;
+    if (isBlocked(dateISO)) return;
     if (phase === 'pick-in') {
       onChange({ check_in: dateISO, check_out: '' });
       setPhase('pick-out');
@@ -189,6 +200,7 @@ export default function RatesCalendar({
               month={m.m}
               today={todayDate}
               ratesMap={ratesMap}
+              blockedMap={blockedMap}
               checkIn={value.check_in}
               checkOut={value.check_out}
               hoverDate={hoverDate}
@@ -228,6 +240,7 @@ type MonthProps = {
   month: number;
   today: string;
   ratesMap: Record<string, DayInfo>;
+  blockedMap: Record<string, BlockedInfo>;
   checkIn: string;
   checkOut: string;
   hoverDate: string | null;
@@ -244,6 +257,7 @@ function Month({
   month,
   today,
   ratesMap,
+  blockedMap,
   checkIn,
   checkOut,
   hoverDate,
@@ -276,15 +290,20 @@ function Month({
           const iso = cell.iso;
           const day = cell.day!;
           const past = iso < today;
+          const blockedInfo = blockedMap[iso];
+          const blocked = !!blockedInfo;
           const info = ratesMap[iso];
           const ci = isCheckIn(iso);
           const co = isCheckOut(iso);
           const inRange = isInRange(iso);
           const inHoverRange = phase === 'pick-out' && hoverDate && checkIn && hoverDate > checkIn && iso > checkIn && iso < hoverDate;
           const selected = ci || co;
+          const unavailable = past || blocked;
 
           let cls = 'flex flex-col items-center justify-center rounded-md py-1 transition';
-          if (past) {
+          if (blocked) {
+            cls += ' cursor-not-allowed bg-red-50 text-red-300 relative';
+          } else if (past) {
             cls += ' cursor-not-allowed text-stone-300';
           } else if (selected) {
             cls += ' bg-stone-950 text-white shadow-sm';
@@ -300,14 +319,17 @@ function Month({
             <button
               type="button"
               key={iso}
-              disabled={past}
+              disabled={unavailable}
               onClick={() => onDayClick(iso)}
-              onMouseEnter={() => onDayHover(iso)}
+              onMouseEnter={() => !unavailable && onDayHover(iso)}
               onMouseLeave={() => onDayHover(null)}
+              title={blocked ? (blockedInfo.reason || 'Indisponivel') : undefined}
               className={cls}
             >
-              <span className={`text-sm font-medium ${selected ? 'text-white' : ''}`}>{day}</span>
-              {info && !past ? (
+              <span className={`text-sm font-medium ${selected ? 'text-white' : blocked ? 'line-through text-red-300' : ''}`}>{day}</span>
+              {blocked ? (
+                <span className="mt-0.5 text-[9px] text-red-400">fechado</span>
+              ) : info && !past ? (
                 <span className={`mt-0.5 text-[9px] tabular-nums ${selected ? 'text-white/80' : info.weekend ? 'text-amber-700' : 'text-stone-400'}`}>
                   {formatBRLCompact(info.rate)}
                 </span>

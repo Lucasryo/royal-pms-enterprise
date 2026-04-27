@@ -1,0 +1,55 @@
+name: Deploy Supabase
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy edge function — public-rates-calendar
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy public-rates-calendar \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+            --no-verify-jwt
+
+      - name: Deploy edge function — public-rates-quote
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy public-rates-quote \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+            --no-verify-jwt
+
+      - name: Deploy edge function — public-booking-request
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy public-booking-request \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+            --no-verify-jwt
+
+      - name: Run SQL migration — booking_blocked_dates
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          curl -s -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "create table if not exists public.booking_blocked_dates (id uuid default gen_random_uuid() primary key, category text check (category is null or category in (''executivo'', ''master'', ''suite presidencial'')), start_date date not null, end_date date not null, reason text, active boolean not null default true, created_by uuid references auth.users(id), created_at timestamptz not null default timezone(''utc'', now()), updated_at timestamptz not null default timezone(''utc'', now()), check (end_date >= start_date)); create index if not exists idx_booking_blocked_dates_active on public.booking_blocked_dates(active, category, start_date, end_date); alter table public.booking_blocked_dates enable row level security; create policy if not exists booking_blocked_dates_select_staff on public.booking_blocked_dates for select to authenticated using (exists (select 1 from public.profiles where id = auth.uid() and role in (''admin'', ''reservations'', ''manager''))); create policy if not exists booking_blocked_dates_manage_staff on public.booking_blocked_dates for all to authenticated using (exists (select 1 from public.profiles where id = auth.uid() and role in (''admin'', ''reservations'', ''manager''))) with check (exists (select 1 from public.profiles where id = auth.uid() and role in (''admin'', ''reservations'', ''manager'')));"
+            }' | jq .
