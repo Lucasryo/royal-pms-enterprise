@@ -88,22 +88,41 @@ serve(async (req) => {
       return json({ ok: false, error: `Range maximo ${maxDays} dias` });
     }
 
-    const { data: rates, error } = await adminClient
-      .from("public_rates")
-      .select("id, category, label, start_date, end_date, weekday_rate, weekend_rate, guests_included, extra_guest_fee, min_nights, priority")
-      .eq("category", category)
-      .eq("active", true)
-      .lte("start_date", endDate)
-      .gte("end_date", startDate);
+    const [ratesRes, blockedRes] = await Promise.all([
+      adminClient
+        .from("public_rates")
+        .select("id, category, label, start_date, end_date, weekday_rate, weekend_rate, guests_included, extra_guest_fee, min_nights, priority")
+        .eq("category", category)
+        .eq("active", true)
+        .lte("start_date", endDate)
+        .gte("end_date", startDate),
+      adminClient
+        .from("booking_blocked_dates")
+        .select("start_date, end_date, reason, category")
+        .eq("active", true)
+        .lte("start_date", endDate)
+        .gte("end_date", startDate)
+        .or(`category.is.null,category.eq.${category}`),
+    ]);
 
-    if (error) return json({ ok: false, error: error.message });
+    if (ratesRes.error) return json({ ok: false, error: ratesRes.error.message });
 
     const rates_by_date: Record<string, { rate: number; weekend: boolean; label: string; min_nights: number }> = {};
     let minRate: number | null = null;
     let maxRate: number | null = null;
 
+    type BlockedRow = { start_date: string; end_date: string; reason: string | null; category: string | null };
+    const blockedRows = (blockedRes.data ?? []) as BlockedRow[];
+
+    const blocked_dates: Record<string, { reason: string }> = {};
+
     for (const date of iterDates(startDate, endDate)) {
-      const rate = pickRate((rates ?? []) as Rate[], date);
+      const blockMatch = blockedRows.find((b) => b.start_date <= date && b.end_date >= date);
+      if (blockMatch) {
+        blocked_dates[date] = { reason: blockMatch.reason ?? "Indisponivel" };
+        continue;
+      }
+      const rate = pickRate((ratesRes.data ?? []) as Rate[], date);
       if (!rate) continue;
       const weekend = isWeekend(date);
       const value = weekend && rate.weekend_rate != null ? Number(rate.weekend_rate) : Number(rate.weekday_rate);
@@ -115,6 +134,7 @@ serve(async (req) => {
     return json({
       ok: true,
       rates_by_date,
+      blocked_dates,
       min_rate: minRate,
       max_rate: maxRate,
       currency: "BRL",

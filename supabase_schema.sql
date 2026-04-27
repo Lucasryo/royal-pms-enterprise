@@ -383,6 +383,33 @@ create policy "public_rates_manage_staff" on public.public_rates
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
   );
 
+-- Bloqueios de datas no motor de reservas diretas
+-- category null = bloqueia todas as categorias; caso contrario, apenas a categoria especificada
+create table if not exists public.booking_blocked_dates (
+  id uuid default gen_random_uuid() primary key,
+  category text check (category is null or category in ('executivo', 'master', 'suite presidencial')),
+  start_date date not null,
+  end_date date not null,
+  reason text,
+  active boolean not null default true,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  check (end_date >= start_date)
+);
+create index if not exists idx_booking_blocked_dates_active on public.booking_blocked_dates(active, category, start_date, end_date);
+alter table public.booking_blocked_dates enable row level security;
+create policy "booking_blocked_dates_select_staff" on public.booking_blocked_dates
+  for select to authenticated using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  );
+create policy "booking_blocked_dates_manage_staff" on public.booking_blocked_dates
+  for all to authenticated using (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  ) with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
+  );
+
 create table if not exists public.bank_statements (
   id uuid default gen_random_uuid() primary key,
   name text not null,

@@ -14,6 +14,7 @@ import ProfessionalPMSDashboard from './ProfessionalPMSDashboard';
 import EnterpriseExtensionsDashboard, { EnterpriseTab } from './EnterpriseExtensionsDashboard';
 import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQueue';
 import PublicRatesManager from './PublicRatesManager';
+import BlockedDatesManager from './BlockedDatesManager';
 import OccupancyChart from './OccupancyChart';
 
 type ModuleTab<T extends string> = {
@@ -37,6 +38,7 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
         { id: 'central', label: 'Central de reservas', icon: CalendarDays, render: () => <ReservationsDashboard profile={profile} /> },
         { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
+        { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
         { id: 'tariffs', label: 'Tarifas corporativas', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="tariffs" /> },
         { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
       ]}
@@ -155,6 +157,7 @@ export function AdminControlModuleDashboard({ profile, canManage }: { profile: U
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
         { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
+        { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
         { id: 'finance', label: 'Financeiro', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="finance" /> },
         { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
       ]}

@@ -289,7 +289,38 @@ async function computeQuote(args: { checkIn: string; checkOut: string; category:
   return { available: true, nights, total: nightlyTotal + extraGuestTotal, nightly_total: nightlyTotal, extra_guest_total: extraGuestTotal, breakdown };
 }
 
-async function checkAvailability(category: string, checkIn: string, checkOut: string): Promise<{ available: boolean; min_left: number; total: number; full_dates: string[]; reason: string }> {
+async function checkAvailability(category: string, checkIn: string, checkOut: string): Promise<{ available: boolean; min_left: number; total: number; full_dates: string[]; reason: string; blocked?: boolean }> {
+  const dates = iterDates(checkIn, checkOut);
+
+  // Verifica bloqueios manuais antes de checar inventario
+  const { data: blockedRows } = await adminClient
+    .from("booking_blocked_dates")
+    .select("start_date, end_date, reason, category")
+    .eq("active", true)
+    .lte("start_date", checkOut)
+    .gte("end_date", checkIn)
+    .or(`category.is.null,category.eq.${category}`);
+
+  type BlockedRow = { start_date: string; end_date: string; reason: string | null };
+  const blocked = (blockedRows ?? []) as BlockedRow[];
+  const blockedDatesInRange = dates.filter((d) =>
+    blocked.some((b) => b.start_date <= d && b.end_date >= d)
+  );
+
+  if (blockedDatesInRange.length > 0) {
+    const firstBlock = blocked.find((b) => b.start_date <= blockedDatesInRange[0] && b.end_date >= blockedDatesInRange[0]);
+    return {
+      available: false,
+      min_left: 0,
+      total: 0,
+      full_dates: blockedDatesInRange,
+      reason: firstBlock?.reason
+        ? `Reservas bloqueadas para este periodo: ${firstBlock.reason}`
+        : `Reservas bloqueadas para ${blockedDatesInRange.length} data(s) do periodo.`,
+      blocked: true,
+    };
+  }
+
   const { data: roomRows } = await adminClient
     .from("rooms")
     .select("id")
@@ -326,7 +357,7 @@ async function checkAvailability(category: string, checkIn: string, checkOut: st
 
   let minLeft = total;
   const fullDates: string[] = [];
-  for (const date of iterDates(checkIn, checkOut)) {
+  for (const date of dates) {
     const occupied = all.filter((r) => r.check_in <= date && r.check_out > date).length;
     const left = total - occupied;
     if (left < minLeft) minLeft = left;
