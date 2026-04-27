@@ -28,3 +28,6 @@ Thumbs.db
 # Electron
 out/
 .vercel
+
+# Supabase CLI temp files
+supabase/.temp/
