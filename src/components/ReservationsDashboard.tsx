@@ -102,6 +102,7 @@ const HISTORY_STAGE_STYLES: Record<ReservationHistoryEntry['stage'], { label: st
 
 export default function ReservationsDashboard({ profile }: { profile: UserProfile }) {
   const [activeSubTab, setActiveSubTab] = useState<'map' | 'requests'>('requests');
+  const [requestsFilter, setRequestsFilter] = useState<'pending' | 'rejected' | 'all'>('pending');
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [reservationRequests, setReservationRequests] = useState<ReservationRequest[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -355,6 +356,36 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     } catch (error) {
       console.error("Error approving reservation:", error);
       toast.error('Erro ao aprovar reserva.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReopenRequest = async (requestId: string, code: string) => {
+    if (!canEditReservation) {
+      toast.error('Seu perfil não pode reabrir solicitações.');
+      return;
+    }
+    if (!window.confirm('Reabrir esta solicitação como pendente?')) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('reservation_requests')
+        .update({ status: 'REQUESTED' })
+        .eq('id', requestId);
+      if (error) throw error;
+      toast.success('Solicitação reaberta.');
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Reabertura de solicitacao',
+        details: `Reserva Code: ${code} reaberta como REQUESTED`,
+        type: 'update',
+      });
+      fetchData();
+    } catch (err) {
+      toast.error('Erro ao reabrir solicitação.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -888,27 +919,87 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
 
       <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
         {activeSubTab === 'requests' ? (
+          <>
+            {/* Filtro de status */}
+            <div className="flex items-center gap-2 border-b border-neutral-100 bg-neutral-50/60 px-4 py-3">
+              {(['pending', 'rejected', 'all'] as const).map((opt) => {
+                const count =
+                  opt === 'pending'
+                    ? reservationRequests.filter((r) => r.status === 'REQUESTED').length
+                    : opt === 'rejected'
+                      ? reservationRequests.filter((r) => r.status === 'REJECTED').length
+                      : reservationRequests.length;
+                const labels = { pending: 'Pendentes', rejected: 'Rejeitadas', all: 'Todas' } as const;
+                const isActive = requestsFilter === opt;
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => setRequestsFilter(opt)}
+                    className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
+                      isActive
+                        ? opt === 'rejected'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-neutral-900 text-white'
+                        : 'bg-white text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    {labels[opt]}
+                    <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] tabular-nums ${
+                      isActive ? 'bg-white/20' : 'bg-neutral-100 text-neutral-700'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
           <div className="divide-y divide-neutral-100">
-            {reservationRequests.filter((r) => r.status === 'REQUESTED').length === 0 ? (
-              <div className="p-20 text-center text-neutral-400 italic">Nenhuma solicitacao pendente no momento.</div>
-            ) : (
-              reservationRequests.filter((r) => r.status === 'REQUESTED').map(req => (
-                <div key={req.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-neutral-50 transition-colors">
+            {(() => {
+              const filtered =
+                requestsFilter === 'pending'
+                  ? reservationRequests.filter((r) => r.status === 'REQUESTED')
+                  : requestsFilter === 'rejected'
+                    ? reservationRequests.filter((r) => r.status === 'REJECTED')
+                    : reservationRequests;
+              if (filtered.length === 0) {
+                return (
+                  <div className="p-20 text-center text-neutral-400 italic">
+                    {requestsFilter === 'pending'
+                      ? 'Nenhuma solicitacao pendente no momento.'
+                      : requestsFilter === 'rejected'
+                        ? 'Nenhuma solicitacao rejeitada.'
+                        : 'Nenhuma solicitacao cadastrada.'}
+                  </div>
+                );
+              }
+              return filtered.map(req => {
+                const isRejected = req.status === 'REJECTED';
+                return (
+                <div key={req.id} className={`p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 transition-colors ${isRejected ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-neutral-50'}`}>
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-                      <Clock className="w-6 h-6" />
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isRejected ? 'bg-red-100 text-red-600' : 'bg-amber-50 text-amber-600'}`}>
+                      {isRejected ? <X className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
                     </div>
                     <div>
-                      <h4 className="font-bold text-neutral-900">{req.guest_name}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className={`font-bold ${isRejected ? 'text-neutral-700 line-through decoration-red-400/60' : 'text-neutral-900'}`}>{req.guest_name}</h4>
+                        {isRejected && (
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Rejeitada</span>
+                        )}
+                      </div>
                       <p className="text-xs text-neutral-500 font-medium">
                         Solicitado por: {req.requested_by}
                         {' '}({companies.find(c => c.id === req.company_id)?.name || req.source || 'Particular / Web direto'})
                       </p>
-                      <div className="flex items-center gap-3 mt-1">
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
                         <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-tighter">REF: {req.reservation_code}</span>
                         <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded truncate">{req.category}</span>
                         {req.contact_email && (
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded truncate">{req.contact_email}</span>
+                        )}
+                        {req.contact_phone && (
+                          <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-1.5 py-0.5 rounded truncate">{req.contact_phone}</span>
                         )}
                       </div>
                     </div>
@@ -918,37 +1009,53 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                     <div className="flex gap-4 border-l border-neutral-100 pl-8">
                       <div className="text-center">
                         <p className="text-[9px] font-bold text-neutral-400 uppercase">Check-in</p>
-                        <p className="text-sm font-bold text-neutral-900">{format(new Date(req.check_in + 'T12:00:00'), 'dd/MM/yy')}</p>
+                        <p className={`text-sm font-bold ${isRejected ? 'text-neutral-500 line-through' : 'text-neutral-900'}`}>{format(new Date(req.check_in + 'T12:00:00'), 'dd/MM/yy')}</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[9px] font-bold text-neutral-400 uppercase">Check-out</p>
-                        <p className="text-sm font-bold text-neutral-900">{format(new Date(req.check_out + 'T12:00:00'), 'dd/MM/yy')}</p>
+                        <p className={`text-sm font-bold ${isRejected ? 'text-neutral-500 line-through' : 'text-neutral-900'}`}>{format(new Date(req.check_out + 'T12:00:00'), 'dd/MM/yy')}</p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                       <button 
-                        onClick={() => handleApproveReservation(req)}
-                        disabled={!canEditReservation}
-                        className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                        title="Aprovar Reserva"
-                       >
-                         <Check className="w-4 h-4" />
-                       </button>
-                       <button 
-                        onClick={() => handleRejectReservation(req.id!, req.reservation_code, req.requested_by!)}
-                        disabled={!canCancelReservation}
-                        className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                        title="Rejeitar Solicitacao"
-                       >
-                         <X className="w-4 h-4" />
-                       </button>
+                      {isRejected ? (
+                        <button
+                          onClick={() => handleReopenRequest(req.id!, req.reservation_code)}
+                          disabled={!canEditReservation}
+                          className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-40 text-xs font-bold flex items-center gap-1.5"
+                          title="Reabrir como pendente"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          Reabrir
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleApproveReservation(req)}
+                            disabled={!canEditReservation}
+                            className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Aprovar Reserva"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleRejectReservation(req.id!, req.reservation_code, req.requested_by!)}
+                            disabled={!canCancelReservation}
+                            className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Rejeitar Solicitacao"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))
-            )}
+                );
+              });
+            })()}
           </div>
+          </>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
