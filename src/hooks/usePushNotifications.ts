@@ -10,10 +10,27 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+// iOS Safari only supports push when installed as PWA (Add to Home Screen)
+function isIOS(): boolean {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
+function isStandalone(): boolean {
+  return (
+    (navigator as unknown as { standalone?: boolean }).standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches
+  );
+}
+
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
-    return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    // Use the ready registration (active SW) for pushManager — critical on Android
+    return await navigator.serviceWorker.ready;
   } catch {
     return null;
   }
@@ -30,25 +47,36 @@ async function saveSubscription(userId: string, subscription: PushSubscription):
     );
 }
 
-export type PushStatus = 'idle' | 'unsupported' | 'denied' | 'subscribed' | 'pending';
+export type PushStatus = 'idle' | 'unsupported' | 'ios-pwa-required' | 'denied' | 'subscribed' | 'pending';
 
 export function usePushNotifications(userId: string | undefined) {
   const [status, setStatus] = useState<PushStatus>('idle');
   const subscribed = useRef(false);
 
-  // Verifica estado atual ao carregar o usuario
   useEffect(() => {
     if (!userId) return;
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      // iOS in browser tab (not PWA) falls here — pushManager is undefined
+      if (isIOS() && !isStandalone()) {
+        setStatus('ios-pwa-required');
+      } else {
+        setStatus('unsupported');
+      }
+      return;
+    }
+
+    if (!('Notification' in window)) {
       setStatus('unsupported');
       return;
     }
+
     if (Notification.permission === 'denied') {
       setStatus('denied');
       return;
     }
+
     if (Notification.permission === 'granted') {
-      // Ja tem permissao — garante que a subscription esta salva
       if (!subscribed.current) {
         subscribed.current = true;
         navigator.serviceWorker.ready.then(async (reg) => {
@@ -59,15 +87,13 @@ export function usePushNotifications(userId: string | undefined) {
       setStatus('subscribed');
       return;
     }
-    // permission === 'default' — aguarda o usuario clicar em "Ativar"
+
     setStatus('pending');
   }, [userId]);
 
-  // Chamado quando o usuario clica em "Ativar notificacoes"
-  // DEVE ser chamado dentro de um handler de evento (click) para o browser aceitar
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!userId) return false;
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
 
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
@@ -77,8 +103,6 @@ export function usePushNotifications(userId: string | undefined) {
 
     const reg = await registerServiceWorker();
     if (!reg) return false;
-
-    await navigator.serviceWorker.ready;
 
     try {
       let sub = await reg.pushManager.getSubscription();
@@ -92,7 +116,8 @@ export function usePushNotifications(userId: string | undefined) {
       subscribed.current = true;
       setStatus('subscribed');
       return true;
-    } catch {
+    } catch (err) {
+      console.error('[Push] subscription failed:', err);
       setStatus('pending');
       return false;
     }
