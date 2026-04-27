@@ -666,91 +666,81 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
             {/* O.S. Live Preview */}
             <div className="xl:col-span-7 space-y-6">
-               <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm sticky top-24 overflow-hidden relative">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-12 -mt-12" />
+               <div className="bg-paper rounded-[2rem] border border-ink/10 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sticky top-24 overflow-hidden p-8">
 
-                  <div className="relative z-10">
-                     <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-2">
-                           <FileText className="w-6 h-6 text-primary" />
-                           <h3 className="text-sm font-black text-neutral-900 uppercase">Visualização da O.S. (A4)</h3>
+                  <div>
+                     <div className="flex items-center justify-between mb-7">
+                        <div>
+                           <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pré-visualização da O.S.</p>
+                           <p className="font-display text-lg font-light text-ink mt-0.5">Ordem de Serviço — Formato A4</p>
                         </div>
-                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest px-3 py-1 bg-neutral-100 rounded-full">Papel A4 - {formData.client_category}</span>
-                        <button
-                          onClick={async () => {
-                            const el = document.getElementById('contract-pdf-template');
-                            if (!el) return;
-                            const { default: html2canvas } = await import('html2canvas');
-                            const { default: jsPDF } = await import('jspdf');
-                            const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-                            const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                            const props = pdf.getImageProperties(canvas.toDataURL('image/png'));
-                            const w = pdf.internal.pageSize.getWidth();
-                            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, (props.height * w) / props.width);
-                            pdf.save(`OS_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
-                          }}
-                          className="p-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all"
-                          title="Gerar PDF da O.S."
-                        >
-                           <Printer className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                           <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400 px-3 py-1.5 bg-ink/5 rounded-full">{formData.client_category}</span>
+                           <button
+                             onClick={async () => {
+                               const el = document.getElementById('contract-pdf-template');
+                               if (!el) return;
+                               const { default: html2canvas } = await import('html2canvas');
+                               const { default: jsPDF } = await import('jspdf');
+                               const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#FAF8F2' });
+                               const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                               const props = pdf.getImageProperties(canvas.toDataURL('image/png'));
+                               const w = pdf.internal.pageSize.getWidth();
+                               pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, (props.height * w) / props.width);
+                               pdf.save(`OS_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
+                             }}
+                             className="group flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 text-ink/50 hover:bg-ink hover:text-paper transition-all"
+                             title="Gerar PDF da O.S."
+                           >
+                             <Printer className="w-4 h-4" />
+                           </button>
+                        </div>
                      </div>
 
                      {/* ── A4 Live Preview ── */}
-                     <div className="mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Arial, sans-serif', color: '#111827', backgroundColor: '#FFFFFF', boxShadow: '0 4px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06)' }}>
+                     <div className="mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Georgia, serif', backgroundColor: '#FAF8F2', color: '#1E1912', boxShadow: '0 4px 32px rgba(20,15,10,0.10), 0 0 0 1px rgba(20,15,10,0.06)' }}>
 
-                       {/* ══ HEADER ══ */}
-                       <div style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB' }}>
-                         <div style={{ height: '5px', backgroundColor: '#b45309' }} />
-                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '26px 48px 20px' }}>
+                       {/* HEADER */}
+                       <div style={{ borderBottom: '1px solid rgba(30,25,18,0.08)' }}>
+                         <div style={{ height: '2px', background: 'linear-gradient(to right, #C49A3C, #b45309)' }} />
+                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '28px 48px 22px' }}>
                            <div>
-                             <div style={{ fontSize: '22px', fontWeight: '900', color: '#111827', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1 }}>Royal Macaé</div>
-                             <div style={{ fontSize: '7.5px', color: '#6B7280', letterSpacing: '0.65em', fontWeight: '600', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
-                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '8px' }}>
-                               <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
-                               <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#b45309' }} />
-                               <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
+                             <div style={{ fontSize: '20px', fontWeight: '300', letterSpacing: '0.26em', textTransform: 'uppercase', color: '#1E1912', lineHeight: 1 }}>Royal Macaé</div>
+                             <div style={{ fontSize: '7.5px', color: '#78716c', letterSpacing: '0.65em', fontWeight: '500', textTransform: 'uppercase', marginTop: '5px', fontFamily: 'Inter, sans-serif' }}>Palace  ·  Hotel</div>
+                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px' }}>
+                               <div style={{ height: '1px', width: '20px', background: '#C49A3C' }} />
+                               <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#C49A3C' }} />
+                               <div style={{ height: '1px', width: '20px', background: '#C49A3C' }} />
                              </div>
                            </div>
-                           <div style={{ textAlign: 'right', lineHeight: '1.8' }}>
-                             <div style={{ fontSize: '11px', fontWeight: '700', color: '#111827' }}>(22) 2123-9650</div>
-                             <div style={{ fontSize: '8.5px', color: '#6B7280' }}>eventos@royalmacae.com.br</div>
-                             <div style={{ fontSize: '8.5px', color: '#6B7280' }}>www.royalmacae.com.br</div>
-                             <div style={{ fontSize: '8px', color: '#9CA3AF', marginTop: '1px' }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
+                           <div style={{ textAlign: 'right', fontFamily: 'Inter, sans-serif' }}>
+                             <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>Ordem de Serviço</div>
+                             <div style={{ fontSize: '17px', fontWeight: '300', color: '#C49A3C', letterSpacing: '0.06em', fontFamily: 'Georgia, serif' }}>— pendente —</div>
+                             <div style={{ fontSize: '9px', color: '#78716c', marginTop: '4px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
+                             <div style={{ fontSize: '8px', color: '#a8a29e', marginTop: '1px' }}>(22) 2123-9650 · eventos@royalmacae.com.br</div>
                            </div>
                          </div>
-                         <div style={{ borderTop: '1px solid #FDE68A', backgroundColor: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                           <div>
-                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: '#92400E', textTransform: 'uppercase', marginBottom: '3px' }}>Documento Oficial</div>
-                             <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '0.2em', color: '#92400E', textTransform: 'uppercase' }}>Ordem de Serviço</div>
-                           </div>
-                           <div style={{ textAlign: 'right' }}>
-                             <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: '#92400E', textTransform: 'uppercase', marginBottom: '3px' }}>Número O.S.</div>
-                             <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#b45309', letterSpacing: '0.08em' }}>— pendente —</div>
-                             <div style={{ fontSize: '9px', color: '#92400E', marginTop: '2px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
-                           </div>
-                         </div>
-                         <div style={{ height: '3px', backgroundColor: '#b45309' }} />
                        </div>
 
-                       {/* ══ EVENT NAME ══ */}
-                       <div style={{ padding: '26px 48px 22px', backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-                         <div style={{ width: '4px', minHeight: '52px', backgroundColor: '#b45309', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
-                         <div style={{ flex: 1 }}>
-                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.48em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px' }}>Nome do Evento</div>
-                           <div style={{ fontSize: '24px', fontWeight: '900', color: '#111827', letterSpacing: '-0.01em', lineHeight: '1.12' }}>{formData.name || '—'}</div>
+                       {/* EVENT NAME */}
+                       <div style={{ padding: '26px 48px 22px', borderBottom: '1px solid rgba(30,25,18,0.07)' }}>
+                         <div style={{ fontSize: '7px', letterSpacing: '0.48em', color: '#78716c', textTransform: 'uppercase', marginBottom: '10px', fontFamily: 'Inter, sans-serif' }}>· Nome do Evento</div>
+                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                           <div style={{ flex: 1 }}>
+                             <div style={{ fontSize: '26px', fontWeight: '300', color: '#1E1912', letterSpacing: '-0.01em', lineHeight: '1.1' }}>{formData.name || '—'}</div>
+                           </div>
+                           <div style={{ padding: '4px 14px', background: 'rgba(196,154,60,0.10)', border: '1px solid rgba(196,154,60,0.28)', borderRadius: '999px', fontSize: '8px', color: '#C49A3C', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '6px', fontFamily: 'Inter, sans-serif' }}>{formData.event_type}</div>
                          </div>
-                         <div style={{ padding: '4px 12px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#92400E', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{formData.event_type}</div>
                        </div>
 
-                       {/* ══ INFO GRID ══ */}
-                       <div style={{ padding: '22px 48px', backgroundColor: '#F9FAFB' }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                           <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Detalhes do Evento</div>
-                           <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                       {/* INFO GRID */}
+                       <div style={{ padding: '22px 48px', backgroundColor: '#F5F2EC' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', fontFamily: 'Inter, sans-serif' }}>
+                           <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                           <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Detalhes do evento</div>
+                           <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
                          </div>
-                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#E5E7EB', borderRadius: '6px', overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(30,25,18,0.07)', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(30,25,18,0.07)' }}>
                            {[
                              { label: 'Contratante', value: formData.client_category || '—' },
                              { label: 'Tipo de Evento', value: formData.event_type || '—' },
@@ -762,82 +752,86 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                              { label: 'Perfil do Contratante', value: formData.client_profile || '—' },
                              { label: 'Valor do Contrato', value: formData.total_value ? formData.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
                            ].map((f, i) => (
-                             <div key={i} style={{ padding: '13px 15px', backgroundColor: i % 2 === 0 ? '#F9FAFB' : '#FFFFFF' }}>
-                               <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.3em', color: '#6B7280', marginBottom: '4px', textTransform: 'uppercase' }}>{f.label}</div>
-                               <div style={{ fontSize: '12px', fontWeight: '700', color: '#111827' }}>{f.value}</div>
+                             <div key={i} style={{ padding: '13px 16px', backgroundColor: i % 2 === 0 ? '#F5F2EC' : '#FAF8F2', fontFamily: 'Inter, sans-serif' }}>
+                               <div style={{ fontSize: '7px', letterSpacing: '0.3em', color: '#78716c', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</div>
+                               <div style={{ fontSize: '12px', fontWeight: '500', color: '#1E1912' }}>{f.value}</div>
                              </div>
                            ))}
                          </div>
                        </div>
 
-                       {/* ══ SERVICES ══ */}
+                       {/* SERVICES */}
                        {formData.items_included && (
-                         <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
-                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                             <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Serviços & Itens Inclusos</div>
-                             <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                         <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
+                             <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                             <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Serviços & itens inclusos</div>
+                             <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
                            </div>
                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                              {formData.items_included.split(',').map((item, i) => item.trim() && (
-                               <span key={i} style={{ padding: '5px 13px', fontSize: '8px', fontWeight: '700', border: '1px solid #FDE68A', color: '#92400E', backgroundColor: '#FEF3C7', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
+                               <span key={i} style={{ padding: '4px 13px', fontSize: '8px', border: '1px solid rgba(196,154,60,0.28)', color: '#C49A3C', backgroundColor: 'rgba(196,154,60,0.07)', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'Inter, sans-serif' }}>{item.trim()}</span>
                              ))}
                            </div>
                          </div>
                        )}
 
-                       {/* ══ IMPORTANT NOTES ══ */}
+                       {/* IMPORTANT NOTES */}
                        {formData.important_notes && (
-                         <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFBEB', borderTop: '1px solid #FDE68A' }}>
-                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                             <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                             <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Observações Importantes</div>
-                             <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                         <div style={{ padding: '18px 48px 20px', backgroundColor: '#F5F2EC', borderTop: '1px solid rgba(196,154,60,0.15)' }}>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
+                             <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                             <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Observações importantes</div>
+                             <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
                            </div>
-                           <div style={{ paddingLeft: '14px', borderLeft: '2px solid #b45309', fontSize: '10px', color: '#92400E', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{formData.important_notes}</div>
+                           <div style={{ paddingLeft: '16px', borderLeft: '2px solid rgba(196,154,60,0.4)', fontSize: '10px', color: '#3d3529', lineHeight: '1.9', whiteSpace: 'pre-line', fontStyle: 'italic' }}>{formData.important_notes}</div>
                          </div>
                        )}
 
-                       {/* ══ STAFF ROADMAP ══ */}
-                       <div style={{ padding: '18px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                           <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                           <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase' }}>Passo a Passo — Equipe</div>
-                           <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                       {/* STAFF ROADMAP */}
+                       <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
+                           <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                           <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Passo a passo — Equipe</div>
+                           <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
                          </div>
-                         <div style={{ paddingLeft: '14px', borderLeft: '2px solid #FDE68A', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{formData.staff_roadmap || 'Nenhum cronograma definido.'}</div>
+                         <div style={{ paddingLeft: '16px', borderLeft: '2px solid rgba(196,154,60,0.25)', fontSize: '10px', color: '#3d3529', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{formData.staff_roadmap || 'Nenhum cronograma definido.'}</div>
                        </div>
 
-                       {/* ══ SIGNATURE ══ */}
-                       <div style={{ padding: '28px 48px 24px', backgroundColor: '#F9FAFB', borderTop: '1px solid #E5E7EB' }}>
+                       {/* SIGNATURE */}
+                       <div style={{ padding: '28px 48px 24px', backgroundColor: '#F5F2EC', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px' }}>
                            {['Responsável pelo Evento', 'Contratante'].map((label) => (
                              <div key={label}>
-                               <div style={{ height: '46px', borderBottom: '1px solid #b45309', marginBottom: '10px', position: 'relative' }}>
-                                 <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
-                                 <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
+                               <div style={{ height: '44px', borderBottom: '1px solid rgba(196,154,60,0.5)', marginBottom: '10px', position: 'relative' }}>
+                                 <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#C49A3C' }} />
+                                 <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#C49A3C' }} />
                                </div>
-                               <div style={{ fontSize: '8px', fontWeight: '800', letterSpacing: '0.24em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>{label}</div>
-                               <div style={{ fontSize: '8px', color: '#9CA3AF' }}>Data: ____/____/________</div>
+                               <div style={{ fontSize: '8px', letterSpacing: '0.24em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px', fontFamily: 'Inter, sans-serif' }}>{label}</div>
+                               <div style={{ fontSize: '8px', color: '#a8a29e', fontFamily: 'Inter, sans-serif' }}>Data: ____/____/________</div>
                              </div>
                            ))}
                          </div>
                        </div>
 
-                       {/* ══ FOOTER ══ */}
-                       <div style={{ backgroundColor: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', borderTop: '3px solid #b45309' }}>
-                         <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: '#92400E', textTransform: 'uppercase' }}>Royal Macaé Palace</div>
+                       {/* FOOTER */}
+                       <div style={{ background: '#F5F2EC', padding: '12px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #C49A3C' }}>
+                         <div style={{ fontSize: '8px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>Royal Macaé Palace</div>
                          <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                           <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
-                           <span style={{ fontSize: '8px', fontWeight: '400', color: '#92400E', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
-                           <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
+                           <div style={{ height: '1px', width: '14px', background: '#C49A3C' }} />
+                           <span style={{ fontSize: '8px', color: '#78716c', fontStyle: 'italic', letterSpacing: '0.18em', fontFamily: 'Georgia, serif' }}>Excelência em cada detalhe</span>
+                           <div style={{ height: '1px', width: '14px', background: '#C49A3C' }} />
                          </div>
                        </div>
 
                      </div>
                      {/* end A4 preview */}
 
-                     <p className="text-[10px] text-neutral-400 font-bold mt-6 italic">Ao salvar, o valor de {formData.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} será provisionado no faturamento para a data de início do evento.</p>
+                     <p className="text-[11px] text-stone-400 font-light mt-6 italic text-center">
+                       Ao salvar, o valor de{' '}
+                       <span className="font-display text-gold not-italic">{formData.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                       {' '}será provisionado no faturamento para a data de início do evento.
+                     </p>
                   </div>
                </div>
             </div>
@@ -847,161 +841,172 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
       {/* Event Details Modal */}
       <AnimatePresence>
-         {viewingEvent && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-neutral-900/60 backdrop-blur-sm">
-               <motion.div
-                 initial={{ opacity: 0, scale: 0.9 }}
-                 animate={{ opacity: 1, scale: 1 }}
-                 exit={{ opacity: 0, scale: 0.9 }}
-                 className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden overflow-y-auto max-h-[90vh]"
-               >
-                  <div className="p-8 bg-neutral-900 text-white relative">
-                     <button
-                       onClick={() => setViewingEvent(null)}
-                       className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-xl transition-all"
-                     >
-                        <X className="w-6 h-6" />
-                     </button>
-                     <div className="flex items-center gap-3 mb-2">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                          viewingEvent.status === 'confirmed'  ? 'bg-green-500/20 text-green-400'
-                          : viewingEvent.status === 'cancelled' ? 'bg-red-500/20 text-red-400'
-                          : 'bg-amber-500/20 text-amber-400'
-                        }`}>
-                           {viewingEvent.status === 'confirmed' ? 'Confirmado' : viewingEvent.status === 'cancelled' ? 'Cancelado' : 'Planejado'}
-                        </span>
-                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{viewingEvent.os_number}</span>
-                     </div>
-                     <h2 className="text-3xl font-black tracking-tight">{viewingEvent.name}</h2>
-                     <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] mt-1">Projeto do Evento • Detalhes da O.S.</p>
-                     <div className="flex flex-wrap items-center gap-6 mt-6">
-                        <div className="flex items-center gap-2">
-                           <CalendarIcon className="w-4 h-4 text-white/40" />
-                           <span className="text-xs font-bold">{format(parseISO(viewingEvent.start_date), 'dd MMMM yyyy', { locale: ptBR })}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <Clock className="w-4 h-4 text-white/40" />
-                           <span className="text-xs font-bold">{viewingEvent.start_time} - {viewingEvent.end_time}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <MapPin className="w-4 h-4 text-white/40" />
-                           <span className="text-xs font-bold">{viewingEvent.hall_name}</span>
-                        </div>
-                     </div>
+        {viewingEvent && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-ink/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              className="bg-paper w-full max-w-3xl rounded-[2rem] shadow-[0_40px_100px_-20px_rgba(20,15,10,0.45)] overflow-hidden max-h-[92vh] flex flex-col"
+            >
+              {/* ── Header ── */}
+              <div className="relative bg-ink px-10 pt-10 pb-8 text-paper overflow-hidden shrink-0">
+                <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-gold/20 blur-3xl" />
+                <div aria-hidden className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-gold/10 blur-2xl" />
+                <button
+                  onClick={() => setViewingEvent(null)}
+                  className="absolute top-6 right-6 flex h-9 w-9 items-center justify-center rounded-full border border-paper/15 text-paper/60 hover:bg-paper/10 hover:text-paper transition-all"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="relative">
+                  <div className="flex items-center gap-4 mb-5">
+                    <span className="text-[10px] uppercase tracking-[0.28em] text-paper/40">· {viewingEvent.os_number}</span>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
+                      viewingEvent.status === 'confirmed' ? 'bg-moss/25 text-moss'
+                      : viewingEvent.status === 'cancelled' ? 'bg-red-500/20 text-red-300'
+                      : 'bg-gold/20 text-gold'
+                    }`}>
+                      {viewingEvent.status === 'confirmed' ? 'Confirmado' : viewingEvent.status === 'cancelled' ? 'Cancelado' : 'Planejado'}
+                    </span>
+                  </div>
+                  <h2 className="font-display text-4xl font-light tracking-[-0.02em] text-paper leading-tight">
+                    {viewingEvent.name}
+                  </h2>
+                  <p className="mt-1.5 text-[11px] uppercase tracking-[0.22em] text-paper/40">{viewingEvent.event_type}</p>
+                  <div className="flex flex-wrap items-center gap-6 mt-7 pt-6 border-t border-paper/10 text-sm text-paper/60">
+                    <div className="flex items-center gap-2">
+                      <CalendarIcon className="w-3.5 h-3.5 text-gold/70" />
+                      <span>{format(parseISO(viewingEvent.start_date), 'dd MMMM yyyy', { locale: ptBR })}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-gold/70" />
+                      <span>{viewingEvent.start_time} – {viewingEvent.end_time}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-3.5 h-3.5 text-gold/70" />
+                      <span>{viewingEvent.hall_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users className="w-3.5 h-3.5 text-gold/70" />
+                      <span>{viewingEvent.attendees_count} pessoas</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Body ── */}
+              <div className="overflow-y-auto flex-1">
+                <div className="px-10 py-8 space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    {/* Contract details */}
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500 mb-5">· Detalhes do contrato</p>
+                      <dl className="divide-y divide-ink/[0.06]">
+                        {[
+                          { label: 'Contratante', value: viewingEvent.client_category || '—' },
+                          { label: 'Perfil', value: viewingEvent.client_profile || '—' },
+                          { label: 'Participantes', value: `${viewingEvent.attendees_count} pessoas` },
+                          { label: 'Valor do contrato', value: viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), highlight: true },
+                          { label: 'Check / período', value: viewingEvent.check_info || '—' },
+                        ].map(({ label, value, highlight }) => (
+                          <div key={label} className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">{label}</dt>
+                            <dd className={`text-sm text-right ${highlight ? 'font-display text-base font-light text-gold' : 'font-medium text-ink'}`}>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+
+                    {/* Staff roadmap */}
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500 mb-5">· Cronograma da equipe</p>
+                      <div className="border-l-2 border-gold/30 pl-4 max-h-64 overflow-y-auto">
+                        <p className="text-sm leading-relaxed text-ink/70 whitespace-pre-line font-light">
+                          {viewingEvent.staff_roadmap || <span className="italic text-stone-400">Nenhum cronograma registrado.</span>}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="p-8 space-y-8 bg-neutral-50/50">
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div className="space-y-6">
-                           <div className="bg-white p-6 rounded-3xl border border-neutral-200">
-                              <h4 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Informações do Projeto</h4>
-                              <div className="space-y-3">
-                                 <div className="flex justify-between border-b border-neutral-50 pb-2">
-                                    <span className="text-[10px] font-bold text-neutral-400 uppercase">Contratante</span>
-                                    <span className="text-xs font-black text-neutral-900">{viewingEvent.client_category || '---'}</span>
-                                 </div>
-                                 <div className="flex justify-between border-b border-neutral-50 pb-2">
-                                    <span className="text-[10px] font-bold text-neutral-400 uppercase">Perfil</span>
-                                    <span className="text-xs font-black text-neutral-900">{viewingEvent.client_profile || '---'}</span>
-                                 </div>
-                                 <div className="flex justify-between border-b border-neutral-50 pb-2">
-                                    <span className="text-[10px] font-bold text-neutral-400 uppercase">Participantes</span>
-                                    <span className="text-xs font-black text-neutral-900">{viewingEvent.attendees_count} pessoas</span>
-                                 </div>
-                                 <div className="flex justify-between border-b border-neutral-50 pb-2">
-                                    <span className="text-[10px] font-bold text-neutral-400 uppercase">Valor do Contrato</span>
-                                    <span className="text-xs font-black text-primary font-mono">{viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                                 </div>
-                                 <div className="flex justify-between">
-                                    <span className="text-[10px] font-bold text-neutral-400 uppercase">Check Info</span>
-                                    <span className="text-xs font-black text-neutral-900 italic">{viewingEvent.check_info || '---'}</span>
-                                 </div>
-                              </div>
-                           </div>
+                  {viewingEvent.items_included && (
+                    <div className="pt-6 border-t border-ink/[0.07]">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500 mb-4">· Serviços & itens inclusos</p>
+                      <div className="flex flex-wrap gap-2">
+                        {viewingEvent.items_included.split(',').map((item, i) => item.trim() && (
+                          <span key={i} className="px-3 py-1.5 rounded-full border border-gold/25 bg-gold/[0.06] text-[11px] tracking-[0.12em] uppercase text-ink/65 font-medium">
+                            {item.trim()}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                           <div className="bg-white p-6 rounded-3xl border border-neutral-200">
-                              <h4 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Serviços Inclusos</h4>
-                              <div className="flex flex-wrap gap-2">
-                                 {viewingEvent.items_included?.split(',').map((item, i) => (
-                                    <div key={i} className="px-3 py-1.5 bg-neutral-50 rounded-xl text-[9px] font-black text-neutral-600 uppercase tracking-tighter border border-neutral-100">
-                                       {item.trim()}
-                                    </div>
-                                 ))}
-                              </div>
-                           </div>
+                  {viewingEvent.important_notes && (
+                    <div className="pt-6 border-t border-ink/[0.07]">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500 mb-4">· Observações importantes</p>
+                      <div className="border-l-2 border-gold/40 pl-5 py-1">
+                        <p className="text-sm leading-relaxed text-ink/70 italic whitespace-pre-line font-display font-light">
+                          {viewingEvent.important_notes}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
-                           {viewingEvent.important_notes && (
-                              <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100">
-                                 <h4 className="text-[10px] font-black uppercase text-amber-600 tracking-widest mb-3">Observações Importantes</h4>
-                                 <p className="text-xs font-bold text-amber-900/70 whitespace-pre-line leading-relaxed italic">
-                                    {viewingEvent.important_notes}
-                                 </p>
-                              </div>
-                           )}
-                        </div>
+                  {viewingEvent.status === 'cancelled' && viewingEvent.cancel_reason && (
+                    <div className="pt-6 border-t border-ink/[0.07]">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-red-500/70 mb-2">· Motivo do cancelamento</p>
+                      <p className="text-sm text-ink/65">{viewingEvent.cancel_reason}</p>
+                      {viewingEvent.cancelled_at && (
+                        <p className="text-[11px] text-stone-400 mt-1">{new Date(viewingEvent.cancelled_at).toLocaleString('pt-BR')}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
 
-                        <div>
-                           <div className="bg-white p-6 rounded-3xl border border-neutral-200 h-full">
-                              <h4 className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Passo-a-passo (Equipe)</h4>
-                              <div className="text-xs font-medium text-neutral-800 whitespace-pre-line leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar">
-                                 {viewingEvent.staff_roadmap || 'Nenhum cronograma registrado.'}
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-
-                     {viewingEvent.status === 'cancelled' && viewingEvent.cancel_reason && (
-                       <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
-                         <p className="text-[10px] font-black uppercase text-red-500 tracking-widest mb-1">Motivo do Cancelamento</p>
-                         <p className="text-xs font-bold text-red-800">{viewingEvent.cancel_reason}</p>
-                         {viewingEvent.cancelled_at && (
-                           <p className="text-[10px] text-red-400 mt-1">
-                             {new Date(viewingEvent.cancelled_at).toLocaleString('pt-BR')}
-                           </p>
-                         )}
-                       </div>
-                     )}
-
-                     <div className="pt-8 border-t border-neutral-100 flex items-center justify-between no-print">
-                        <div className="flex gap-2">
-                           {viewingEvent.status !== 'cancelled' && (
-                             <button
-                               onClick={() => handleEdit(viewingEvent)}
-                               className="flex items-center gap-2 px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-xl text-xs font-bold transition-all"
-                             >
-                               <Edit2 className="w-3 h-3" />
-                               Editar Evento
-                             </button>
-                           )}
-                           {viewingEvent.status !== 'cancelled' && (profile.role === 'admin' || profile.permissions?.canCancelEvents) && (
-                             <button
-                               onClick={() => handleCancel(viewingEvent)}
-                               className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all"
-                             >
-                               <X className="w-3 h-3" />
-                               Cancelar Evento
-                             </button>
-                           )}
-                           <button
-                             onClick={() => handleDownloadContract(viewingEvent)}
-                             className="flex items-center gap-2 px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-xl text-xs font-bold transition-all"
-                           >
-                              <Printer className="w-3 h-3" />
-                              Imprimir O.S.
-                           </button>
-                        </div>
-                        <button
-                           onClick={() => handleDownloadContract(viewingEvent)}
-                           className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-xl text-xs font-bold hover:bg-neutral-800 transition-all"
-                         >
-                           <Download className="w-3 h-3" />
-                           Baixar O.S. em PDF
-                        </button>
-                     </div>
-                  </div>
-               </motion.div>
-            </div>
-         )}
+              {/* ── Actions ── */}
+              <div className="px-10 py-6 border-t border-ink/10 flex items-center justify-between shrink-0 no-print">
+                <div className="flex gap-2">
+                  {viewingEvent.status !== 'cancelled' && (
+                    <button
+                      onClick={() => handleEdit(viewingEvent)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-ink/15 text-sm text-ink/65 hover:border-ink/30 hover:text-ink transition-all"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      Editar
+                    </button>
+                  )}
+                  {viewingEvent.status !== 'cancelled' && (profile.role === 'admin' || profile.permissions?.canCancelEvents) && (
+                    <button
+                      onClick={() => handleCancel(viewingEvent)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-red-200/70 text-sm text-red-500/70 hover:bg-red-50 hover:border-red-200 hover:text-red-500 transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancelar
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDownloadContract(viewingEvent)}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-ink/15 text-sm text-ink/65 hover:border-ink/30 hover:text-ink transition-all"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    Imprimir
+                  </button>
+                </div>
+                <button
+                  onClick={() => handleDownloadContract(viewingEvent)}
+                  className="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-3 text-sm font-medium text-paper transition-all hover:bg-ink/90"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Baixar O.S. em PDF
+                  <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       {/* Hidden PDF Template - rendered off-screen for html2canvas */}
@@ -1015,135 +1020,124 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           ['Data de Término', d.end_date ? format(parseISO(d.end_date), 'dd/MM/yyyy') : '—'],
           ['Horário', (d.start_time && d.end_time) ? `${d.start_time} – ${d.end_time}` : '—'],
           ['Participantes', d.attendees_count ? `${d.attendees_count} pessoas` : '—'],
-          ['Perfil do Contratante', d.client_profile || '—'],
+          ['Perfil', d.client_profile || '—'],
           ['Valor do Contrato', d.total_value ? Number(d.total_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'],
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
-            <div id="contract-pdf-template" style={{ backgroundColor: '#FFFFFF', color: '#111827', fontFamily: 'Arial, sans-serif', width: '794px', minHeight: '1123px' }}>
+            <div id="contract-pdf-template" style={{ backgroundColor: '#FAF8F2', color: '#1E1912', fontFamily: 'Georgia, "Times New Roman", serif', width: '794px', minHeight: '1123px' }}>
 
-              {/* ══ HEADER ══ */}
-              <div style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB' }}>
-                <div style={{ height: '5px', background: '#b45309' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '26px 48px 20px' }}>
+              {/* HEADER */}
+              <div style={{ borderBottom: '1px solid rgba(30,25,18,0.08)' }}>
+                <div style={{ height: '2px', background: 'linear-gradient(to right, #C49A3C, #b45309)' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '30px 48px 24px' }}>
                   <div>
-                    <div style={{ fontSize: '20px', fontWeight: '900', color: '#111827', letterSpacing: '0.28em', textTransform: 'uppercase', lineHeight: 1, margin: 0 }}>Royal Macaé</div>
-                    <div style={{ fontSize: '7.5px', color: '#6B7280', letterSpacing: '0.65em', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>Palace  ·  Hotel</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '9px' }}>
-                      <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
-                      <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#b45309' }} />
-                      <div style={{ height: '1px', width: '18px', background: '#b45309' }} />
+                    <div style={{ fontSize: '20px', fontWeight: '300', letterSpacing: '0.26em', textTransform: 'uppercase', color: '#1E1912', lineHeight: 1, margin: 0, fontFamily: 'Georgia, serif' }}>Royal Macaé</div>
+                    <div style={{ fontSize: '7.5px', color: '#78716c', letterSpacing: '0.65em', fontWeight: '500', textTransform: 'uppercase', marginTop: '6px', fontFamily: 'Arial, sans-serif' }}>Palace  ·  Hotel</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '11px' }}>
+                      <div style={{ height: '1px', width: '20px', background: '#C49A3C' }} />
+                      <div style={{ width: '3px', height: '3px', borderRadius: '50%', background: '#C49A3C' }} />
+                      <div style={{ height: '1px', width: '20px', background: '#C49A3C' }} />
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', lineHeight: '1.8' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '700', color: '#111827', margin: 0 }}>(22) 2123-9650</div>
-                    <div style={{ fontSize: '8.5px', color: '#6B7280', margin: 0 }}>eventos@royalmacae.com.br</div>
-                    <div style={{ fontSize: '8.5px', color: '#6B7280', margin: 0 }}>www.royalmacae.com.br</div>
-                    <div style={{ fontSize: '8px', color: '#9CA3AF', margin: 0 }}>Av. Atlântica, 1642 — Cavaleiros, Macaé / RJ</div>
+                  <div style={{ textAlign: 'right', fontFamily: 'Arial, sans-serif' }}>
+                    <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>Ordem de Serviço</div>
+                    <div style={{ fontSize: '16px', fontWeight: '300', color: '#C49A3C', letterSpacing: '0.06em', margin: 0, fontFamily: 'Georgia, serif' }}>{d.os_number || '— pendente —'}</div>
+                    <div style={{ fontSize: '9px', color: '#78716c', marginTop: '4px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
+                    <div style={{ fontSize: '8px', color: '#a8a29e', marginTop: '2px' }}>(22) 2123-9650 · eventos@royalmacae.com.br</div>
                   </div>
                 </div>
-                <div style={{ borderTop: '1px solid #FDE68A', background: '#FFFBEB', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.6em', color: '#92400E', textTransform: 'uppercase', marginBottom: '4px' }}>Documento Oficial</div>
-                    <div style={{ fontSize: '17px', fontWeight: '900', letterSpacing: '0.2em', color: '#92400E', textTransform: 'uppercase', margin: 0 }}>Ordem de Serviço</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '7px', fontWeight: '800', letterSpacing: '0.5em', color: '#92400E', textTransform: 'uppercase', marginBottom: '4px' }}>Número O.S.</div>
-                    <div style={{ fontSize: '17px', fontWeight: '900', fontFamily: 'monospace', color: '#b45309', letterSpacing: '0.08em', margin: 0 }}>{d.os_number || '—'}</div>
-                    <div style={{ fontSize: '9px', color: '#92400E', marginTop: '3px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
-                  </div>
-                </div>
-                <div style={{ height: '3px', background: '#b45309' }} />
               </div>
 
-              {/* ══ EVENT NAME ══ */}
-              <div style={{ padding: '28px 48px 22px', backgroundColor: '#FFFFFF', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-start', gap: '18px' }}>
-                <div style={{ width: '4px', minHeight: '52px', background: '#b45309', borderRadius: '2px', flexShrink: 0, marginTop: '2px' }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.48em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '9px' }}>Nome do Evento</div>
-                  <div style={{ fontSize: '25px', fontWeight: '900', color: '#111827', letterSpacing: '-0.01em', lineHeight: '1.12', margin: 0 }}>{d.name || '—'}</div>
+              {/* EVENT NAME */}
+              <div style={{ padding: '26px 48px 22px', borderBottom: '1px solid rgba(30,25,18,0.07)' }}>
+                <div style={{ fontSize: '7px', letterSpacing: '0.48em', color: '#78716c', textTransform: 'uppercase', marginBottom: '10px', fontFamily: 'Arial, sans-serif' }}>· Nome do Evento</div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '26px', fontWeight: '300', color: '#1E1912', letterSpacing: '-0.01em', lineHeight: '1.1', margin: 0, fontFamily: 'Georgia, serif' }}>{d.name || '—'}</div>
+                  </div>
+                  <div style={{ padding: '4px 14px', background: 'rgba(196,154,60,0.10)', border: '1px solid rgba(196,154,60,0.3)', borderRadius: '999px', fontSize: '8px', color: '#C49A3C', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '6px', fontFamily: 'Arial, sans-serif' }}>{d.event_type || '—'}</div>
                 </div>
-                <div style={{ padding: '5px 13px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '999px', fontSize: '8px', fontWeight: '800', color: '#92400E', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: '4px' }}>{d.event_type || '—'}</div>
               </div>
 
-              {/* ══ INFO GRID ══ */}
-              <div style={{ padding: '22px 48px', backgroundColor: '#F9FAFB' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                  <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Detalhes do Evento</div>
-                  <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+              {/* INFO GRID */}
+              <div style={{ padding: '22px 48px', backgroundColor: '#F5F2EC' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', fontFamily: 'Arial, sans-serif' }}>
+                  <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                  <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Detalhes do evento</div>
+                  <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#E5E7EB', borderRadius: '8px', overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(30,25,18,0.07)', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(30,25,18,0.07)' }}>
                   {infoRows.map(([label, value], i) => (
-                    <div key={i} style={{ padding: '14px 16px', backgroundColor: i % 2 === 0 ? '#F9FAFB' : '#FFFFFF' }}>
-                      <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.3em', color: '#6B7280', marginBottom: '5px', textTransform: 'uppercase' }}>{label}</div>
-                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#111827', margin: 0 }}>{value}</div>
+                    <div key={i} style={{ padding: '14px 16px', backgroundColor: i % 2 === 0 ? '#F5F2EC' : '#FAF8F2', fontFamily: 'Arial, sans-serif' }}>
+                      <div style={{ fontSize: '7px', letterSpacing: '0.3em', color: '#78716c', marginBottom: '5px', textTransform: 'uppercase' }}>{label}</div>
+                      <div style={{ fontSize: '12px', fontWeight: '500', color: '#1E1912', margin: 0 }}>{value}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* ══ SERVICES ══ */}
+              {/* SERVICES */}
               {d.items_included && (
-                <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Serviços & Itens Inclusos</div>
-                    <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
+                    <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                    <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Serviços & itens inclusos</div>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                     {d.items_included.split(',').map((item: string, i: number) => item.trim() && (
-                      <span key={i} style={{ padding: '5px 14px', fontSize: '8px', fontWeight: '800', border: '1px solid #FDE68A', color: '#92400E', backgroundColor: '#FEF3C7', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.trim()}</span>
+                      <span key={i} style={{ padding: '4px 13px', fontSize: '8px', border: '1px solid rgba(196,154,60,0.3)', color: '#C49A3C', backgroundColor: 'rgba(196,154,60,0.08)', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'Arial, sans-serif' }}>{item.trim()}</span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* ══ IMPORTANT NOTES ══ */}
+              {/* IMPORTANT NOTES */}
               {d.important_notes && (
-                <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFBEB', borderTop: '1px solid #FDE68A' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                    <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Observações Importantes</div>
-                    <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+                <div style={{ padding: '18px 48px 20px', backgroundColor: '#F5F2EC', borderTop: '1px solid rgba(196,154,60,0.15)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
+                    <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                    <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Observações importantes</div>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
                   </div>
-                  <div style={{ paddingLeft: '14px', borderLeft: '2px solid #b45309', fontSize: '10px', color: '#92400E', lineHeight: '1.85', whiteSpace: 'pre-line' }}>{d.important_notes}</div>
+                  <div style={{ paddingLeft: '16px', borderLeft: '2px solid rgba(196,154,60,0.4)', fontSize: '10px', color: '#3d3529', lineHeight: '1.9', whiteSpace: 'pre-line', fontStyle: 'italic', fontFamily: 'Georgia, serif' }}>{d.important_notes}</div>
                 </div>
               )}
 
-              {/* ══ STAFF ROADMAP ══ */}
-              <div style={{ padding: '20px 48px 22px', backgroundColor: '#FFFFFF', borderTop: '1px solid #E5E7EB' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                  <div style={{ height: '1px', width: '20px', background: '#b45309' }} />
-                  <div style={{ fontSize: '7px', fontWeight: '900', letterSpacing: '0.45em', color: '#b45309', textTransform: 'uppercase', margin: 0 }}>Passo a Passo — Equipe</div>
-                  <div style={{ flex: 1, height: '1px', background: '#FDE68A' }} />
+              {/* STAFF ROADMAP */}
+              <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
+                  <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                  <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Passo a passo — Equipe</div>
+                  <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
                 </div>
-                <div style={{ paddingLeft: '14px', borderLeft: '2px solid #FDE68A', fontSize: '10px', color: '#374151', lineHeight: '1.9', whiteSpace: 'pre-line' }}>{d.staff_roadmap || 'Nenhum cronograma definido.'}</div>
+                <div style={{ paddingLeft: '16px', borderLeft: '2px solid rgba(196,154,60,0.28)', fontSize: '10px', color: '#3d3529', lineHeight: '1.9', whiteSpace: 'pre-line', fontFamily: 'Arial, sans-serif' }}>{d.staff_roadmap || 'Nenhum cronograma definido.'}</div>
               </div>
 
-              {/* ══ SIGNATURE ══ */}
-              <div style={{ padding: '30px 48px 26px', backgroundColor: '#F9FAFB', borderTop: '1px solid #E5E7EB' }}>
+              {/* SIGNATURE */}
+              <div style={{ padding: '28px 48px 24px', backgroundColor: '#F5F2EC', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px' }}>
                   {['Responsável pelo Evento', 'Contratante'].map((label) => (
                     <div key={label}>
-                      <div style={{ height: '48px', borderBottom: '1px solid #b45309', marginBottom: '10px', position: 'relative' }}>
-                        <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
-                        <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#b45309' }} />
+                      <div style={{ height: '46px', borderBottom: '1px solid rgba(196,154,60,0.5)', marginBottom: '10px', position: 'relative' }}>
+                        <div style={{ position: 'absolute', bottom: '-3px', left: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#C49A3C' }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', right: 0, width: '5px', height: '5px', borderRadius: '50%', background: '#C49A3C' }} />
                       </div>
-                      <div style={{ fontSize: '8px', fontWeight: '800', letterSpacing: '0.24em', color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>{label}</div>
-                      <div style={{ fontSize: '8px', color: '#9CA3AF', margin: 0 }}>Data: ____/____/________</div>
+                      <div style={{ fontSize: '8px', letterSpacing: '0.24em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px', fontFamily: 'Arial, sans-serif' }}>{label}</div>
+                      <div style={{ fontSize: '8px', color: '#a8a29e', margin: 0, fontFamily: 'Arial, sans-serif' }}>Data: ____/____/________</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* ══ FOOTER ══ */}
-              <div style={{ background: '#FFFBEB', padding: '14px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', borderTop: '3px solid #b45309' }}>
-                <div style={{ fontSize: '8px', fontWeight: '900', letterSpacing: '0.52em', color: '#92400E', textTransform: 'uppercase', margin: 0 }}>Royal Macaé Palace</div>
+              {/* FOOTER */}
+              <div style={{ background: '#F5F2EC', padding: '13px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #C49A3C' }}>
+                <div style={{ fontSize: '8px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', margin: 0, fontFamily: 'Arial, sans-serif' }}>Royal Macaé Palace</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                  <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
-                  <span style={{ fontSize: '8px', fontWeight: '400', color: '#92400E', fontStyle: 'italic', letterSpacing: '0.18em' }}>Excelência em cada detalhe</span>
-                  <div style={{ height: '1px', width: '16px', background: '#b45309' }} />
+                  <div style={{ height: '1px', width: '14px', background: '#C49A3C' }} />
+                  <span style={{ fontSize: '8px', color: '#78716c', fontStyle: 'italic', letterSpacing: '0.18em', fontFamily: 'Georgia, serif' }}>Excelência em cada detalhe</span>
+                  <div style={{ height: '1px', width: '14px', background: '#C49A3C' }} />
                 </div>
               </div>
 
