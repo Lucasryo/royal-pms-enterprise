@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, Reservation, Company, ReservationRequest, FiscalFile, AuditLog } from '../types';
-import { Plus, Search, Calendar, ChevronLeft, ChevronRight, User, Hash, Clock, CheckCircle, XCircle, MoreVertical, Filter, Loader2, X as CloseIcon, Check, X, LogOut, FileText, Printer, ArrowRightCircle, Receipt, Hotel, History } from 'lucide-react';
+import { AlertCircle, Building2, CalendarPlus, ChevronLeft, ChevronRight, Check, CheckCircle, Clock, DollarSign, Filter, FileText, Hash, History, Hotel, IdCard, Loader2, LogOut, MoreVertical, Phone, Plus, Printer, Receipt, Search, User, UserPlus, X as CloseIcon, X, XCircle, Calendar, ArrowRightCircle } from 'lucide-react';
 import ReservationVoucher from './ReservationVoucher';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -124,7 +124,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     room_number: '',
     check_in: format(new Date(), 'yyyy-MM-dd'),
     check_out: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
-    status: 'PENDING' as Reservation['status'],
+    status: 'CONFIRMED' as Reservation['status'],
     company_id: '',
     total_amount: 0,
     reservation_code: '',
@@ -133,10 +133,65 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     category: 'executivo',
     guests_per_uh: 1,
     contact_phone: '',
+    fiscal_data: '',
+    billing_obs: '',
     iss_tax: 5,
     service_tax: 10,
     payment_method: 'BILLED' as 'BILLED' | 'VIRTUAL_CARD'
   });
+
+  // Inventario por categoria (cached na primeira carga)
+  const [roomsByCategory, setRoomsByCategory] = useState<Record<string, number>>({
+    executivo: 0,
+    master: 0,
+    'suite presidencial': 0,
+  });
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('rooms').select('category').eq('is_virtual', false);
+      if (!data) return;
+      const counts: Record<string, number> = { executivo: 0, master: 0, 'suite presidencial': 0 };
+      for (const r of data as Array<{ category: string }>) {
+        if (counts[r.category] !== undefined) counts[r.category]++;
+      }
+      setRoomsByCategory(counts);
+    })();
+  }, []);
+
+  // Disponibilidade da categoria escolhida no range selecionado
+  const availability = useMemo(() => {
+    const total = roomsByCategory[formData.category] || 0;
+    if (total === 0 || !formData.check_in || !formData.check_out || formData.check_out <= formData.check_in) {
+      return { available: true, total, min_left: total };
+    }
+    const all = [
+      ...reservations.filter((r) => r.status !== 'CANCELLED'),
+      ...reservationRequests.filter((r) => r.status !== 'REJECTED'),
+    ].filter((r) => r.category === formData.category && r.check_in <= formData.check_out && r.check_out > formData.check_in);
+
+    let minLeft = total;
+    const start = new Date(`${formData.check_in}T12:00:00`);
+    const end = new Date(`${formData.check_out}T12:00:00`);
+    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+      const day = d.toISOString().slice(0, 10);
+      const occupied = all.filter((r) => r.check_in <= day && r.check_out > day).length;
+      const left = total - occupied;
+      if (left < minLeft) minLeft = left;
+    }
+    return { available: minLeft > 0, total, min_left: Math.max(0, minLeft) };
+  }, [reservations, reservationRequests, formData.category, formData.check_in, formData.check_out, roomsByCategory]);
+
+  // Estimativa de noites e total
+  const estimateNights = useMemo(() => {
+    if (!formData.check_in || !formData.check_out) return 0;
+    const start = new Date(`${formData.check_in}T12:00:00`);
+    const end = new Date(`${formData.check_out}T12:00:00`);
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+  }, [formData.check_in, formData.check_out]);
+
+  const estimateTotal = estimateNights * (formData.tariff || 0);
+  const formatBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   useEffect(() => {
     fetchData();
@@ -187,16 +242,35 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       toast.error('Seu perfil não pode criar reservas manuais.');
       return;
     }
+    if (!formData.guest_name.trim()) {
+      toast.error('Informe o nome do hóspede.');
+      return;
+    }
+    if (formData.check_out <= formData.check_in) {
+      toast.error('Check-out deve ser depois do check-in.');
+      return;
+    }
+    if (!availability.available) {
+      const proceed = window.confirm(
+        'Sem disponibilidade nessa categoria — salvar mesmo assim gera overbooking.\n\nDeseja prosseguir?',
+      );
+      if (!proceed) return;
+    }
     setLoading(true);
 
     try {
       const resCode = formData.reservation_code || generateReservationCode();
+      const totalAmount = estimateTotal || formData.total_amount || 0;
       const { error } = await supabase
         .from('reservations')
-        .insert([{ 
-          ...formData, 
+        .insert([{
+          ...formData,
           reservation_code: resCode,
-          created_at: new Date().toISOString() 
+          status: formData.status || 'CONFIRMED',
+          total_amount: totalAmount,
+          room_number: formData.room_number || null,
+          company_id: formData.company_id || null,
+          created_at: new Date().toISOString(),
         }]);
 
       if (error) throw error;
@@ -442,7 +516,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       room_number: '',
       check_in: format(new Date(), 'yyyy-MM-dd'),
       check_out: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
-      status: 'PENDING',
+      status: 'CONFIRMED',
       company_id: '',
       total_amount: 0,
       reservation_code: '',
@@ -451,6 +525,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       category: 'executivo',
       guests_per_uh: 1,
       contact_phone: '',
+      fiscal_data: '',
+      billing_obs: '',
       iss_tax: 5,
       service_tax: 10,
       payment_method: 'BILLED'
@@ -1077,54 +1153,248 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl">
-              <div className="p-6 border-b border-neutral-100 flex justify-between items-center">
-                <h3 className="text-lg font-bold text-neutral-900">Nova Reserva Manual</h3>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-full"><CloseIcon className="w-5 h-5" /></button>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white w-full max-w-3xl max-h-[92vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-6 border-b border-neutral-100 flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CalendarPlus className="w-5 h-5 text-amber-600" />
+                    <h3 className="text-lg font-bold text-neutral-900">Nova reserva</h3>
+                  </div>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    Cadastre uma reserva confirmada. UH sera atribuida no momento do check-in pela recepcao.
+                  </p>
+                </div>
+                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-full">
+                  <CloseIcon className="w-5 h-5" />
+                </button>
               </div>
-              <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Hóspede Principal</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                      <input required value={formData.guest_name} onChange={e => setFormData({ ...formData, guest_name: e.target.value })} className="w-full pl-10 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" placeholder="Nome completo" />
+
+              <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
+                <div className="p-6 space-y-5">
+                  {/* HÓSPEDE */}
+                  <div>
+                    <h4 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3">Hospede</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Nome completo</label>
+                        <div className="relative mt-1">
+                          <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                          <input
+                            required
+                            type="text"
+                            value={formData.guest_name}
+                            onChange={(e) => setFormData({ ...formData, guest_name: e.target.value })}
+                            placeholder="Nome do hospede"
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Telefone</label>
+                        <div className="relative mt-1">
+                          <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                          <input
+                            type="text"
+                            value={formData.contact_phone}
+                            onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                            placeholder="(22) 0000-0000"
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">CPF / Documento</label>
+                        <div className="relative mt-1">
+                          <IdCard className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                          <input
+                            type="text"
+                            value={formData.fiscal_data}
+                            onChange={(e) => setFormData({ ...formData, fiscal_data: e.target.value })}
+                            placeholder="000.000.000-00"
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          />
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
+                          Empresa <span className="text-neutral-400 font-normal normal-case">(opcional — vazio = particular)</span>
+                        </label>
+                        <div className="relative mt-1">
+                          <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                          <select
+                            value={formData.company_id}
+                            onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          >
+                            <option value="">Particular (sem empresa)</option>
+                            {companies
+                              .slice()
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Número do Quarto</label>
-                    <div className="relative">
-                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                      <input required value={formData.room_number} onChange={e => setFormData({ ...formData, room_number: e.target.value })} className="w-full pl-10 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" placeholder="Ex: 101" />
+
+                  {/* ESTADIA */}
+                  <div>
+                    <h4 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3">Estadia</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Entrada</label>
+                        <input
+                          type="date"
+                          required
+                          value={formData.check_in}
+                          onChange={(e) => setFormData({ ...formData, check_in: e.target.value })}
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Saida</label>
+                        <input
+                          type="date"
+                          required
+                          value={formData.check_out}
+                          onChange={(e) => setFormData({ ...formData, check_out: e.target.value })}
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Categoria</label>
+                        <select
+                          value={formData.category}
+                          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                        >
+                          <option value="executivo">Executivo</option>
+                          <option value="master">Master</option>
+                          <option value="suite presidencial">Suite Presidencial</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Hospedes</label>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={formData.guests_per_uh}
+                          onChange={(e) => setFormData({ ...formData, guests_per_uh: Number(e.target.value) })}
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 tabular-nums"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Diaria (R$)</label>
+                        <div className="relative mt-1">
+                          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={formData.tariff}
+                            onChange={(e) => setFormData({ ...formData, tariff: Number(e.target.value) })}
+                            className="w-full pl-8 pr-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 tabular-nums"
+                          />
+                        </div>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Pagamento</label>
+                        <select
+                          value={formData.payment_method}
+                          onChange={(e) => setFormData({ ...formData, payment_method: e.target.value as 'BILLED' | 'VIRTUAL_CARD' })}
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                        >
+                          <option value="VIRTUAL_CARD">Cartao / A vista</option>
+                          <option value="BILLED">Faturado</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Centro de Custo</label>
+                        <input
+                          type="text"
+                          value={formData.cost_center}
+                          onChange={(e) => setFormData({ ...formData, cost_center: e.target.value })}
+                          placeholder="WEB / DIRETO / EMPRESA-X..."
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                        />
+                      </div>
+                      <div className="col-span-2 sm:col-span-4">
+                        <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">Observacoes</label>
+                        <textarea
+                          value={formData.billing_obs}
+                          onChange={(e) => setFormData({ ...formData, billing_obs: e.target.value })}
+                          rows={2}
+                          placeholder="Instrucoes de cobranca, restricoes, pedidos especiais..."
+                          className="mt-1 w-full px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/10 resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Resumo de noites x diaria */}
+                    <div className="mt-3 flex items-center justify-between bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-2.5">
+                      <span className="text-xs text-neutral-600">
+                        {estimateNights} diaria{estimateNights === 1 ? '' : 's'} × {formatBRL(formData.tariff || 0)}
+                      </span>
+                      <span className="text-sm font-bold text-neutral-900 tabular-nums">{formatBRL(estimateTotal)}</span>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Check-in</label>
-                    <input type="date" required value={formData.check_in} onChange={e => setFormData({ ...formData, check_in: e.target.value })} className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Check-out</label>
-                    <input type="date" required value={formData.check_out} onChange={e => setFormData({ ...formData, check_out: e.target.value })} className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Empresa / Convênio</label>
-                    <select value={formData.company_id} onChange={e => setFormData({ ...formData, company_id: e.target.value })} className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm">
-                      <option value="">Particular (Sem Empresa)</option>
-                      {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase">Tarifa Diária (R$)</label>
-                    <input type="number" step="0.01" value={formData.tariff} onChange={e => setFormData({ ...formData, tariff: parseFloat(e.target.value) })} className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" />
+
+                  {/* DISPONIBILIDADE / OVERBOOKING ALERT */}
+                  <div>
+                    <h4 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">
+                      Disponibilidade da categoria
+                    </h4>
+                    {availability.total === 0 ? (
+                      <div className="flex items-center gap-3 p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs text-neutral-500">
+                        <AlertCircle className="w-4 h-4" />
+                        Inventario carregando...
+                      </div>
+                    ) : !availability.available ? (
+                      <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <p className="text-xs text-red-800">
+                          <strong>Sem disponibilidade nessa categoria nas datas escolhidas.</strong> Salvar mesmo assim
+                          gera overbooking. Considere outra categoria ou outras datas.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className={`flex items-center justify-between p-3 rounded-xl border ${availability.min_left <= 3 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                        <span className={`text-xs font-bold ${availability.min_left <= 3 ? 'text-amber-800' : 'text-emerald-800'}`}>
+                          {availability.min_left} de {availability.total} UHs disponiveis no periodo
+                        </span>
+                        {availability.min_left <= 3 && (
+                          <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">
+                            atencao
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-3 pt-4 border-t border-neutral-100">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 text-sm font-bold text-neutral-600">Cancelar</button>
-                  <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-neutral-900 text-white text-sm font-bold rounded-xl shadow-lg shadow-neutral-900/20 flex items-center justify-center gap-2">
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
-                    Cadastrar e Confirmar
+
+                <div className="p-6 border-t border-neutral-100 flex gap-3 bg-neutral-50">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    disabled={loading}
+                    className="flex-1 px-4 py-2 text-sm font-bold text-neutral-600 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 px-4 py-2 bg-amber-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Cadastrar reserva
                   </button>
                 </div>
               </form>
