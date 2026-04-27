@@ -115,7 +115,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       if (editingId) {
         const { error } = await supabase
           .from('hotel_events')
-          .update(formData)
+          .update({ ...formData, company_id: formData.company_id || null })
           .eq('id', editingId);
 
         if (error) throw error;
@@ -125,6 +125,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
         const newEvent = {
           ...formData,
+          company_id: formData.company_id || null,
           os_number: osNumber,
           created_at: new Date().toISOString(),
           created_by: profile.id
