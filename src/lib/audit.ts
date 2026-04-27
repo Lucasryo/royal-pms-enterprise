@@ -41,4 +41,16 @@ export const sendNotification = async (notif: Omit<Notification, 'id' | 'timesta
   } catch (error) {
     console.error('Error sending notification:', error);
   }
+
+  // Dispara Web Push em paralelo — nao bloqueia o fluxo principal
+  supabase.functions.invoke('send-push-notification', {
+    body: {
+      user_id: notif.user_id,
+      title: notif.title,
+      message: notif.message,
+      link: notif.link ?? '/',
+    },
+  }).catch(() => {
+    // Falha silenciosa — push e best-effort
+  });
 };

@@ -8,6 +8,7 @@ import { supabase } from './supabase';
 import { UserProfile, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import MarketingLanding from './components/MarketingLanding';
 import AdminDashboard from './components/AdminDashboard';
 import ClientDashboard from './components/ClientDashboard';
@@ -47,6 +48,9 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Registra Web Push assim que o usuario esta autenticado
+  usePushNotifications(profile?.id);
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
     () => (sessionStorage.getItem('pms_current_view') as ViewType) || 'dashboard'
   );

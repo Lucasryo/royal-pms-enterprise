@@ -410,6 +410,23 @@ create policy "booking_blocked_dates_manage_staff" on public.booking_blocked_dat
     exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'reservations', 'manager'))
   );
 
+-- Subscricoes de Web Push por dispositivo/usuario
+create table if not exists public.push_subscriptions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  endpoint text not null,
+  subscription jsonb not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  unique(user_id, endpoint)
+);
+create index if not exists idx_push_subscriptions_user on public.push_subscriptions(user_id);
+alter table public.push_subscriptions enable row level security;
+create policy "push_subscriptions_own" on public.push_subscriptions
+  for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "push_subscriptions_service" on public.push_subscriptions
+  for select to service_role using (true);
+
 create table if not exists public.bank_statements (
   id uuid default gen_random_uuid() primary key,
   name text not null,
