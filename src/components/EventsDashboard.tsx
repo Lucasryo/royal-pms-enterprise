@@ -374,25 +374,31 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     setCancelModal(null);
     setLoading(true);
     try {
-      const { error: rpcError } = await supabase.rpc('cancel_event', {
-        p_event_id: event.id,
-        p_reason: reason,
-      });
-      if (rpcError) throw rpcError;
+      const now = new Date().toISOString();
+      const { error: evtError } = await supabase.from('hotel_events').update({
+        status: 'cancelled',
+        cancelled_at: now,
+        cancelled_by: profile.id,
+        cancel_reason: reason,
+      }).eq('id', event.id);
+      if (evtError) throw evtError;
 
-      toast.success('Evento e fatura cancelados com sucesso!');
+      // Cancel linked fatura if exists
+      if (event.os_number) {
+        await supabase.from('files').update({
+          status: 'CANCELLED',
+          cancelled_at: now,
+          cancelled_by: profile.id,
+          cancel_reason: reason,
+        }).eq('event_os_number', event.os_number);
+      }
+
+      toast.success('Evento cancelado com sucesso!');
       setViewingEvent(null);
       fetchData();
     } catch (error: any) {
       console.error('Error cancelling event:', error);
-      const msg = error?.message || String(error);
-      if (msg.includes('no column') || msg.includes('no such column')) {
-        toast.error('Banco de dados desatualizado. Reinicie o servidor.');
-      } else if (msg.includes('não encontrado') || msg.includes('404')) {
-        toast.error('Evento não encontrado no banco de dados.');
-      } else {
-        toast.error(`Erro ao cancelar: ${msg}`);
-      }
+      toast.error(`Erro ao cancelar: ${error?.message || String(error)}`);
     } finally {
       setLoading(false);
     }
