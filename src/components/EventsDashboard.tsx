@@ -98,6 +98,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     fetchData();
   }, []);
 
+  // Re-fetch catalog items whenever the user leaves the items tab so the
+  // register form always reflects the current active catalog.
+  useEffect(() => {
+    if (activeTab !== 'items') {
+      supabase.from('event_items').select('*').eq('active', true).order('name')
+        .then(({ data }) => { if (data) setEventItems(data); });
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (itemSearchRef.current && !itemSearchRef.current.contains(e.target as Node)) {
