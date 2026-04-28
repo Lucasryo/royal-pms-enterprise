@@ -200,6 +200,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
         const newEvent = {
           ...savePayload,
+          company_id: formData.company_id || null,
           os_number: osNumber,
           created_at: new Date().toISOString(),
           created_by: profile.id
@@ -1127,6 +1128,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                        {/* SERVICES — only for fixed pricing */}
                        {formData.pricing_model === 'fixed' && formData.items_included && (
+                       {formData.items_included && (
                          <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
                              <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
@@ -1331,6 +1333,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           </div>
                         </div>
                       )}
+                          { label: 'Check / período', value: viewingEvent.check_info || '—' },
+                        ].map(({ label, value, highlight }) => (
+                          <div key={label} className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">{label}</dt>
+                            <dd className={`text-sm text-right ${highlight ? 'font-display text-base font-light text-gold' : 'font-medium text-ink'}`}>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
                     </div>
 
                     {/* Staff roadmap */}
