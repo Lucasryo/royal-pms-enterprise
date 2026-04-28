@@ -1468,54 +1468,68 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                             <dd className="text-sm font-bold text-black text-right">{value}</dd>
                           </div>
                         ))}
-                        {/* Pricing breakdown */}
-                        {(viewingEvent.hall_price ?? 0) > 0 && (
-                          <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Locação do Salão</dt>
-                            <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.hall_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
-                          </div>
+                        {/* Pricing breakdown — quotes only, never shown on O.S. */}
+                        {viewingEvent.is_quote && (
+                          <>
+                            {(viewingEvent.hall_price ?? 0) > 0 && (
+                              <div className="flex items-baseline justify-between py-3 gap-4">
+                                <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Locação do Salão</dt>
+                                <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.hall_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                              </div>
+                            )}
+                            {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
+                              <div className="flex items-baseline justify-between py-3 gap-4">
+                                <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Itens / Serviços</dt>
+                                <dd className="text-sm font-bold text-black text-right">
+                                  {(viewingEvent.quote_items as QuoteItem[]).reduce((s, i) => s + i.subtotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </dd>
+                              </div>
+                            )}
+                            {viewingEvent.iss_enabled && (
+                              <div className="flex items-baseline justify-between py-3 gap-4">
+                                <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">ISS ({viewingEvent.iss_rate ?? 5}%)</dt>
+                                <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.iss_amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                              </div>
+                            )}
+                            <div className="flex items-baseline justify-between py-3 gap-4">
+                              <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Valor total</dt>
+                              <dd className="font-display text-base font-light text-gold text-right">{viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                            </div>
+                          </>
                         )}
-                        {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
-                          <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Itens / Serviços</dt>
-                            <dd className="text-sm font-bold text-black text-right">
-                              {(viewingEvent.quote_items as QuoteItem[]).reduce((s, i) => s + i.subtotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </dd>
-                          </div>
-                        )}
-                        {viewingEvent.iss_enabled && (
-                          <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">ISS ({viewingEvent.iss_rate ?? 5}%)</dt>
-                            <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.iss_amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
-                          </div>
-                        )}
-                        <div className="flex items-baseline justify-between py-3 gap-4">
-                          <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Valor total</dt>
-                          <dd className="font-display text-base font-light text-gold text-right">{viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
-                        </div>
                       </dl>
 
-                      {/* Quote items table */}
+                      {/* Items table — prices shown only on quotes */}
                       {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
                         <div className="mt-5 pt-4 border-t border-neutral-200">
-                          <p className="text-[10px] uppercase tracking-[0.22em] text-neutral-400 font-black mb-3">· Itens cotados</p>
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-neutral-400 font-black mb-3">· Itens / Serviços</p>
                           <div className="border border-neutral-200 rounded-xl overflow-hidden">
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="bg-neutral-100 border-b border-neutral-200">
                                   <th className="text-left px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Item</th>
+                                  <th className="text-left px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Unidade</th>
                                   <th className="text-center px-2 py-2 font-black uppercase text-neutral-500 tracking-wide w-12">Qtd</th>
-                                  <th className="text-right px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Preço</th>
-                                  <th className="text-right px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Total</th>
+                                  {viewingEvent.is_quote && (
+                                    <>
+                                      <th className="text-right px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Preço</th>
+                                      <th className="text-right px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Total</th>
+                                    </>
+                                  )}
                                 </tr>
                               </thead>
                               <tbody>
                                 {(viewingEvent.quote_items as QuoteItem[]).map((qi, i) => (
                                   <tr key={i} className="border-b border-neutral-100 last:border-0">
                                     <td className="px-3 py-2.5 font-bold text-black">{qi.name}</td>
+                                    <td className="px-3 py-2.5 text-neutral-500">{String(qi.unit).replace('por_', '/')}</td>
                                     <td className="px-2 py-2.5 text-center font-semibold text-black">{qi.quantity}</td>
-                                    <td className="px-3 py-2.5 text-right font-semibold text-black">{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                    <td className="px-3 py-2.5 text-right font-black text-black">{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    {viewingEvent.is_quote && (
+                                      <>
+                                        <td className="px-3 py-2.5 text-right font-semibold text-black">{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                        <td className="px-3 py-2.5 text-right font-black text-black">{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                      </>
+                                    )}
                                   </tr>
                                 ))}
                               </tbody>
@@ -1644,14 +1658,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           ['Data de Término', d.end_date ? format(parseISO(d.end_date), 'dd/MM/yyyy') : '—'],
           ['Horário', (d.start_time && d.end_time) ? `${d.start_time} – ${d.end_time}` : '—'],
           ['Participantes', d.attendees_count ? `${d.attendees_count} pessoas` : '—'],
-          ['Perfil', d.client_profile || '—'],
-          ...(d.iss_enabled ? [
+          ...(!d.is_quote ? [] : [['Perfil', d.client_profile || '—']]),
+          // Financial rows — quotes only
+          ...(d.is_quote ? (d.iss_enabled ? [
             ['Subtotal', Number(pdfSubtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
             [`ISS (${pdfIssRate}%)`, Number(pdfIss).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
             ['Total c/ ISS', Number(pdfTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
           ] : [
             ['Valor Total', Number(pdfTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
-          ]),
+          ]) : []),
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
@@ -1671,8 +1686,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', fontFamily: 'Arial, sans-serif' }}>
-                    <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>Ordem de Serviço</div>
-                    <div style={{ fontSize: '16px', fontWeight: '300', color: '#C49A3C', letterSpacing: '0.06em', margin: 0, fontFamily: 'Georgia, serif' }}>{d.os_number || '— pendente —'}</div>
+                    <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>{d.is_quote ? 'Cotação' : 'Ordem de Serviço'}</div>
+                    <div style={{ fontSize: '16px', fontWeight: '300', color: '#C49A3C', letterSpacing: '0.06em', margin: 0, fontFamily: 'Georgia, serif' }}>{d.is_quote ? (d.quote_number || '— pendente —') : (d.os_number || '— pendente —')}</div>
                     <div style={{ fontSize: '9px', color: '#78716c', marginTop: '4px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
                     <div style={{ fontSize: '8px', color: '#a8a29e', marginTop: '2px' }}>(22) 2123-9650 · eventos@royalmacae.com.br</div>
                   </div>
@@ -1708,18 +1723,18 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* SERVICES */}
-              {/* QUOTE TABLE — itemized pricing */}
-              {pdfIsItemized && pdfQuoteItems.length > 0 && (
+              {/* ITEMS TABLE — prices shown only on quotes */}
+              {pdfQuoteItems.length > 0 && (
                 <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
                     <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
-                    <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Cotação de itens</div>
+                    <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>{d.is_quote ? '· Cotação de itens' : '· Serviços & itens'}</div>
                     <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Arial, sans-serif' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(30,25,18,0.10)' }}>
-                        {['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'].map((h, i) => (
+                        {(d.is_quote ? ['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'] : ['Item', 'Unidade', 'Qtd']).map((h, i) => (
                           <th key={h} style={{ padding: '6px 8px', fontSize: '6.5px', letterSpacing: '0.3em', color: '#78716c', textTransform: 'uppercase', textAlign: i >= 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
                         ))}
                       </tr>
@@ -1730,27 +1745,33 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 500 }}>{qi.name}</td>
                           <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>{String(qi.unit).replace('por_', '/')}</td>
                           <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{qi.quantity}</td>
-                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                          {d.is_quote && (
+                            <>
+                              <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                              <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
-                      <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
-                        <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>Subtotal</td>
-                        <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{pdfSubtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                      </tr>
-                      {d.iss_enabled && (
-                        <tr>
-                          <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({pdfIssRate}%)</td>
-                          <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{pdfIss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                    {d.is_quote && (
+                      <tfoot>
+                        <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
+                          <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>Subtotal</td>
+                          <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{pdfSubtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                         </tr>
-                      )}
-                      <tr style={{ borderTop: '2px solid #C49A3C' }}>
-                        <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
-                        <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{pdfTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                      </tr>
-                    </tfoot>
+                        {d.iss_enabled && (
+                          <tr>
+                            <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({pdfIssRate}%)</td>
+                            <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{pdfIss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                          </tr>
+                        )}
+                        <tr style={{ borderTop: '2px solid #C49A3C' }}>
+                          <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
+                          <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{pdfTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               )}
