@@ -1232,11 +1232,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                              { label: 'Data de Término', value: formData.end_date ? format(parseISO(formData.end_date), 'dd/MM/yyyy') : '—' },
                              { label: 'Horário', value: formData.start_time && formData.end_time ? `${formData.start_time} – ${formData.end_time}` : '—' },
                              { label: 'Participantes', value: formData.attendees_count ? `${formData.attendees_count} pessoas` : '—' },
-                             { label: 'Perfil do Contratante', value: formData.client_profile || '—' },
-                             ...(totals.hallPrice > 0 ? [{ label: 'Locação do Salão', value: totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
-                             ...(totals.itemsTotal > 0 ? [{ label: 'Itens / Serviços', value: totals.itemsTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
-                             ...(formData.iss_enabled ? [{ label: `ISS (${formData.iss_rate}%)`, value: totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
-                             { label: 'Valor Total', value: totals.total > 0 ? totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
+                             ...(!formData.is_quote ? [{ label: 'Perfil do Contratante', value: formData.client_profile || '—' }] : []),
+                             // Financial rows — quotes only
+                             ...(formData.is_quote ? [
+                               ...(totals.hallPrice > 0 ? [{ label: 'Locação do Salão', value: totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                               ...(totals.itemsTotal > 0 ? [{ label: 'Itens / Serviços', value: totals.itemsTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                               ...(formData.iss_enabled ? [{ label: `ISS (${formData.iss_rate}%)`, value: totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                               { label: 'Valor Total', value: totals.total > 0 ? totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
+                             ] : []),
                            ].map((f, i) => (
                              <div key={i} style={{ padding: '13px 16px', backgroundColor: i % 2 === 0 ? '#F5F2EC' : '#FAF8F2', fontFamily: 'Inter, sans-serif' }}>
                                <div style={{ fontSize: '7px', letterSpacing: '0.3em', color: '#78716c', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</div>
@@ -1246,18 +1249,18 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                          </div>
                        </div>
 
-                       {/* QUOTE TABLE — hall price + items */}
+                       {/* ITEMS TABLE — prices only for quotes */}
                        {(totals.hallPrice > 0 || formData.quote_items.length > 0) && (
                          <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
                              <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
-                             <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Cotação de itens</div>
+                             <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>{formData.is_quote ? '· Cotação de itens' : '· Serviços & itens'}</div>
                              <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
                            </div>
                            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif' }}>
                              <thead>
                                <tr style={{ borderBottom: '1px solid rgba(30,25,18,0.10)' }}>
-                                 {['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'].map((h, i) => (
+                                 {(formData.is_quote ? ['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'] : ['Item', 'Unidade', 'Qtd']).map((h, i) => (
                                    <th key={h} style={{ padding: '6px 8px', fontSize: '6.5px', letterSpacing: '0.3em', color: '#78716c', textTransform: 'uppercase', textAlign: i >= 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
                                  ))}
                                </tr>
@@ -1268,8 +1271,12 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                                    <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600 }}>Locação do Salão</td>
                                    <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>locação</td>
                                    <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>1</td>
-                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                   {formData.is_quote && (
+                                     <>
+                                       <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                       <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                     </>
+                                   )}
                                  </tr>
                                )}
                                {formData.quote_items.map((qi, i) => (
@@ -1277,27 +1284,33 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                                    <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 500 }}>{qi.name}</td>
                                    <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>{qi.unit.replace('por_', '/')}</td>
                                    <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{qi.quantity}</td>
-                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                   {formData.is_quote && (
+                                     <>
+                                       <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                       <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                     </>
+                                   )}
                                  </tr>
                                ))}
                              </tbody>
-                             <tfoot>
-                               <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
-                                 <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>Subtotal</td>
-                                 <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                               </tr>
-                               {formData.iss_enabled && (
-                                 <tr>
-                                   <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({formData.iss_rate}%)</td>
-                                   <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                             {formData.is_quote && (
+                               <tfoot>
+                                 <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
+                                   <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>Subtotal</td>
+                                   <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                                  </tr>
-                               )}
-                               <tr style={{ borderTop: '2px solid #C49A3C' }}>
-                                 <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
-                                 <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                               </tr>
-                             </tfoot>
+                                 {formData.iss_enabled && (
+                                   <tr>
+                                     <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({formData.iss_rate}%)</td>
+                                     <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                   </tr>
+                                 )}
+                                 <tr style={{ borderTop: '2px solid #C49A3C' }}>
+                                   <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
+                                   <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                 </tr>
+                               </tfoot>
+                             )}
                            </table>
                          </div>
                        )}
