@@ -1431,13 +1431,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* ── Body ── */}
-              <div className="overflow-y-auto flex-1">
+              <div className="overflow-y-auto flex-1 bg-white">
                 <div className="px-10 py-8 space-y-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {/* Contract details */}
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-neutral-500 font-bold mb-5">· Detalhes do contrato</p>
-                      <dl className="divide-y divide-ink/[0.06]">
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400 font-black mb-5">· Detalhes do contrato</p>
+                      <dl className="divide-y divide-neutral-100">
                         {[
                           { label: 'Contratante', value: viewingEvent.client_category || '—' },
                           { label: 'Perfil', value: viewingEvent.client_profile || '—' },
@@ -1445,33 +1445,33 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           { label: 'Check / período', value: viewingEvent.check_info || '—' },
                         ].map(({ label, value }) => (
                           <div key={label} className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 font-bold shrink-0">{label}</dt>
-                            <dd className="text-sm font-semibold text-neutral-900 text-right">{value}</dd>
+                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">{label}</dt>
+                            <dd className="text-sm font-bold text-black text-right">{value}</dd>
                           </div>
                         ))}
                         {/* Pricing breakdown */}
                         {(viewingEvent.hall_price ?? 0) > 0 && (
                           <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 font-bold shrink-0">Locação do Salão</dt>
-                            <dd className="text-sm font-semibold text-neutral-900 text-right">{Number(viewingEvent.hall_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Locação do Salão</dt>
+                            <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.hall_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
                           </div>
                         )}
                         {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
                           <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 font-bold shrink-0">Itens / Serviços</dt>
-                            <dd className="text-sm font-medium text-ink text-right">
+                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Itens / Serviços</dt>
+                            <dd className="text-sm font-bold text-black text-right">
                               {(viewingEvent.quote_items as QuoteItem[]).reduce((s, i) => s + i.subtotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </dd>
                           </div>
                         )}
                         {viewingEvent.iss_enabled && (
                           <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 font-bold shrink-0">ISS ({viewingEvent.iss_rate ?? 5}%)</dt>
-                            <dd className="text-sm font-semibold text-neutral-900 text-right">{Number(viewingEvent.iss_amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                            <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">ISS ({viewingEvent.iss_rate ?? 5}%)</dt>
+                            <dd className="text-sm font-bold text-black text-right">{Number(viewingEvent.iss_amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
                           </div>
                         )}
                         <div className="flex items-baseline justify-between py-3 gap-4">
-                          <dt className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 font-bold shrink-0">Valor total</dt>
+                          <dt className="text-[10px] uppercase tracking-[0.18em] text-neutral-400 font-black shrink-0">Valor total</dt>
                           <dd className="font-display text-base font-light text-gold text-right">{viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
                         </div>
                       </dl>
@@ -1479,11 +1479,11 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       {/* Quote items table */}
                       {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
                         <div className="mt-5 pt-4 border-t border-neutral-200">
-                          <p className="text-[11px] uppercase tracking-[0.22em] text-neutral-500 font-bold mb-3">· Itens cotados</p>
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-neutral-400 font-black mb-3">· Itens cotados</p>
                           <div className="border border-neutral-200 rounded-xl overflow-hidden">
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="bg-neutral-50 border-b border-neutral-200">
+                                <tr className="bg-neutral-100 border-b border-neutral-200">
                                   <th className="text-left px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Item</th>
                                   <th className="text-center px-2 py-2 font-black uppercase text-neutral-500 tracking-wide w-12">Qtd</th>
                                   <th className="text-right px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Preço</th>
@@ -1493,10 +1493,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                               <tbody>
                                 {(viewingEvent.quote_items as QuoteItem[]).map((qi, i) => (
                                   <tr key={i} className="border-b border-neutral-100 last:border-0">
-                                    <td className="px-3 py-2.5 font-semibold text-neutral-900">{qi.name}</td>
-                                    <td className="px-2 py-2.5 text-center text-neutral-700">{qi.quantity}</td>
-                                    <td className="px-3 py-2.5 text-right text-neutral-700">{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                    <td className="px-3 py-2.5 text-right font-bold text-neutral-900">{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td className="px-3 py-2.5 font-bold text-black">{qi.name}</td>
+                                    <td className="px-2 py-2.5 text-center font-semibold text-black">{qi.quantity}</td>
+                                    <td className="px-3 py-2.5 text-right font-semibold text-black">{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td className="px-3 py-2.5 text-right font-black text-black">{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -1508,10 +1508,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                     {/* Staff roadmap */}
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-neutral-500 font-bold mb-5">· Cronograma da equipe</p>
-                      <div className="border-l-2 border-gold/30 pl-4 max-h-64 overflow-y-auto">
-                        <p className="text-sm leading-relaxed text-neutral-800 whitespace-pre-line">
-                          {viewingEvent.staff_roadmap || <span className="italic text-neutral-400">Nenhum cronograma registrado.</span>}
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400 font-black mb-5">· Cronograma da equipe</p>
+                      <div className="border-l-2 border-amber-400/60 pl-4 max-h-64 overflow-y-auto">
+                        <p className="text-sm leading-relaxed text-black whitespace-pre-line">
+                          {viewingEvent.staff_roadmap || <span className="text-neutral-400 italic">Nenhum cronograma registrado.</span>}
                         </p>
                       </div>
                     </div>
@@ -1519,10 +1519,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                   {viewingEvent.items_included && (
                     <div className="pt-6 border-t border-neutral-200">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-neutral-500 font-bold mb-4">· Serviços & itens inclusos</p>
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400 font-black mb-4">· Serviços & itens inclusos</p>
                       <div className="flex flex-wrap gap-2">
                         {viewingEvent.items_included.split(',').map((item, i) => item.trim() && (
-                          <span key={i} className="px-3 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-[11px] tracking-[0.12em] uppercase text-neutral-800 font-semibold">
+                          <span key={i} className="px-3 py-1.5 rounded-full border border-neutral-300 bg-neutral-100 text-xs font-bold text-black">
                             {item.trim()}
                           </span>
                         ))}
@@ -1532,9 +1532,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                   {viewingEvent.important_notes && (
                     <div className="pt-6 border-t border-neutral-200">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-neutral-500 font-bold mb-4">· Observações importantes</p>
-                      <div className="border-l-2 border-amber-400/50 pl-5 py-1">
-                        <p className="text-sm leading-relaxed text-neutral-800 italic whitespace-pre-line">
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400 font-black mb-4">· Observações importantes</p>
+                      <div className="border-l-4 border-amber-400 pl-5 py-1">
+                        <p className="text-sm leading-relaxed text-black whitespace-pre-line">
                           {viewingEvent.important_notes}
                         </p>
                       </div>
@@ -1543,10 +1543,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                   {viewingEvent.status === 'cancelled' && viewingEvent.cancel_reason && (
                     <div className="pt-6 border-t border-neutral-200">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-red-600 font-bold mb-2">· Motivo do cancelamento</p>
-                      <p className="text-sm text-neutral-800">{viewingEvent.cancel_reason}</p>
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-red-600 font-black mb-2">· Motivo do cancelamento</p>
+                      <p className="text-sm font-semibold text-black">{viewingEvent.cancel_reason}</p>
                       {viewingEvent.cancelled_at && (
-                        <p className="text-[11px] text-stone-400 mt-1">{new Date(viewingEvent.cancelled_at).toLocaleString('pt-BR')}</p>
+                        <p className="text-xs text-neutral-500 mt-1">{new Date(viewingEvent.cancelled_at).toLocaleString('pt-BR')}</p>
                       )}
                     </div>
                   )}
