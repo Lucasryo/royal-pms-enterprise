@@ -664,21 +664,23 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                  Próximos Eventos
                </h3>
                <div className="space-y-4">
-                  {events.length > 0 ? (
-                    events.map(event => (
-                      <div key={event.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all group ${event.status === 'cancelled' ? 'bg-neutral-50 border-neutral-200 opacity-60' : 'bg-neutral-50 border-neutral-100 hover:border-primary'}`}>
+                  {(() => {
+                    const today = startOfToday();
+                    const upcoming = events.filter(e =>
+                      !e.is_quote &&
+                      e.status !== 'cancelled' &&
+                      parseISO(e.end_date || e.start_date) >= today
+                    );
+                    return upcoming.length > 0 ? (
+                      upcoming.map(event => (
+                      <div key={event.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all group bg-neutral-50 border-neutral-100 hover:border-primary`}>
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 rounded-xl bg-white border border-neutral-200 flex flex-col items-center justify-center">
                               <span className="text-[10px] font-black uppercase text-neutral-400 leading-none mb-0.5">{format(parseISO(event.start_date), 'MMM', { locale: ptBR })}</span>
                               <span className="text-lg font-black text-neutral-900 leading-none">{format(parseISO(event.start_date), 'dd')}</span>
                            </div>
                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className={`font-black ${event.status === 'cancelled' ? 'text-neutral-400 line-through' : 'text-neutral-900'}`}>{event.name}</h4>
-                                {event.status === 'cancelled' && (
-                                  <span className="px-2 py-0.5 bg-red-100 text-red-500 text-[9px] font-black uppercase rounded-full">Cancelado</span>
-                                )}
-                              </div>
+                              <h4 className="font-black text-neutral-900">{event.name}</h4>
                               <div className="flex items-center gap-3 mt-1">
                                  <span className="flex items-center gap-1 text-[10px] font-bold text-neutral-500 uppercase">
                                     <MapPin className="w-3 h-3 text-neutral-400" />
@@ -693,7 +695,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                         <div className="flex items-center gap-4">
                            <div className="text-right">
-                              <p className="text-[10px] font-black uppercase text-neutral-400 mb-0.5">O.S. Numero</p>
+                              <p className="text-[10px] font-black uppercase text-neutral-400 mb-0.5">O.S.</p>
                               <p className="text-xs font-bold text-neutral-900">{event.os_number}</p>
                            </div>
                            <button
@@ -705,11 +707,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                       </div>
                     ))
-                  ) : (
-                    <div className="py-20 text-center">
-                       <p className="text-neutral-400 font-bold italic">Nenhum evento registrado no momento.</p>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="py-20 text-center">
+                         <p className="text-neutral-400 font-bold italic">Nenhum evento próximo registrado.</p>
+                         <p className="text-neutral-300 text-sm mt-1">Eventos passados ficam registrados no calendário acima.</p>
+                      </div>
+                    );
+                  })()}
                </div>
             </div>
           </motion.div>
@@ -1440,7 +1444,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       <dl className="divide-y divide-neutral-100">
                         {[
                           { label: 'Contratante', value: viewingEvent.client_category || '—' },
-                          { label: 'Perfil', value: viewingEvent.client_profile || '—' },
+                          ...(!viewingEvent.is_quote ? [{ label: 'Perfil', value: viewingEvent.client_profile || '—' }] : []),
                           { label: 'Participantes', value: `${viewingEvent.attendees_count} pessoas` },
                           { label: 'Check / período', value: viewingEvent.check_info || '—' },
                         ].map(({ label, value }) => (
