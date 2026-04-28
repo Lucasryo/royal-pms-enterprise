@@ -75,6 +75,9 @@ export interface HotelEvent {
   cancelled_at?: string;
   cancelled_by?: string;
   cancel_reason?: string;
+  hall_price?: number;
+  is_quote?: boolean;
+  quote_number?: string;
 }
 
 export type UserRole =
