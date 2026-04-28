@@ -115,6 +115,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
   const [searchTerm, setSearchTerm] = useState('');
   const [voucherReservation, setVoucherReservation] = useState<Reservation | null>(null);
   const [historyReservation, setHistoryReservation] = useState<Reservation | null>(null);
+  const [cancelReservation, setCancelReservation] = useState<{ reservation: Reservation; reason: string } | null>(null);
   const canCreateReservation = hasPermission(profile, 'canCreateReservations', ['admin', 'reservations']);
   const canEditReservation = hasPermission(profile, 'canEditReservations', ['admin', 'reservations']);
   const canCancelReservation = hasPermission(profile, 'canCancelReservations', ['admin', 'reservations']);
@@ -536,6 +537,36 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     } catch (error) {
       console.error("Error in checkout:", error);
       toast.error('Erro ao realizar checkout.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelReservation) return;
+    const { reservation, reason } = cancelReservation;
+    setCancelReservation(null);
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('reservations')
+        .update({ status: 'CANCELLED' })
+        .eq('id', reservation.id);
+      if (error) throw error;
+
+      // Cancel any linked invoices (no charge)
+      await supabase.from('files').update({
+        status: 'CANCELLED',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: profile.id,
+        cancel_reason: reason.trim() || 'Cancelamento sem custo a pedido do hóspede',
+      }).eq('reservation_code', reservation.reservation_code);
+
+      await logAudit(supabase, profile, 'update', `Reserva ${reservation.reservation_code} cancelada sem custo. Motivo: ${reason.trim() || 'Não informado'}`);
+      toast.success(`Reserva ${reservation.reservation_code} cancelada sem custo.`);
+      fetchData();
+    } catch (err: any) {
+      toast.error(`Erro ao cancelar reserva: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -1171,13 +1202,15 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                             <LogOut className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          disabled={isReservationLockedByFinance(res)}
-                          title={isReservationLockedByFinance(res) ? 'Reserva bloqueada após vínculo financeiro.' : 'Ações adicionais'}
-                          className="p-2 text-neutral-400 hover:text-neutral-900 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
+                        {canCancelReservation && (res.status === 'PENDING' || res.status === 'CONFIRMED') && !isReservationLockedByFinance(res) && (
+                          <button
+                            onClick={() => setCancelReservation({ reservation: res, reason: '' })}
+                            className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Cancelar reserva sem custo"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1251,6 +1284,69 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                     );
                   })
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Cancel reservation modal */}
+      <AnimatePresence>
+        {cancelReservation && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              className="w-full max-w-md overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between border-b border-neutral-100 p-6">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-red-500">Cancelamento sem custo</p>
+                  <h3 className="mt-2 text-xl font-black text-neutral-900">{cancelReservation.reservation.reservation_code}</h3>
+                  <p className="text-sm text-neutral-500 mt-0.5">{cancelReservation.reservation.guest_name}</p>
+                </div>
+                <button
+                  onClick={() => setCancelReservation(null)}
+                  className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                >
+                  <CloseIcon className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="rounded-2xl bg-red-50 border border-red-100 p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-red-700">Esta ação não pode ser desfeita.</p>
+                    <p className="text-xs text-red-600 mt-1">A reserva será cancelada sem cobrança e qualquer fatura vinculada também será cancelada.</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1.5 block">Motivo do cancelamento (opcional)</label>
+                  <textarea
+                    value={cancelReservation.reason}
+                    onChange={e => setCancelReservation({ ...cancelReservation, reason: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-red-500/20 resize-none"
+                    placeholder="Ex: Cancelamento pelo hóspede, sem penalidade contratual"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setCancelReservation(null)}
+                    className="px-5 py-2.5 text-sm font-bold text-neutral-600 hover:bg-neutral-100 rounded-xl transition-all"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    onClick={handleConfirmCancel}
+                    className="px-5 py-2.5 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-all flex items-center gap-2"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Confirmar cancelamento
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
