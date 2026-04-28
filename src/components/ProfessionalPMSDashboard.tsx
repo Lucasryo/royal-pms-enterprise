@@ -4,9 +4,6 @@ import { MaintenanceTicket, Reservation, Room, UserProfile } from '../types';
 import { hasPermission } from '../lib/permissions';
 import { logAudit } from '../lib/audit';
 import {
-  BadgeCheck,
-  BarChart3,
-  CalendarRange,
   ClipboardCheck,
   CreditCard,
   FileWarning,
@@ -21,7 +18,7 @@ import {
 import { toast } from 'sonner';
 import EnterpriseExtensionsDashboard from './EnterpriseExtensionsDashboard';
 
-type ProTab = 'night-audit' | 'revenue' | 'fiscal' | 'crm' | 'inventory' | 'cash' | 'guest-portal' | 'reports' | 'enterprise';
+type ProTab = 'night-audit' | 'revenue' | 'fiscal' | 'crm' | 'inventory' | 'cash' | 'guest-portal' | 'enterprise';
 
 type NightAudit = {
   id: string;
@@ -129,7 +126,6 @@ const tabs: Array<{ id: ProTab; label: string; icon: ComponentType<{ className?:
   { id: 'inventory', label: 'Estoque', icon: PackageCheck },
   { id: 'cash', label: 'Caixa POS', icon: CreditCard },
   { id: 'guest-portal', label: 'Portal Hospede', icon: Sparkles },
-  { id: 'reports', label: 'Relatorios', icon: BarChart3 },
   { id: 'enterprise', label: 'Enterprise', icon: Star },
 ];
 
@@ -277,17 +273,6 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
       {activeTab === 'inventory' && <InventoryPanel canManage={canManage} items={inventory} onSaved={fetchAll} />}
       {activeTab === 'cash' && <CashPanel canManage={canManage} sessions={cashSessions} profile={profile} onSaved={fetchAll} />}
       {activeTab === 'guest-portal' && <GuestPortalPanel canManage={canManage} requests={guestRequests} onSaved={fetchAll} />}
-      {activeTab === 'reports' && (
-        <ReportsPanel
-          rooms={physicalRooms}
-          reservations={reservations}
-          fiscalJobs={fiscalJobs}
-          inventory={inventory}
-          tickets={tickets}
-          occupancyRate={occupancyRate}
-          roomRevenue={roomRevenue}
-        />
-      )}
       {activeTab === 'enterprise' && <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} />}
     </div>
   );
@@ -796,36 +781,6 @@ function GuestPortalPanel({ canManage, requests, onSaved }: { canManage: boolean
   );
 }
 
-function ReportsPanel({
-  rooms,
-  reservations,
-  fiscalJobs,
-  inventory,
-  tickets,
-  occupancyRate,
-  roomRevenue,
-}: {
-  rooms: Room[];
-  reservations: Reservation[];
-  fiscalJobs: FiscalJob[];
-  inventory: InventoryItem[];
-  tickets: MaintenanceTicket[];
-  occupancyRate: number;
-  roomRevenue: number;
-}) {
-  const adr = reservations.length ? roomRevenue / reservations.length : 0;
-  const revpar = rooms.length ? roomRevenue / rooms.length : 0;
-  return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <ReportCard title="Ocupacao" value={`${occupancyRate}%`} detail="Base UHs fisicas" icon={CalendarRange} />
-      <ReportCard title="ADR" value={money(adr)} detail="Diaria media simplificada" icon={TrendingUp} />
-      <ReportCard title="RevPAR" value={money(revpar)} detail="Receita por UH disponivel" icon={BadgeCheck} />
-      <ReportCard title="Fiscal pendente" value={String(fiscalJobs.filter((job) => job.status === 'pending' || job.status === 'error').length)} detail="Fila NFS-e/RPS" icon={FileWarning} />
-      <ReportCard title="Estoque critico" value={String(inventory.filter((item) => Number(item.quantity) <= Number(item.min_quantity)).length)} detail="Itens abaixo do minimo" icon={PackageCheck} />
-      <ReportCard title="Chamados ativos" value={String(tickets.filter((ticket) => ticket.status === 'open' || ticket.status === 'in_progress').length)} detail="Manutencao e SLA" icon={Star} />
-    </div>
-  );
-}
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -855,18 +810,6 @@ function Row({ title, meta, danger = false }: { title: string; meta: string; dan
   );
 }
 
-function ReportCard({ title, value, detail, icon: Icon }: { title: string; value: string; detail: string; icon: ComponentType<{ className?: string }> }) {
-  return (
-    <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <Icon className="h-6 w-6 text-amber-700" />
-        <p className="text-2xl font-black text-neutral-950">{value}</p>
-      </div>
-      <p className="mt-5 text-sm font-black text-neutral-950">{title}</p>
-      <p className="mt-1 text-xs text-neutral-500">{detail}</p>
-    </div>
-  );
-}
 
 function Empty({ label }: { label: string }) {
   return (
