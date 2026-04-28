@@ -1332,14 +1332,6 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           </div>
                         </div>
                       )}
-                          { label: 'Check / período', value: viewingEvent.check_info || '—' },
-                        ].map(({ label, value, highlight }) => (
-                          <div key={label} className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">{label}</dt>
-                            <dd className={`text-sm text-right ${highlight ? 'font-display text-base font-light text-gold' : 'font-medium text-ink'}`}>{value}</dd>
-                          </div>
-                        ))}
-                      </dl>
                     </div>
 
                     {/* Staff roadmap */}
