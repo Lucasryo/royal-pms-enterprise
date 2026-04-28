@@ -24,6 +24,7 @@ import OperationsDashboard from './components/OperationsDashboard';
 import POSDashboard from './components/POSDashboard';
 import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
+import ReportsDashboard from './components/ReportsDashboard';
 import {
   AdminControlModuleDashboard,
   EventsModuleDashboard,
@@ -299,6 +300,7 @@ export default function App() {
       { id: 'staff' as ViewType, label: 'Equipe', icon: Users },
       { id: 'audit' as ViewType, label: 'Auditoria', icon: ShieldCheck },
       { id: 'admin-control' as ViewType, label: 'Admin', icon: ShieldCheck },
+      { id: 'reports' as ViewType, label: 'Relatórios', icon: BarChart3 },
     ];
 
     const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'professional', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
@@ -347,6 +349,7 @@ export default function App() {
       case 'events': return <EventsModuleDashboard profile={profile} />;
       case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance'} /> : <ClientDashboard profile={profile} initialTab="active" />;
       case 'prio-billing': return <PrioBillingGenerator profile={profile} />;
+      case 'reports': return <ReportsDashboard profile={profile} />;
       case 'companies': return <AdminDashboard profile={profile} initialTab="companies" />;
       case 'staff': return <AdminDashboard profile={profile} initialTab="users" />;
       case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;

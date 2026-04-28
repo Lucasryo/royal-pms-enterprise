@@ -19,7 +19,8 @@ export type ViewType =
   | 'professional'
   | 'audit'
   | 'profile'
-  | 'prio-billing';
+  | 'prio-billing'
+  | 'reports';
 
 export interface EventItem {
   id: string;
