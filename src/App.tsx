@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabase';
-import { UserProfile, Company, ViewType } from './types';
+import { UserProfile, UserRole, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
@@ -177,7 +177,7 @@ export default function App() {
         setProfile(userProfile);
         // Só redireciona para a home view no primeiro login — não em recargas de página
         if (!sessionStorage.getItem('pms_current_view')) {
-          setCurrentView(ROLE_HOME_VIEW[userProfile.role] || 'dashboard');
+          setCurrentView(ROLE_HOME_VIEW[userProfile.role as UserRole] || 'dashboard');
         }
         return userProfile;
       }
@@ -234,7 +234,7 @@ export default function App() {
           
           await supabase.from('profiles').insert([newProfile]);
           setProfile(newProfile as UserProfile);
-          setCurrentView(ROLE_HOME_VIEW[newProfile.role] || 'dashboard');
+          setCurrentView(ROLE_HOME_VIEW[newProfile.role as UserRole] || 'dashboard');
         }
       } finally {
         setLoading(false);
@@ -333,7 +333,7 @@ export default function App() {
 
   const renderContent = () => {
     switch (currentView) {
-      case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role] || 'dashboard')} />;
+      case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
       case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsModuleDashboard profile={profile} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
       case 'maintenance': return <MaintenanceModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager' || profile.role === 'maintenance'} />;

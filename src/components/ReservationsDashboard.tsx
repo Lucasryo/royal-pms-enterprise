@@ -562,7 +562,13 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         cancel_reason: reason.trim() || 'Cancelamento sem custo a pedido do hóspede',
       }).eq('reservation_code', reservation.reservation_code);
 
-      await logAudit(supabase, profile, 'update', `Reserva ${reservation.reservation_code} cancelada sem custo. Motivo: ${reason.trim() || 'Não informado'}`);
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: `Reserva ${reservation.reservation_code} cancelada sem custo`,
+        details: `Motivo: ${reason.trim() || 'Não informado'}`,
+        type: 'update',
+      });
       toast.success(`Reserva ${reservation.reservation_code} cancelada sem custo.`);
       fetchData();
     } catch (err: any) {
@@ -1142,8 +1148,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${statusColors[res.status]}`}>
-                        {statusLabels[res.status]}
+                      <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${statusColors[res.status as keyof typeof statusColors]}`}>
+                        {statusLabels[res.status as keyof typeof statusLabels]}
                       </span>
                     </td>
                     <td className="px-6 py-4">

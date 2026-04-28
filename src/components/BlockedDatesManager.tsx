@@ -315,7 +315,7 @@ export default function BlockedDatesManager({ profile }: { profile: UserProfile 
                     </td>
                     <td className="px-4 py-3 text-neutral-600">
                       {b.category ? (
-                        CATEGORY_LABELS[b.category]
+                        CATEGORY_LABELS[b.category as keyof typeof CATEGORY_LABELS]
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-red-700">
                           <Ban className="h-3 w-3" />
