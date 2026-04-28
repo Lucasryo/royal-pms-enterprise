@@ -131,9 +131,10 @@ const tabs: Array<{ id: ProTab; label: string; icon: ComponentType<{ className?:
 
 const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export default function ProfessionalPMSDashboard({ profile }: { profile: UserProfile }) {
+export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { profile: UserProfile; allowedTabs?: ProTab[] }) {
   const canManage = hasPermission(profile, 'canManageProfessionalTools', ['admin', 'manager', 'finance', 'faturamento']);
-  const [activeTab, setActiveTab] = useState<ProTab>('night-audit');
+  const visibleTabs = allowedTabs ? tabs.filter((t) => allowedTabs.includes(t.id)) : tabs;
+  const [activeTab, setActiveTab] = useState<ProTab>(visibleTabs[0]?.id ?? 'night-audit');
   const [loading, setLoading] = useState(true);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -227,7 +228,7 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
