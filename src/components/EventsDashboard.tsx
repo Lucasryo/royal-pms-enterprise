@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabase';
-import { UserProfile, HotelEvent, Company } from '../types';
+import { UserProfile, HotelEvent, Company, EventItem, QuoteItem } from '../types';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -12,19 +12,22 @@ import {
   MapPin,
   FileText,
   DollarSign,
-  Sparkles,
   CheckCircle2,
   ArrowRight,
-  Filter,
-  MoreVertical,
   X,
   Edit2,
   Printer,
   Download,
-  Loader2
+  Loader2,
+  Trash2,
+  Percent,
+  Tag,
+  Receipt,
+  ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import EventItemsManager from './EventItemsManager';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, startOfToday, parseISO } from 'date-fns';
@@ -34,7 +37,7 @@ const EVENT_TYPES = ['Corporativo', 'Social', 'Casamento', 'Batizado', 'Formatur
 const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop'];
 
 export default function EventsDashboard({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<'calendar' | 'register'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'register' | 'items'>('calendar');
   const [events, setEvents] = useState<HotelEvent[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,8 +57,16 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     start_time: '08:00',
     end_time: '18:00',
     hall_name: HALLS[0],
+    halls: [] as string[],
     event_type: EVENT_TYPES[0],
     attendees_count: 0,
+    // Pricing
+    pricing_model: 'fixed' as 'fixed' | 'itemized',
+    subtotal_value: 0,
+    quote_items: [] as QuoteItem[],
+    iss_enabled: false,
+    iss_rate: 5,
+    // Legacy (kept for backward compat)
     total_value: 0,
     items_included: '',
     client_profile: '',
@@ -67,8 +78,32 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     status: 'planned' as HotelEvent['status']
   });
 
+  // Derived totals — no state update loop
+  const totals = useMemo(() => {
+    const subtotal = formData.pricing_model === 'itemized'
+      ? formData.quote_items.reduce((s, i) => s + i.subtotal, 0)
+      : formData.subtotal_value;
+    const iss = formData.iss_enabled ? subtotal * (formData.iss_rate / 100) : 0;
+    return { subtotal, iss, total: subtotal + iss };
+  }, [formData.pricing_model, formData.quote_items, formData.subtotal_value, formData.iss_enabled, formData.iss_rate]);
+
+  const [eventItems, setEventItems] = useState<EventItem[]>([]);
+  const [itemSearch, setItemSearch] = useState('');
+  const [showItemDropdown, setShowItemDropdown] = useState(false);
+  const itemSearchRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (itemSearchRef.current && !itemSearchRef.current.contains(e.target as Node)) {
+        setShowItemDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   async function fetchData() {
@@ -82,15 +117,11 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         console.warn('sync_faturas failed (non-fatal):', e);
       }
 
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('hotel_events')
-        .select('*')
-        .order('start_date');
-
-      const { data: companiesData } = await supabase
-        .from('companies')
-        .select('*')
-        .order('name');
+      const [{ data: eventsData, error: eventsError }, { data: companiesData }, { data: itemsData }] = await Promise.all([
+        supabase.from('hotel_events').select('*').order('start_date'),
+        supabase.from('companies').select('*').order('name'),
+        supabase.from('event_items').select('*').eq('active', true).order('name'),
+      ]);
 
       if (eventsError) {
         console.warn("hotel_events error:", eventsError);
@@ -100,6 +131,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       }
 
       if (companiesData) setCompanies(companiesData);
+      if (itemsData) setEventItems(itemsData);
     } catch (error) {
       console.error("Error fetching events:", error);
     } finally {
@@ -107,15 +139,58 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     }
   }
 
+  function addQuoteItem(item: EventItem) {
+    if (formData.quote_items.find(q => q.item_id === item.id)) {
+      toast.info('Item já adicionado à cotação.');
+      return;
+    }
+    const qi: QuoteItem = { item_id: item.id, name: item.name, unit: item.unit, quantity: 1, unit_price: item.default_price, subtotal: item.default_price };
+    setFormData(prev => ({ ...prev, quote_items: [...prev.quote_items, qi] }));
+    setItemSearch('');
+    setShowItemDropdown(false);
+  }
+
+  function updateQuoteItem(index: number, field: 'quantity' | 'unit_price', value: number) {
+    setFormData(prev => {
+      const items = [...prev.quote_items];
+      const item = { ...items[index], [field]: value };
+      item.subtotal = item.quantity * item.unit_price;
+      items[index] = item;
+      return { ...prev, quote_items: items };
+    });
+  }
+
+  function removeQuoteItem(index: number) {
+    setFormData(prev => ({ ...prev, quote_items: prev.quote_items.filter((_, i) => i !== index) }));
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      const hallsToSave = formData.halls.length > 0 ? formData.halls : [formData.hall_name];
+      const savePayload = {
+        ...formData,
+        halls: hallsToSave,
+        hall_name: hallsToSave[0] || formData.hall_name,
+        company_id: formData.company_id || null,
+        pricing_model: formData.pricing_model,
+        quote_items: formData.quote_items,
+        subtotal_value: totals.subtotal,
+        iss_enabled: formData.iss_enabled,
+        iss_rate: formData.iss_rate,
+        iss_amount: totals.iss,
+        total_value: totals.total,
+        items_included: formData.pricing_model === 'itemized'
+          ? formData.quote_items.map(i => i.name).join(', ')
+          : formData.items_included,
+      };
+
       if (editingId) {
         const { error } = await supabase
           .from('hotel_events')
-          .update({ ...formData, company_id: formData.company_id || null })
+          .update(savePayload)
           .eq('id', editingId);
 
         if (error) throw error;
@@ -124,7 +199,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       } else {
         const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
         const newEvent = {
-          ...formData,
+          ...savePayload,
           company_id: formData.company_id || null,
           os_number: osNumber,
           created_at: new Date().toISOString(),
@@ -167,8 +242,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         start_time: '08:00',
         end_time: '18:00',
         hall_name: HALLS[0],
+        halls: [],
         event_type: EVENT_TYPES[0],
         attendees_count: 0,
+        pricing_model: 'fixed',
+        subtotal_value: 0,
+        quote_items: [],
+        iss_enabled: false,
+        iss_rate: 5,
         total_value: 0,
         items_included: '',
         client_profile: '',
@@ -190,6 +271,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   };
 
   const handleEdit = (event: HotelEvent) => {
+    const halls = event.halls && event.halls.length > 0
+      ? event.halls
+      : event.hall_name ? [event.hall_name] : [];
     setFormData({
       name: event.name,
       description: event.description || '',
@@ -198,8 +282,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       start_time: event.start_time || '08:00',
       end_time: event.end_time || '18:00',
       hall_name: event.hall_name,
+      halls,
       event_type: event.event_type,
       attendees_count: event.attendees_count,
+      pricing_model: (event.pricing_model as 'fixed' | 'itemized') || 'fixed',
+      subtotal_value: event.subtotal_value ?? event.total_value,
+      quote_items: (event.quote_items as QuoteItem[]) || [],
+      iss_enabled: event.iss_enabled ?? false,
+      iss_rate: event.iss_rate ?? 5,
       total_value: event.total_value,
       items_included: event.items_included || '',
       client_profile: event.client_profile || '',
@@ -313,21 +403,39 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit">
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Calendário
           </button>
           <button
             onClick={() => setActiveTab('register')}
-            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Novo Evento / O.S.
           </button>
+          {(profile.role === 'admin' || profile.role === 'manager' || profile.role === 'eventos') && (
+            <button
+              onClick={() => setActiveTab('items')}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'items' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            >
+              Catálogo de Itens
+            </button>
+          )}
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'calendar' ? (
+        {activeTab === 'items' ? (
+          <motion.div
+            key="items"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm"
+          >
+            <EventItemsManager userId={profile.id} />
+          </motion.div>
+        ) : activeTab === 'calendar' ? (
           <motion.div
             key="calendar"
             initial={{ opacity: 0, x: -20 }}
@@ -431,7 +539,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                               <div className="flex items-center gap-3 mt-1">
                                  <span className="flex items-center gap-1 text-[10px] font-bold text-neutral-500 uppercase">
                                     <MapPin className="w-3 h-3 text-neutral-400" />
-                                    {event.hall_name}
+                                    {event.halls && event.halls.length > 0 ? event.halls.join(' · ') : event.hall_name}
                                  </span>
                                  <span className="flex items-center gap-1 text-[10px] font-bold text-neutral-500 uppercase">
                                     <Users className="w-3 h-3 text-neutral-400" />
@@ -486,15 +594,42 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Local (Salão)</label>
-                       <select
-                         value={formData.hall_name}
-                         onChange={e => setFormData({...formData, hall_name: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                       >
-                         {HALLS.map(h => <option key={h} value={h}>{h}</option>)}
-                       </select>
+                    <div className="md:col-span-2">
+                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-2 block ml-1">
+                         Salões
+                         {formData.halls.length > 0 && (
+                           <span className="ml-2 text-amber-700 normal-case tracking-normal font-bold">
+                             ({formData.halls.length} selecionado{formData.halls.length > 1 ? 's' : ''})
+                           </span>
+                         )}
+                       </label>
+                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                         {HALLS.map(h => {
+                           const selected = formData.halls.includes(h);
+                           return (
+                             <button
+                               key={h}
+                               type="button"
+                               onClick={() => {
+                                 const next = selected
+                                   ? formData.halls.filter(x => x !== h)
+                                   : [...formData.halls, h];
+                                 setFormData({ ...formData, halls: next });
+                               }}
+                               className={`px-3 py-2.5 rounded-xl border text-left text-xs font-bold transition-all ${
+                                 selected
+                                   ? 'bg-amber-700 border-amber-700 text-white shadow-sm'
+                                   : 'bg-neutral-50 border-neutral-200 text-neutral-600 hover:border-neutral-300'
+                               }`}
+                             >
+                               {h}
+                             </button>
+                           );
+                         })}
+                       </div>
+                       {formData.halls.length === 0 && (
+                         <p className="text-[10px] text-red-400 mt-1 ml-1">Selecione ao menos um salão</p>
+                       )}
                     </div>
 
                     <div>
@@ -555,19 +690,199 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        </div>
                     </div>
 
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Valor do Contrato (R$)</label>
-                       <div className="relative">
+                    {/* ── Pricing section ── */}
+                    <div className="md:col-span-2 pt-2 border-t border-neutral-100">
+                      <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-3 block ml-1">Precificação</label>
+
+                      {/* Mode toggle */}
+                      <div className="flex gap-2 mb-4">
+                        {(['fixed', 'itemized'] as const).map(mode => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, pricing_model: mode })}
+                            className={`flex-1 py-2.5 rounded-xl border text-xs font-black uppercase tracking-widest transition-all ${
+                              formData.pricing_model === mode
+                                ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm'
+                                : 'bg-neutral-50 border-neutral-200 text-neutral-500 hover:border-neutral-300'
+                            }`}
+                          >
+                            {mode === 'fixed' ? '💰 Preço Fixo' : '📋 Cotação por Itens'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Fixed price input */}
+                      {formData.pricing_model === 'fixed' && (
+                        <div className="relative mb-4">
                           <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                           <input
                             type="number"
-                            required
-                            value={formData.total_value}
-                            onChange={e => setFormData({...formData, total_value: parseFloat(e.target.value)})}
+                            step="0.01"
+                            min="0"
+                            value={formData.subtotal_value || ''}
+                            onChange={e => setFormData({ ...formData, subtotal_value: parseFloat(e.target.value) || 0 })}
                             className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
                             placeholder="0,00"
                           />
-                       </div>
+                        </div>
+                      )}
+
+                      {/* Itemized quote builder */}
+                      {formData.pricing_model === 'itemized' && (
+                        <div className="space-y-3 mb-4">
+                          {/* Item picker */}
+                          <div ref={itemSearchRef} className="relative">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                              <input
+                                value={itemSearch}
+                                onChange={e => { setItemSearch(e.target.value); setShowItemDropdown(true); }}
+                                onFocus={() => setShowItemDropdown(true)}
+                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-amber-500/20"
+                                placeholder="Buscar item do catálogo..."
+                              />
+                              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                            </div>
+                            {showItemDropdown && (
+                              <div className="absolute z-20 w-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                                {eventItems
+                                  .filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()))
+                                  .map(item => (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onMouseDown={() => addQuoteItem(item)}
+                                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-amber-50 text-left transition-colors"
+                                    >
+                                      <div>
+                                        <span className="text-sm font-medium text-ink">{item.name}</span>
+                                        {item.category && <span className="ml-2 text-[10px] text-stone-400">{item.category}</span>}
+                                      </div>
+                                      <span className="text-xs text-amber-700 font-bold ml-4 shrink-0">
+                                        {Number(item.default_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/{item.unit.replace('por_', '')}
+                                      </span>
+                                    </button>
+                                  ))}
+                                {eventItems.filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase())).length === 0 && (
+                                  <p className="px-4 py-3 text-sm text-stone-400 italic">Nenhum item encontrado.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Quote items table */}
+                          {formData.quote_items.length > 0 && (
+                            <div className="border border-neutral-200 rounded-xl overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-neutral-50 border-b border-neutral-200">
+                                    <th className="text-left px-3 py-2 font-black uppercase text-neutral-400 tracking-wide">Item</th>
+                                    <th className="text-center px-2 py-2 font-black uppercase text-neutral-400 tracking-wide w-16">Qtd</th>
+                                    <th className="text-right px-3 py-2 font-black uppercase text-neutral-400 tracking-wide w-24">Preço Unit.</th>
+                                    <th className="text-right px-3 py-2 font-black uppercase text-neutral-400 tracking-wide w-24">Subtotal</th>
+                                    <th className="w-8" />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {formData.quote_items.map((qi, idx) => (
+                                    <tr key={idx} className="border-b border-neutral-100 last:border-0">
+                                      <td className="px-3 py-2">
+                                        <p className="font-medium text-ink">{qi.name}</p>
+                                        <p className="text-neutral-400">{qi.unit.replace('por_', '/')}</p>
+                                      </td>
+                                      <td className="px-2 py-2">
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={qi.quantity}
+                                          onChange={e => updateQuoteItem(idx, 'quantity', parseFloat(e.target.value) || 1)}
+                                          className="w-14 text-center px-1 py-1 bg-neutral-50 border border-neutral-200 rounded-lg font-bold outline-none"
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 text-right">
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={qi.unit_price}
+                                          onChange={e => updateQuoteItem(idx, 'unit_price', parseFloat(e.target.value) || 0)}
+                                          className="w-24 text-right px-2 py-1 bg-neutral-50 border border-neutral-200 rounded-lg font-bold outline-none"
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-bold text-ink">
+                                        {qi.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                      </td>
+                                      <td className="px-2 py-2">
+                                        <button type="button" onClick={() => removeQuoteItem(idx)} className="p-1 hover:bg-red-50 hover:text-red-500 text-neutral-300 rounded-lg transition-colors">
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                          {formData.quote_items.length === 0 && (
+                            <p className="text-center text-xs text-stone-400 py-3 italic">Nenhum item adicionado à cotação ainda.</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ISS */}
+                      <div className="flex items-center gap-3 p-3 bg-neutral-50 rounded-xl border border-neutral-200 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, iss_enabled: !formData.iss_enabled })}
+                          className={`w-10 h-6 rounded-full transition-all relative shrink-0 ${formData.iss_enabled ? 'bg-amber-700' : 'bg-neutral-300'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${formData.iss_enabled ? 'left-5' : 'left-1'}`} />
+                        </button>
+                        <div className="flex items-center gap-2 flex-1">
+                          <Percent className="w-3.5 h-3.5 text-neutral-400" />
+                          <span className="text-xs font-black uppercase text-neutral-600 tracking-wide">ISS</span>
+                          {formData.iss_enabled && (
+                            <>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="100"
+                                value={formData.iss_rate}
+                                onChange={e => setFormData({ ...formData, iss_rate: parseFloat(e.target.value) || 0 })}
+                                className="w-14 text-center px-2 py-1 bg-white border border-neutral-200 rounded-lg text-xs font-bold outline-none"
+                              />
+                              <span className="text-xs text-neutral-500">%</span>
+                              <span className="ml-auto text-xs font-bold text-amber-700">
+                                + {totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Total summary */}
+                      <div className="bg-neutral-900 text-white rounded-xl p-4 space-y-2">
+                        {formData.pricing_model === 'itemized' && (
+                          <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Subtotal</span>
+                            <span>{totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                          </div>
+                        )}
+                        {formData.iss_enabled && (
+                          <div className="flex justify-between text-xs text-neutral-400">
+                            <span>ISS ({formData.iss_rate}%)</span>
+                            <span>{totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-baseline pt-2 border-t border-neutral-700">
+                          <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-black">Total</span>
+                          <span className="text-xl font-black text-amber-400">
+                            {totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
@@ -623,15 +938,17 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    <div className="md:col-span-2">
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens Inclusos (Separe por vírgula)</label>
-                       <textarea
-                         value={formData.items_included}
-                         onChange={e => setFormData({...formData, items_included: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold h-24"
-                         placeholder="Ex: Projetor, Coffee Break, Welcome Drink..."
-                       />
-                    </div>
+                    {formData.pricing_model === 'fixed' && (
+                      <div className="md:col-span-2">
+                         <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens Inclusos (Separe por vírgula)</label>
+                         <textarea
+                           value={formData.items_included}
+                           onChange={e => setFormData({...formData, items_included: e.target.value})}
+                           className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold h-24"
+                           placeholder="Ex: Projetor, Coffee Break, Welcome Drink..."
+                         />
+                      </div>
+                    )}
 
                     <div className="md:col-span-2">
                        <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Empresa Contratante</label>
@@ -744,13 +1061,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                            {[
                              { label: 'Contratante', value: formData.client_category || '—' },
                              { label: 'Tipo de Evento', value: formData.event_type || '—' },
-                             { label: 'Local / Salão', value: formData.hall_name || '—' },
+                             { label: 'Local / Salão', value: formData.halls.length > 0 ? formData.halls.join(' · ') : formData.hall_name || '—' },
                              { label: 'Data de Início', value: formData.start_date ? format(parseISO(formData.start_date), 'dd/MM/yyyy') : '—' },
                              { label: 'Data de Término', value: formData.end_date ? format(parseISO(formData.end_date), 'dd/MM/yyyy') : '—' },
                              { label: 'Horário', value: formData.start_time && formData.end_time ? `${formData.start_time} – ${formData.end_time}` : '—' },
                              { label: 'Participantes', value: formData.attendees_count ? `${formData.attendees_count} pessoas` : '—' },
                              { label: 'Perfil do Contratante', value: formData.client_profile || '—' },
-                             { label: 'Valor do Contrato', value: formData.total_value ? formData.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
+                             { label: formData.iss_enabled ? 'Subtotal' : 'Valor Total', value: totals.subtotal > 0 ? totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
+                             ...(formData.iss_enabled ? [{ label: `ISS (${formData.iss_rate}%)`, value: totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                             ...(formData.iss_enabled ? [{ label: 'Total com ISS', value: totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
                            ].map((f, i) => (
                              <div key={i} style={{ padding: '13px 16px', backgroundColor: i % 2 === 0 ? '#F5F2EC' : '#FAF8F2', fontFamily: 'Inter, sans-serif' }}>
                                <div style={{ fontSize: '7px', letterSpacing: '0.3em', color: '#78716c', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</div>
@@ -760,7 +1079,55 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                          </div>
                        </div>
 
-                       {/* SERVICES */}
+                       {/* QUOTE TABLE — only for itemized */}
+                       {formData.pricing_model === 'itemized' && formData.quote_items.length > 0 && (
+                         <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
+                             <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                             <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Cotação de itens</div>
+                             <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.2)' }} />
+                           </div>
+                           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter, sans-serif' }}>
+                             <thead>
+                               <tr style={{ borderBottom: '1px solid rgba(30,25,18,0.10)' }}>
+                                 {['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'].map((h, i) => (
+                                   <th key={h} style={{ padding: '6px 8px', fontSize: '6.5px', letterSpacing: '0.3em', color: '#78716c', textTransform: 'uppercase', textAlign: i >= 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
+                                 ))}
+                               </tr>
+                             </thead>
+                             <tbody>
+                               {formData.quote_items.map((qi, i) => (
+                                 <tr key={i} style={{ borderBottom: '1px solid rgba(30,25,18,0.05)', backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(30,25,18,0.02)' }}>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 500 }}>{qi.name}</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>{qi.unit.replace('por_', '/')}</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{qi.quantity}</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                 </tr>
+                               ))}
+                             </tbody>
+                             <tfoot>
+                               <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
+                                 <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>Subtotal</td>
+                                 <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                               </tr>
+                               {formData.iss_enabled && (
+                                 <tr>
+                                   <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({formData.iss_rate}%)</td>
+                                   <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                 </tr>
+                               )}
+                               <tr style={{ borderTop: '2px solid #C49A3C' }}>
+                                 <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
+                                 <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                               </tr>
+                             </tfoot>
+                           </table>
+                         </div>
+                       )}
+
+                       {/* SERVICES — only for fixed pricing */}
+                       {formData.pricing_model === 'fixed' && formData.items_included && (
                        {formData.items_included && (
                          <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
@@ -829,7 +1196,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                      <p className="text-[11px] text-stone-400 font-light mt-6 italic text-center">
                        Ao salvar, o valor de{' '}
-                       <span className="font-display text-gold not-italic">{formData.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                       <span className="font-display text-gold not-italic">{totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                        {' '}será provisionado no faturamento para a data de início do evento.
                      </p>
                   </div>
@@ -886,7 +1253,11 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     </div>
                     <div className="flex items-center gap-2">
                       <MapPin className="w-3.5 h-3.5 text-gold/70" />
-                      <span>{viewingEvent.hall_name}</span>
+                      <span>
+                        {viewingEvent.halls && viewingEvent.halls.length > 0
+                          ? viewingEvent.halls.join(' · ')
+                          : viewingEvent.hall_name}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="w-3.5 h-3.5 text-gold/70" />
@@ -908,7 +1279,60 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           { label: 'Contratante', value: viewingEvent.client_category || '—' },
                           { label: 'Perfil', value: viewingEvent.client_profile || '—' },
                           { label: 'Participantes', value: `${viewingEvent.attendees_count} pessoas` },
-                          { label: 'Valor do contrato', value: viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), highlight: true },
+                          { label: 'Check / período', value: viewingEvent.check_info || '—' },
+                        ].map(({ label, value }) => (
+                          <div key={label} className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">{label}</dt>
+                            <dd className="text-sm font-medium text-ink text-right">{value}</dd>
+                          </div>
+                        ))}
+                        {/* Pricing breakdown */}
+                        {viewingEvent.iss_enabled && viewingEvent.subtotal_value != null && (
+                          <div className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">Subtotal</dt>
+                            <dd className="text-sm font-medium text-ink text-right">{Number(viewingEvent.subtotal_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                          </div>
+                        )}
+                        {viewingEvent.iss_enabled && (
+                          <div className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">ISS ({viewingEvent.iss_rate ?? 5}%)</dt>
+                            <dd className="text-sm font-medium text-ink text-right">{Number(viewingEvent.iss_amount ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                          </div>
+                        )}
+                        <div className="flex items-baseline justify-between py-3 gap-4">
+                          <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">Valor total</dt>
+                          <dd className="font-display text-base font-light text-gold text-right">{viewingEvent.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                        </div>
+                      </dl>
+
+                      {/* Quote items table */}
+                      {viewingEvent.pricing_model === 'itemized' && viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
+                        <div className="mt-5 pt-4 border-t border-ink/[0.07]">
+                          <p className="text-[11px] uppercase tracking-[0.22em] text-stone-500 mb-3">· Itens cotados</p>
+                          <div className="border border-ink/10 rounded-xl overflow-hidden">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-ink/[0.03] border-b border-ink/10">
+                                  <th className="text-left px-3 py-2 font-black uppercase text-stone-400 tracking-wide">Item</th>
+                                  <th className="text-center px-2 py-2 font-black uppercase text-stone-400 tracking-wide w-12">Qtd</th>
+                                  <th className="text-right px-3 py-2 font-black uppercase text-stone-400 tracking-wide">Preço</th>
+                                  <th className="text-right px-3 py-2 font-black uppercase text-stone-400 tracking-wide">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(viewingEvent.quote_items as QuoteItem[]).map((qi, i) => (
+                                  <tr key={i} className="border-b border-ink/[0.05] last:border-0">
+                                    <td className="px-3 py-2.5 font-medium text-ink">{qi.name}</td>
+                                    <td className="px-2 py-2.5 text-center text-stone-500">{qi.quantity}</td>
+                                    <td className="px-3 py-2.5 text-right text-stone-500">{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-ink">{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                           { label: 'Check / período', value: viewingEvent.check_info || '—' },
                         ].map(({ label, value, highlight }) => (
                           <div key={label} className="flex items-baseline justify-between py-3 gap-4">
@@ -1012,16 +1436,28 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       {/* Hidden PDF Template - rendered off-screen for html2canvas */}
       {(viewingEvent || (activeTab === 'register' && formData.name)) && (() => {
         const d = viewingEvent || formData as any;
+        const pdfSubtotal = d.subtotal_value ?? d.total_value ?? 0;
+        const pdfIssRate = d.iss_rate ?? 5;
+        const pdfIss = d.iss_enabled ? (pdfSubtotal * pdfIssRate / 100) : 0;
+        const pdfTotal = d.iss_enabled ? (pdfSubtotal + pdfIss) : (d.total_value ?? pdfSubtotal);
+        const pdfQuoteItems: QuoteItem[] = d.quote_items || [];
+        const pdfIsItemized = d.pricing_model === 'itemized';
         const infoRows = [
           ['Contratante', d.client_category || '—'],
           ['Tipo de Evento', d.event_type || '—'],
-          ['Local / Salão', d.hall_name || '—'],
+          ['Local / Salão', (d.halls && d.halls.length > 0) ? d.halls.join(' · ') : (d.hall_name || '—')],
           ['Data de Início', d.start_date ? format(parseISO(d.start_date), 'dd/MM/yyyy') : '—'],
           ['Data de Término', d.end_date ? format(parseISO(d.end_date), 'dd/MM/yyyy') : '—'],
           ['Horário', (d.start_time && d.end_time) ? `${d.start_time} – ${d.end_time}` : '—'],
           ['Participantes', d.attendees_count ? `${d.attendees_count} pessoas` : '—'],
           ['Perfil', d.client_profile || '—'],
-          ['Valor do Contrato', d.total_value ? Number(d.total_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'],
+          ...(d.iss_enabled ? [
+            ['Subtotal', Number(pdfSubtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
+            [`ISS (${pdfIssRate}%)`, Number(pdfIss).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
+            ['Total c/ ISS', Number(pdfTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
+          ] : [
+            ['Valor Total', Number(pdfTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })],
+          ]),
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
@@ -1078,7 +1514,55 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* SERVICES */}
-              {d.items_included && (
+              {/* QUOTE TABLE — itemized pricing */}
+              {pdfIsItemized && pdfQuoteItems.length > 0 && (
+                <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
+                    <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
+                    <div style={{ fontSize: '7px', letterSpacing: '0.45em', color: '#C49A3C', textTransform: 'uppercase' }}>· Cotação de itens</div>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(196,154,60,0.22)' }} />
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Arial, sans-serif' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(30,25,18,0.10)' }}>
+                        {['Item', 'Unidade', 'Qtd', 'Preço Unit.', 'Subtotal'].map((h, i) => (
+                          <th key={h} style={{ padding: '6px 8px', fontSize: '6.5px', letterSpacing: '0.3em', color: '#78716c', textTransform: 'uppercase', textAlign: i >= 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pdfQuoteItems.map((qi, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(30,25,18,0.05)', backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(30,25,18,0.02)' }}>
+                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 500 }}>{qi.name}</td>
+                          <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>{String(qi.unit).replace('por_', '/')}</td>
+                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{qi.quantity}</td>
+                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{Number(qi.unit_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                          <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{Number(qi.subtotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '1px solid rgba(196,154,60,0.3)' }}>
+                        <td colSpan={4} style={{ padding: '8px 8px 4px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>Subtotal</td>
+                        <td style={{ padding: '8px 8px 4px', fontSize: '11px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{pdfSubtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      </tr>
+                      {d.iss_enabled && (
+                        <tr>
+                          <td colSpan={4} style={{ padding: '2px 8px', fontSize: '8px', color: '#78716c', textAlign: 'right', letterSpacing: '0.2em', textTransform: 'uppercase' }}>ISS ({pdfIssRate}%)</td>
+                          <td style={{ padding: '2px 8px', fontSize: '10px', color: '#78716c', textAlign: 'right' }}>{pdfIss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        </tr>
+                      )}
+                      <tr style={{ borderTop: '2px solid #C49A3C' }}>
+                        <td colSpan={4} style={{ padding: '6px 8px', fontSize: '8px', color: '#C49A3C', textAlign: 'right', letterSpacing: '0.35em', textTransform: 'uppercase', fontWeight: 700 }}>Total</td>
+                        <td style={{ padding: '6px 8px', fontSize: '13px', color: '#C49A3C', fontWeight: 700, textAlign: 'right' }}>{pdfTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* SERVICES — fixed pricing only */}
+              {!pdfIsItemized && d.items_included && (
                 <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Arial, sans-serif' }}>
                     <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
