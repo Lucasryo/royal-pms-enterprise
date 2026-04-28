@@ -1641,3 +1641,66 @@ values
   ('Cerveja long neck', 'beverage', 18.00, true),
   ('Taxa de room service', 'service', 15.00, true)
 on conflict do nothing;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Event Items Catalog + Hotel Events pricing columns
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.event_items (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  description text,
+  unit text not null default 'por_unidade',
+  default_price numeric(12,2) not null default 0,
+  category text,
+  active boolean not null default true,
+  created_at timestamptz default timezone('utc', now()) not null,
+  created_by uuid references auth.users(id)
+);
+
+create index if not exists idx_event_items_active on public.event_items(active, name);
+
+-- New pricing columns on hotel_events (idempotent)
+alter table public.hotel_events
+  add column if not exists halls text[] default '{}',
+  add column if not exists pricing_model text default 'fixed',
+  add column if not exists quote_items jsonb default '[]',
+  add column if not exists subtotal_value numeric(12,2) default 0,
+  add column if not exists iss_enabled boolean default false,
+  add column if not exists iss_rate numeric(5,2) default 5.0,
+  add column if not exists iss_amount numeric(12,2) default 0;
+
+alter table public.event_items enable row level security;
+
+do $$
+begin
+  if not exists (select 1 from pg_policies where tablename = 'event_items' and policyname = 'event_items_select_staff') then
+    create policy "event_items_select_staff" on public.event_items
+      for select using (public.current_user_is_staff());
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'event_items' and policyname = 'event_items_manage_events') then
+    create policy "event_items_manage_events" on public.event_items
+      for all using (
+        public.current_user_is_admin()
+        or public.current_user_role() in ('manager', 'eventos')
+      )
+      with check (
+        public.current_user_is_admin()
+        or public.current_user_role() in ('manager', 'eventos')
+      );
+  end if;
+end $$;
+
+-- Seed default event items
+insert into public.event_items (name, unit, default_price, category) values
+  ('Microfone com fio',   'por_unidade', 150.00, 'Equipamentos A/V'),
+  ('Microfone lapela',    'por_unidade', 200.00, 'Equipamentos A/V'),
+  ('Passador de slides',  'por_unidade',  80.00, 'Equipamentos A/V'),
+  ('Projetor',            'por_dia',     350.00, 'Equipamentos A/V'),
+  ('Telão',               'por_dia',     200.00, 'Equipamentos A/V'),
+  ('Coffee Break',        'por_pessoa',   45.00, 'Alimentação & Bebidas'),
+  ('Buffet completo',     'por_pessoa',   95.00, 'Alimentação & Bebidas'),
+  ('Garrafa de água',     'por_unidade',   8.00, 'Alimentação & Bebidas'),
+  ('Garrafa de café',     'por_unidade',  25.00, 'Alimentação & Bebidas'),
+  ('Petit four',          'por_pessoa',   18.00, 'Alimentação & Bebidas')
+on conflict do nothing;

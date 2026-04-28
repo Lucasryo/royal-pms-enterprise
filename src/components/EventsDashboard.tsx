@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import EventItemsManager from './EventItemsManager';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, startOfToday, parseISO } from 'date-fns';
@@ -36,7 +37,7 @@ const EVENT_TYPES = ['Corporativo', 'Social', 'Casamento', 'Batizado', 'Formatur
 const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop'];
 
 export default function EventsDashboard({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<'calendar' | 'register'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'register' | 'items'>('calendar');
   const [events, setEvents] = useState<HotelEvent[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -401,21 +402,39 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit">
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Calendário
           </button>
           <button
             onClick={() => setActiveTab('register')}
-            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Novo Evento / O.S.
           </button>
+          {(profile.role === 'admin' || profile.role === 'manager' || profile.role === 'eventos') && (
+            <button
+              onClick={() => setActiveTab('items')}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'items' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            >
+              Catálogo de Itens
+            </button>
+          )}
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'calendar' ? (
+        {activeTab === 'items' ? (
+          <motion.div
+            key="items"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm"
+          >
+            <EventItemsManager userId={profile.id} />
+          </motion.div>
+        ) : activeTab === 'calendar' ? (
           <motion.div
             key="calendar"
             initial={{ opacity: 0, x: -20 }}
