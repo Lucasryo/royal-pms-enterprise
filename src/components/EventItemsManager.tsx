@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { EventItem } from '../types';
-import { Plus, Edit2, X, Check, Package } from 'lucide-react';
+import { Plus, Edit2, X, Check, Package, Trash2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const UNITS = [
@@ -20,6 +20,7 @@ export default function EventItemsManager({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<EventItem> | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => { fetchItems(); }, []);
 
@@ -65,6 +66,16 @@ export default function EventItemsManager({ userId }: { userId: string }) {
   async function handleToggleActive(item: EventItem) {
     await supabase.from('event_items').update({ active: !(item.active !== false) }).eq('id', item.id);
     fetchItems();
+  }
+
+  async function handleDelete(id: string) {
+    setLoading(true);
+    const { error } = await supabase.from('event_items').delete().eq('id', id);
+    if (error) toast.error('Erro ao excluir item.');
+    else toast.success('Item excluído permanentemente.');
+    setConfirmDeleteId(null);
+    fetchItems();
+    setLoading(false);
   }
 
   const unitLabel = (u: string) => UNITS.find(x => x.value === u)?.label || u;
@@ -201,26 +212,42 @@ export default function EventItemsManager({ userId }: { userId: string }) {
                         <span className="font-display text-sm font-light text-amber-700">
                           {Number(item.default_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </span>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => { setEditing({ ...item }); setIsNew(false); }}
-                            className="p-2 hover:bg-neutral-100 rounded-lg text-stone-400 hover:text-ink transition-colors"
-                            title="Editar"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleActive(item)}
-                            className={`p-2 rounded-lg transition-colors text-stone-400 ${
-                              item.active !== false
-                                ? 'hover:bg-red-50 hover:text-red-500'
-                                : 'hover:bg-green-50 hover:text-green-600'
-                            }`}
-                            title={item.active !== false ? 'Desativar' : 'Reativar'}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {confirmDeleteId === item.id ? (
+                          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                            <span className="text-xs text-red-600 font-medium">Excluir permanentemente?</span>
+                            <button onClick={() => handleDelete(item.id)} className="text-xs font-black text-red-600 hover:text-red-800 transition-colors">Sim</button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="text-xs font-black text-stone-500 hover:text-ink transition-colors">Não</button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => { setEditing({ ...item }); setIsNew(false); }}
+                              className="p-2 hover:bg-neutral-100 rounded-lg text-stone-400 hover:text-ink transition-colors"
+                              title="Editar"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleActive(item)}
+                              className={`p-2 rounded-lg transition-colors text-stone-400 ${
+                                item.active !== false
+                                  ? 'hover:bg-amber-50 hover:text-amber-600'
+                                  : 'hover:bg-green-50 hover:text-green-600'
+                              }`}
+                              title={item.active !== false ? 'Desativar' : 'Reativar'}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(item.id)}
+                              className="p-2 hover:bg-red-50 hover:text-red-500 rounded-lg text-stone-400 transition-colors"
+                              title="Excluir permanentemente"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

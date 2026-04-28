@@ -37,7 +37,7 @@ const EVENT_TYPES = ['Corporativo', 'Social', 'Casamento', 'Batizado', 'Formatur
 const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop'];
 
 export default function EventsDashboard({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<'calendar' | 'register' | 'items'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'quotes' | 'register' | 'items'>('calendar');
   const [events, setEvents] = useState<HotelEvent[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,11 +61,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     event_type: EVENT_TYPES[0],
     attendees_count: 0,
     // Pricing
+    hall_price: 0,
     pricing_model: 'fixed' as 'fixed' | 'itemized',
     subtotal_value: 0,
     quote_items: [] as QuoteItem[],
     iss_enabled: false,
     iss_rate: 5,
+    is_quote: false,
     // Legacy (kept for backward compat)
     total_value: 0,
     items_included: '',
@@ -78,14 +80,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     status: 'planned' as HotelEvent['status']
   });
 
-  // Derived totals — no state update loop
+  // Derived totals — hall + items + ISS, no state update loop
   const totals = useMemo(() => {
-    const subtotal = formData.pricing_model === 'itemized'
-      ? formData.quote_items.reduce((s, i) => s + i.subtotal, 0)
-      : formData.subtotal_value;
+    const hallPrice = formData.hall_price || 0;
+    const itemsTotal = formData.quote_items.reduce((s, i) => s + i.subtotal, 0);
+    const subtotal = hallPrice + itemsTotal;
     const iss = formData.iss_enabled ? subtotal * (formData.iss_rate / 100) : 0;
-    return { subtotal, iss, total: subtotal + iss };
-  }, [formData.pricing_model, formData.quote_items, formData.subtotal_value, formData.iss_enabled, formData.iss_rate]);
+    return { hallPrice, itemsTotal, subtotal, iss, total: subtotal + iss };
+  }, [formData.hall_price, formData.quote_items, formData.iss_enabled, formData.iss_rate]);
 
   const [eventItems, setEventItems] = useState<EventItem[]>([]);
   const [itemSearch, setItemSearch] = useState('');
@@ -175,14 +177,16 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         halls: hallsToSave,
         hall_name: hallsToSave[0] || formData.hall_name,
         company_id: formData.company_id || null,
-        pricing_model: formData.pricing_model,
+        hall_price: formData.hall_price || 0,
+        pricing_model: formData.quote_items.length > 0 ? 'itemized' : 'fixed',
         quote_items: formData.quote_items,
         subtotal_value: totals.subtotal,
         iss_enabled: formData.iss_enabled,
         iss_rate: formData.iss_rate,
         iss_amount: totals.iss,
         total_value: totals.total,
-        items_included: formData.pricing_model === 'itemized'
+        is_quote: formData.is_quote,
+        items_included: formData.quote_items.length > 0
           ? formData.quote_items.map(i => i.name).join(', ')
           : formData.items_included,
       };
@@ -194,23 +198,34 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           .eq('id', editingId);
 
         if (error) throw error;
-        toast.success('Evento atualizado com sucesso!');
+        toast.success(formData.is_quote ? 'Cotação atualizada com sucesso!' : 'Evento atualizado com sucesso!');
         setEditingId(null);
+      } else if (formData.is_quote) {
+        // Saving as a quote — no O.S. number, no fatura yet
+        const quoteNumber = `COT-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+        const newQuote = {
+          ...savePayload,
+          quote_number: quoteNumber,
+          os_number: quoteNumber,
+          created_at: new Date().toISOString(),
+          created_by: profile.id,
+        };
+        const { error } = await supabase.from('hotel_events').insert([newQuote]);
+        if (error) throw error;
+        toast.success(`Cotação ${quoteNumber} criada! Converta em O.S. após aprovação do cliente.`);
       } else {
+        // Saving as direct O.S.
         const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
         const newEvent = {
           ...savePayload,
-          company_id: formData.company_id || null,
           os_number: osNumber,
           created_at: new Date().toISOString(),
           created_by: profile.id
         };
 
         const { error } = await supabase.from('hotel_events').insert([newEvent]);
-
         if (error) throw error;
 
-        // Create fatura/OS in Faturas & Arquivos
         const { error: faturaError } = await supabase.from('files').insert([{
           type: 'Fatura Evento',
           category: 'Fatura Evento',
@@ -245,11 +260,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         halls: [],
         event_type: EVENT_TYPES[0],
         attendees_count: 0,
+        hall_price: 0,
         pricing_model: 'fixed',
         subtotal_value: 0,
         quote_items: [],
         iss_enabled: false,
         iss_rate: 5,
+        is_quote: false,
         total_value: 0,
         items_included: '',
         client_profile: '',
@@ -285,11 +302,13 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       halls,
       event_type: event.event_type,
       attendees_count: event.attendees_count,
+      hall_price: event.hall_price ?? 0,
       pricing_model: (event.pricing_model as 'fixed' | 'itemized') || 'fixed',
       subtotal_value: event.subtotal_value ?? event.total_value,
       quote_items: (event.quote_items as QuoteItem[]) || [],
       iss_enabled: event.iss_enabled ?? false,
       iss_rate: event.iss_rate ?? 5,
+      is_quote: event.is_quote ?? false,
       total_value: event.total_value,
       items_included: event.items_included || '',
       client_profile: event.client_profile || '',
@@ -303,6 +322,42 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     setEditingId(event.id);
     setActiveTab('register');
     setViewingEvent(null);
+  };
+
+  const convertToOS = async (event: HotelEvent) => {
+    setLoading(true);
+    const osNumber = `OS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    try {
+      const { error } = await supabase.from('hotel_events').update({
+        is_quote: false,
+        os_number: osNumber,
+        status: 'planned',
+      }).eq('id', event.id);
+      if (error) throw error;
+      const { error: faturaError } = await supabase.from('files').insert([{
+        type: 'Fatura Evento',
+        category: 'Fatura Evento',
+        original_name: `OS ${osNumber} - ${event.name}`,
+        storage_path: `eventos/${osNumber}`,
+        amount: event.total_value,
+        period: format(new Date(event.start_date), 'yyyy-MM'),
+        due_date: event.start_date,
+        status: 'PENDING',
+        upload_date: new Date().toISOString(),
+        uploader_id: profile.id,
+        company_id: event.company_id || null,
+        event_os_number: osNumber,
+        reservation_code: osNumber,
+      }]);
+      if (faturaError) toast.warning(`O.S. ${osNumber} gerada, mas falha ao criar fatura.`);
+      else toast.success(`Cotação convertida! O.S. ${osNumber} gerada e fatura provisionada.`);
+      setViewingEvent(null);
+      fetchData();
+    } catch (err) {
+      toast.error('Erro ao converter cotação em O.S.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = (event: HotelEvent) => {
@@ -400,7 +455,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">Planejamento • Reservas de Salão • O.S.</p>
         </div>
 
-        <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit">
+        <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit flex-wrap">
           <button
             onClick={() => setActiveTab('calendar')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
@@ -408,10 +463,21 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             Calendário
           </button>
           <button
+            onClick={() => setActiveTab('quotes')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'quotes' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+          >
+            Cotações
+            {events.filter(e => e.is_quote && e.status !== 'cancelled').length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                {events.filter(e => e.is_quote && e.status !== 'cancelled').length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab('register')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
-            Novo Evento / O.S.
+            Nova Cotação / O.S.
           </button>
           {(profile.role === 'admin' || profile.role === 'manager' || profile.role === 'eventos') && (
             <button
@@ -434,6 +500,83 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm"
           >
             <EventItemsManager userId={profile.id} />
+          </motion.div>
+        ) : activeTab === 'quotes' ? (
+          <motion.div
+            key="quotes"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="space-y-4"
+          >
+            <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pendentes de aprovação</p>
+                  <h2 className="text-xl font-black text-gray-900 mt-0.5">Cotações em aberto</h2>
+                </div>
+                <button
+                  onClick={() => { setFormData(f => ({ ...f, is_quote: true })); setActiveTab('register'); }}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-ink text-paper rounded-full text-sm font-bold hover:bg-ink/90 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Cotação
+                </button>
+              </div>
+              {events.filter(e => e.is_quote && e.status !== 'cancelled').length === 0 ? (
+                <div className="py-16 text-center">
+                  <FileText className="w-10 h-10 text-stone-200 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-stone-400">Nenhuma cotação em aberto.</p>
+                  <p className="text-xs text-stone-300 mt-1">Crie uma cotação para enviar ao cliente antes de gerar a O.S.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {events.filter(e => e.is_quote && e.status !== 'cancelled').map(event => (
+                    <div key={event.id} className="flex items-center justify-between p-5 rounded-2xl border border-neutral-200 hover:border-amber-300 bg-amber-50/30 transition-all group">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-neutral-900">{event.name}</p>
+                            <span className="text-[10px] uppercase tracking-widest text-amber-700 font-black bg-amber-100 px-2 py-0.5 rounded-full">
+                              {event.quote_number || event.os_number}
+                            </span>
+                          </div>
+                          <p className="text-xs text-neutral-500 mt-0.5">
+                            {event.halls && event.halls.length > 0 ? event.halls.join(' · ') : event.hall_name}
+                            {' · '}
+                            {format(parseISO(event.start_date), 'dd/MM/yyyy', { locale: ptBR })}
+                            {' · '}
+                            {event.attendees_count} pessoas
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-display text-base font-light text-amber-700">
+                          {event.total_value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                        <button
+                          onClick={() => setViewingEvent(event)}
+                          className="px-4 py-2 text-xs font-bold text-neutral-600 border border-neutral-200 rounded-xl hover:border-neutral-300 hover:bg-neutral-50 transition-all"
+                        >
+                          Ver detalhes
+                        </button>
+                        <button
+                          onClick={() => convertToOS(event)}
+                          disabled={loading}
+                          className="px-4 py-2 text-xs font-bold text-white bg-neutral-900 rounded-xl hover:bg-neutral-800 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Aprovar → Gerar O.S.
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </motion.div>
         ) : activeTab === 'calendar' ? (
           <motion.div
@@ -582,6 +725,22 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             <div className="xl:col-span-5 space-y-6">
               <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Quote vs O.S. toggle */}
+                  {!editingId && (
+                    <div className="flex gap-2 p-1 bg-neutral-100 rounded-xl">
+                      {([{ v: false, label: 'O.S. Direta', desc: 'Gera ordem de serviço e fatura imediatamente' }, { v: true, label: 'Cotação', desc: 'Envie ao cliente antes de confirmar' }] as const).map(opt => (
+                        <button
+                          key={String(opt.v)}
+                          type="button"
+                          onClick={() => setFormData(f => ({ ...f, is_quote: opt.v }))}
+                          className={`flex-1 py-2.5 px-3 rounded-lg text-left transition-all ${formData.is_quote === opt.v ? 'bg-white shadow-sm' : 'hover:bg-neutral-50'}`}
+                        >
+                          <div className={`text-xs font-black ${formData.is_quote === opt.v ? 'text-neutral-900' : 'text-neutral-500'}`}>{opt.label}</div>
+                          <div className="text-[10px] text-neutral-400 mt-0.5">{opt.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="md:col-span-2">
                        <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Nome do Evento</label>
@@ -694,43 +853,26 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     <div className="md:col-span-2 pt-2 border-t border-neutral-100">
                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-3 block ml-1">Precificação</label>
 
-                      {/* Mode toggle */}
-                      <div className="flex gap-2 mb-4">
-                        {(['fixed', 'itemized'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setFormData({ ...formData, pricing_model: mode })}
-                            className={`flex-1 py-2.5 rounded-xl border text-xs font-black uppercase tracking-widest transition-all ${
-                              formData.pricing_model === mode
-                                ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm'
-                                : 'bg-neutral-50 border-neutral-200 text-neutral-500 hover:border-neutral-300'
-                            }`}
-                          >
-                            {mode === 'fixed' ? '💰 Preço Fixo' : '📋 Cotação por Itens'}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Fixed price input */}
-                      {formData.pricing_model === 'fixed' && (
-                        <div className="relative mb-4">
+                      {/* Hall price */}
+                      <div className="mb-3">
+                        <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Valor do Salão (locação)</label>
+                        <div className="relative">
                           <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                           <input
                             type="number"
                             step="0.01"
                             min="0"
-                            value={formData.subtotal_value || ''}
-                            onChange={e => setFormData({ ...formData, subtotal_value: parseFloat(e.target.value) || 0 })}
+                            value={formData.hall_price || ''}
+                            onChange={e => setFormData({ ...formData, hall_price: parseFloat(e.target.value) || 0 })}
                             className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
                             placeholder="0,00"
                           />
                         </div>
-                      )}
+                      </div>
 
-                      {/* Itemized quote builder */}
-                      {formData.pricing_model === 'itemized' && (
-                        <div className="space-y-3 mb-4">
+                      {/* Items section */}
+                      <div className="space-y-3 mb-4">
+                        <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens / Serviços</label>
                           {/* Item picker */}
                           <div ref={itemSearchRef} className="relative">
                             <div className="relative">
@@ -825,10 +967,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                             </div>
                           )}
                           {formData.quote_items.length === 0 && (
-                            <p className="text-center text-xs text-stone-400 py-3 italic">Nenhum item adicionado à cotação ainda.</p>
+                            <p className="text-center text-xs text-stone-400 py-3 italic">Nenhum item adicionado. Use o campo acima para buscar do catálogo.</p>
                           )}
                         </div>
-                      )}
 
                       {/* ISS */}
                       <div className="flex items-center gap-3 p-3 bg-neutral-50 rounded-xl border border-neutral-200 mb-3">
@@ -864,10 +1005,16 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                       {/* Total summary */}
                       <div className="bg-neutral-900 text-white rounded-xl p-4 space-y-2">
-                        {formData.pricing_model === 'itemized' && (
+                        {totals.hallPrice > 0 && (
                           <div className="flex justify-between text-xs text-neutral-400">
-                            <span>Subtotal</span>
-                            <span>{totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            <span>Salão</span>
+                            <span>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                          </div>
+                        )}
+                        {totals.itemsTotal > 0 && (
+                          <div className="flex justify-between text-xs text-neutral-400">
+                            <span>Itens / Serviços</span>
+                            <span>{totals.itemsTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                           </div>
                         )}
                         {formData.iss_enabled && (
@@ -938,9 +1085,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    {formData.pricing_model === 'fixed' && (
+                    {formData.quote_items.length === 0 && (
                       <div className="md:col-span-2">
-                         <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens Inclusos (Separe por vírgula)</label>
+                         <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens Inclusos (texto livre, separe por vírgula)</label>
                          <textarea
                            value={formData.items_included}
                            onChange={e => setFormData({...formData, items_included: e.target.value})}
@@ -971,8 +1118,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                      >
                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                          <>
-                           <CheckCircle2 className="w-4 h-4" />
-                           Cadastrar Evento & Gerar O.S.
+                           {formData.is_quote ? <FileText className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                           {editingId ? 'Salvar Alterações' : formData.is_quote ? 'Salvar Cotação' : 'Gerar O.S.'}
                          </>
                        )}
                      </button>
@@ -988,8 +1135,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                   <div>
                      <div className="flex items-center justify-between mb-7">
                         <div>
-                           <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pré-visualização da O.S.</p>
-                           <p className="font-display text-lg font-light text-ink mt-0.5">Ordem de Serviço — Formato A4</p>
+                           <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pré-visualização</p>
+                           <p className="font-display text-lg font-light text-ink mt-0.5">{formData.is_quote ? 'Cotação' : 'Ordem de Serviço'} — Formato A4</p>
                         </div>
                         <div className="flex items-center gap-2">
                            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400 px-3 py-1.5 bg-ink/5 rounded-full">{formData.client_category}</span>
@@ -1031,7 +1178,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                              </div>
                            </div>
                            <div style={{ textAlign: 'right', fontFamily: 'Inter, sans-serif' }}>
-                             <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>Ordem de Serviço</div>
+                             <div style={{ fontSize: '7px', letterSpacing: '0.52em', color: '#78716c', textTransform: 'uppercase', marginBottom: '4px' }}>{formData.is_quote ? 'Cotação' : 'Ordem de Serviço'}</div>
                              <div style={{ fontSize: '17px', fontWeight: '300', color: '#C49A3C', letterSpacing: '0.06em', fontFamily: 'Georgia, serif' }}>— pendente —</div>
                              <div style={{ fontSize: '9px', color: '#78716c', marginTop: '4px' }}>{format(new Date(), 'dd/MM/yyyy')}</div>
                              <div style={{ fontSize: '8px', color: '#a8a29e', marginTop: '1px' }}>(22) 2123-9650 · eventos@royalmacae.com.br</div>
@@ -1067,9 +1214,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                              { label: 'Horário', value: formData.start_time && formData.end_time ? `${formData.start_time} – ${formData.end_time}` : '—' },
                              { label: 'Participantes', value: formData.attendees_count ? `${formData.attendees_count} pessoas` : '—' },
                              { label: 'Perfil do Contratante', value: formData.client_profile || '—' },
-                             { label: formData.iss_enabled ? 'Subtotal' : 'Valor Total', value: totals.subtotal > 0 ? totals.subtotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
+                             ...(totals.hallPrice > 0 ? [{ label: 'Locação do Salão', value: totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                             ...(totals.itemsTotal > 0 ? [{ label: 'Itens / Serviços', value: totals.itemsTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
                              ...(formData.iss_enabled ? [{ label: `ISS (${formData.iss_rate}%)`, value: totals.iss.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
-                             ...(formData.iss_enabled ? [{ label: 'Total com ISS', value: totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }] : []),
+                             { label: 'Valor Total', value: totals.total > 0 ? totals.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—' },
                            ].map((f, i) => (
                              <div key={i} style={{ padding: '13px 16px', backgroundColor: i % 2 === 0 ? '#F5F2EC' : '#FAF8F2', fontFamily: 'Inter, sans-serif' }}>
                                <div style={{ fontSize: '7px', letterSpacing: '0.3em', color: '#78716c', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</div>
@@ -1079,8 +1227,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                          </div>
                        </div>
 
-                       {/* QUOTE TABLE — only for itemized */}
-                       {formData.pricing_model === 'itemized' && formData.quote_items.length > 0 && (
+                       {/* QUOTE TABLE — hall price + items */}
+                       {(totals.hallPrice > 0 || formData.quote_items.length > 0) && (
                          <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
                              <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
@@ -1096,6 +1244,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                                </tr>
                              </thead>
                              <tbody>
+                               {totals.hallPrice > 0 && (
+                                 <tr style={{ borderBottom: '1px solid rgba(30,25,18,0.05)', backgroundColor: 'rgba(196,154,60,0.04)' }}>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600 }}>Locação do Salão</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '9px', color: '#78716c' }}>locação</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>1</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                   <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 600, textAlign: 'right' }}>{totals.hallPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                 </tr>
+                               )}
                                {formData.quote_items.map((qi, i) => (
                                  <tr key={i} style={{ borderBottom: '1px solid rgba(30,25,18,0.05)', backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(30,25,18,0.02)' }}>
                                    <td style={{ padding: '7px 8px', fontSize: '10px', color: '#1E1912', fontWeight: 500 }}>{qi.name}</td>
@@ -1227,8 +1384,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                   <X className="h-4 w-4" />
                 </button>
                 <div className="relative">
-                  <div className="flex items-center gap-4 mb-5">
-                    <span className="text-[10px] uppercase tracking-[0.28em] text-paper/40">· {viewingEvent.os_number}</span>
+                  <div className="flex items-center gap-4 mb-5 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-[0.28em] text-paper/40">
+                      · {viewingEvent.is_quote ? (viewingEvent.quote_number || viewingEvent.os_number) : viewingEvent.os_number}
+                    </span>
+                    {viewingEvent.is_quote && (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] bg-amber-500/25 text-amber-300">
+                        Cotação
+                      </span>
+                    )}
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
                       viewingEvent.status === 'confirmed' ? 'bg-moss/25 text-moss'
                       : viewingEvent.status === 'cancelled' ? 'bg-red-500/20 text-red-300'
@@ -1286,10 +1450,18 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                           </div>
                         ))}
                         {/* Pricing breakdown */}
-                        {viewingEvent.iss_enabled && viewingEvent.subtotal_value != null && (
+                        {(viewingEvent.hall_price ?? 0) > 0 && (
                           <div className="flex items-baseline justify-between py-3 gap-4">
-                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">Subtotal</dt>
-                            <dd className="text-sm font-medium text-ink text-right">{Number(viewingEvent.subtotal_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">Locação do Salão</dt>
+                            <dd className="text-sm font-medium text-ink text-right">{Number(viewingEvent.hall_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</dd>
+                          </div>
+                        )}
+                        {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
+                          <div className="flex items-baseline justify-between py-3 gap-4">
+                            <dt className="text-[11px] uppercase tracking-[0.18em] text-stone-500 shrink-0">Itens / Serviços</dt>
+                            <dd className="text-sm font-medium text-ink text-right">
+                              {(viewingEvent.quote_items as QuoteItem[]).reduce((s, i) => s + i.subtotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </dd>
                           </div>
                         )}
                         {viewingEvent.iss_enabled && (
@@ -1382,8 +1554,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* ── Actions ── */}
-              <div className="px-10 py-6 border-t border-ink/10 flex items-center justify-between shrink-0 no-print">
-                <div className="flex gap-2">
+              <div className="px-10 py-6 border-t border-ink/10 flex items-center justify-between shrink-0 no-print flex-wrap gap-3">
+                <div className="flex gap-2 flex-wrap">
                   {viewingEvent.status !== 'cancelled' && (
                     <button
                       onClick={() => handleEdit(viewingEvent)}
@@ -1410,14 +1582,26 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     Imprimir
                   </button>
                 </div>
-                <button
-                  onClick={() => handleDownloadContract(viewingEvent)}
-                  className="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-3 text-sm font-medium text-paper transition-all hover:bg-ink/90"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Baixar O.S. em PDF
-                  <span className="transition-transform group-hover:translate-x-0.5">→</span>
-                </button>
+                {viewingEvent.is_quote && viewingEvent.status !== 'cancelled' ? (
+                  <button
+                    onClick={() => convertToOS(viewingEvent)}
+                    disabled={loading}
+                    className="group inline-flex items-center gap-3 rounded-full bg-amber-700 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-amber-800 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    Aprovar → Gerar O.S.
+                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleDownloadContract(viewingEvent)}
+                    className="group inline-flex items-center gap-3 rounded-full bg-ink px-6 py-3 text-sm font-medium text-paper transition-all hover:bg-ink/90"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar {viewingEvent.is_quote ? 'Cotação' : 'O.S.'} em PDF
+                    <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
