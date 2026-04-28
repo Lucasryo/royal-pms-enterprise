@@ -184,7 +184,9 @@ export default function EventItemsManager({ userId }: { userId: string }) {
           </div>
         ) : (
           <>
-            {CATEGORIES.concat(['Sem categoria']).map(cat => {
+            {Array.from(new Set(items.map(i => i.category || 'Sem categoria')))
+              .sort((a, b) => a === 'Sem categoria' ? 1 : b === 'Sem categoria' ? -1 : a.localeCompare(b, 'pt-BR'))
+              .map(cat => {
               const catItems = items.filter(i => (i.category || 'Sem categoria') === cat);
               if (catItems.length === 0) return null;
               return (
