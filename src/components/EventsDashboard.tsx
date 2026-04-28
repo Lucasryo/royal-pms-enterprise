@@ -1128,7 +1128,6 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                        {/* SERVICES — only for fixed pricing */}
                        {formData.pricing_model === 'fixed' && formData.items_included && (
-                       {formData.items_included && (
                          <div style={{ padding: '18px 48px 20px', backgroundColor: '#FAF8F2', borderTop: '1px solid rgba(30,25,18,0.06)' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', fontFamily: 'Inter, sans-serif' }}>
                              <div style={{ height: '1px', width: '16px', background: '#C49A3C' }} />
