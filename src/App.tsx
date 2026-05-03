@@ -390,16 +390,6 @@ export default function App() {
     }
   };
 
-  // Bottom nav: up to 4 priority items based on role
-  const mobileNavPriority: ViewType[] = ['dashboard', 'reservations', 'reception', 'finance'];
-  const bottomNavItems = useMemo(() => {
-    const priority = navigationItems.filter(i => mobileNavPriority.includes(i.id));
-    const rest = navigationItems.filter(i => !mobileNavPriority.includes(i.id));
-    return [...priority, ...rest].slice(0, 4);
-  }, [navigationItems]);
-
-  const [showMoreSheet, setShowMoreSheet] = useState(false);
-
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
       <Toaster position="top-right" richColors />
