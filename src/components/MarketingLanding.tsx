@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BedDouble,
   Clock,
+  Menu,
   Send,
   UsersRound,
   X,
@@ -142,6 +143,7 @@ export default function MarketingLanding() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -177,14 +179,14 @@ export default function MarketingLanding() {
           scrolled ? 'border-b border-ink/10 bg-paper/85 backdrop-blur-xl' : 'bg-transparent'
         }`}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
-          <a href="#inicio" className="group flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper">
-              <span className="font-display text-lg italic leading-none text-ink">R</span>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-10">
+          <a href="#inicio" className="group flex items-center gap-2.5" onClick={() => setMobileMenuOpen(false)}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 bg-paper">
+              <span className="font-display text-base italic leading-none text-ink">R</span>
             </div>
             <div className="leading-tight">
-              <p className="font-display text-base font-medium tracking-tight text-ink">Royal PMS</p>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Plataforma de hotelaria</p>
+              <p className="font-display text-sm font-medium tracking-tight text-ink">Royal PMS</p>
+              <p className="hidden text-[10px] uppercase tracking-[0.18em] text-stone-500 sm:block">Plataforma de hotelaria</p>
             </div>
           </a>
 
@@ -201,7 +203,7 @@ export default function MarketingLanding() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setLoginOpen(true)}
               className="hidden text-sm text-ink/70 transition hover:text-ink md:inline"
@@ -210,27 +212,73 @@ export default function MarketingLanding() {
             </button>
             <a
               href="#demo"
-              className="group inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3 hover:bg-ink/90"
+              className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3 hover:bg-ink/90"
             >
               Ver demonstração
               <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
             </a>
+            {/* Mobile: CTA + hamburger */}
+            <a
+              href="#demo"
+              className="inline-flex md:hidden items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper"
+            >
+              Demonstração
+            </a>
+            <button
+              onClick={() => setMobileMenuOpen((o) => !o)}
+              className="flex md:hidden h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper/80 text-ink"
+              aria-label="Menu"
+            >
+              {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </button>
           </div>
         </div>
+
+        {/* Mobile nav sheet */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden border-b border-ink/10 bg-paper/95 backdrop-blur-xl md:hidden"
+            >
+              <nav className="flex flex-col px-5 py-4 gap-1">
+                {navLinks.map((l) => (
+                  <a
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="py-3 text-base font-medium text-ink/80 border-b border-ink/5 last:border-0 hover:text-ink transition-colors"
+                  >
+                    {l.label}
+                  </a>
+                ))}
+                <button
+                  onClick={() => { setMobileMenuOpen(false); setLoginOpen(true); }}
+                  className="mt-3 w-full rounded-full border border-ink/20 py-3 text-sm font-medium text-ink/70 hover:bg-ink/5 transition"
+                >
+                  Já tenho acesso — entrar
+                </button>
+              </nav>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       <main>
         {/* HERO */}
-        <section id="inicio" className="relative overflow-hidden pt-32 pb-24 lg:pt-40 lg:pb-32">
+        <section id="inicio" className="relative overflow-hidden pt-28 pb-16 sm:pt-32 sm:pb-24 lg:pt-40 lg:pb-32">
           {/* decorative serif R */}
           <div
             aria-hidden
-            className="pointer-events-none absolute -top-10 right-[-8%] select-none font-display text-[28rem] leading-none text-ink/[0.025] lg:right-[5%]"
+            className="pointer-events-none absolute -top-10 right-[-20%] select-none font-display text-[18rem] leading-none text-ink/[0.025] sm:right-[-8%] sm:text-[28rem] lg:right-[5%]"
           >
             R
           </div>
 
-          <div className="mx-auto grid max-w-7xl items-center gap-16 px-6 lg:grid-cols-12 lg:gap-10 lg:px-10">
+          <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 sm:px-6 lg:grid-cols-12 lg:gap-10 lg:px-10">
             <div className="lg:col-span-6">
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
@@ -248,7 +296,7 @@ export default function MarketingLanding() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.1 }}
-                className="mt-7 font-display text-5xl font-light leading-[1.02] tracking-[-0.02em] text-ink text-balance sm:text-6xl lg:text-[5.25rem]"
+                className="mt-5 font-display text-4xl font-light leading-[1.02] tracking-[-0.02em] text-ink text-balance sm:mt-7 sm:text-5xl lg:text-[5.25rem]"
               >
                 A operação do hotel,
                 <br />
@@ -269,7 +317,7 @@ export default function MarketingLanding() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.25 }}
-                className="mt-7 max-w-xl text-lg leading-relaxed text-ink/70 text-pretty"
+                className="mt-5 max-w-xl text-base leading-relaxed text-ink/70 text-pretty sm:mt-7 sm:text-lg"
               >
                 Reservas, recepção, governança, manutenção, restaurante, eventos e financeiro em uma só plataforma —
                 desenhada para meios de hospedagem que trocam improviso por padrão.
@@ -279,7 +327,7 @@ export default function MarketingLanding() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.4 }}
-                className="mt-10 flex flex-wrap items-center gap-4"
+                className="mt-7 flex flex-wrap items-center gap-3 sm:mt-10 sm:gap-4"
               >
                 <a
                   href="#demo"
@@ -304,7 +352,7 @@ export default function MarketingLanding() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.8, delay: 0.6 }}
-                className="mt-12 grid max-w-md grid-cols-3 gap-6 border-t border-ink/10 pt-6 text-xs"
+                className="mt-8 grid max-w-md grid-cols-3 gap-4 border-t border-ink/10 pt-5 text-xs sm:mt-12 sm:gap-6 sm:pt-6"
               >
                 <div>
                   <p className="font-display text-2xl font-light text-ink">100%</p>
@@ -346,22 +394,22 @@ export default function MarketingLanding() {
         </section>
 
         {/* MODULES */}
-        <section id="modulos" className="relative py-28 lg:py-36">
-          <div className="mx-auto max-w-7xl px-6 lg:px-10">
-            <div className="grid gap-10 lg:grid-cols-12">
+        <section id="modulos" className="relative py-16 sm:py-24 lg:py-36">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
+            <div className="grid gap-8 lg:grid-cols-12">
               <div className="lg:col-span-5">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Módulos do sistema</p>
-                <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-6xl">
+                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                   Toda a operação do hotel em uma <span className="italic">plataforma única.</span>
                 </h2>
               </div>
-              <p className="text-base leading-relaxed text-ink/70 text-pretty lg:col-span-6 lg:col-start-7 lg:mt-3">
+              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
                 Cada módulo é especializado para a função que executa, mas todos compartilham a mesma base de dados —
                 evitando retrabalho e divergências entre setores. Ative apenas o que faz sentido para o seu meio de hospedagem.
               </p>
             </div>
 
-            <div className="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-3xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-10 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 sm:mt-16 sm:rounded-3xl lg:grid-cols-4">
               {modules.map((m, i) => (
                 <motion.article
                   key={m.n}
@@ -369,7 +417,7 @@ export default function MarketingLanding() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: '-10%' }}
                   transition={{ duration: 0.5, delay: (i % 4) * 0.07 }}
-                  className="group relative flex flex-col bg-paper p-8 transition-colors duration-500 hover:bg-white"
+                  className="group relative flex flex-col bg-paper p-5 sm:p-8 transition-colors duration-500 hover:bg-white"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-display text-sm tracking-[0.2em] text-stone-500/80">{m.n}</span>
@@ -377,9 +425,9 @@ export default function MarketingLanding() {
                       <div className="h-5 w-5">{moduleIcons[m.n]}</div>
                     </div>
                   </div>
-                  <h3 className="mt-10 font-display text-2xl font-medium text-ink">{m.title}</h3>
+                  <h3 className="mt-6 font-display text-xl font-medium text-ink sm:mt-10 sm:text-2xl">{m.title}</h3>
                   <p className="mt-3 text-sm leading-relaxed text-ink/65 text-pretty">{m.desc}</p>
-                  <div className="mt-8 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-ink/60 transition-colors group-hover:text-ink">
+                  <div className="mt-5 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-ink/60 transition-colors group-hover:text-ink sm:mt-8">
                     Detalhes
                     <span className="transition-transform group-hover:translate-x-1">→</span>
                   </div>
@@ -390,23 +438,23 @@ export default function MarketingLanding() {
         </section>
 
         {/* TELAS DO SISTEMA */}
-        <section id="telas" className="relative bg-paper py-28 lg:py-36">
-          <div className="mx-auto max-w-7xl px-6 lg:px-10">
-            <div className="grid gap-10 lg:grid-cols-12">
+        <section id="telas" className="relative bg-paper py-16 sm:py-24 lg:py-36">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
+            <div className="grid gap-8 lg:grid-cols-12">
               <div className="lg:col-span-5">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Telas do sistema</p>
-                <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-6xl">
+                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                   Veja o Royal PMS <span className="italic">em ação.</span>
                 </h2>
               </div>
-              <p className="text-base leading-relaxed text-ink/70 text-pretty lg:col-span-6 lg:col-start-7 lg:mt-3">
+              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
                 Interfaces reais de quem trabalha no chão da operação — sem ruído, sem cliques perdidos. Quatro telas
                 que ilustram o dia a dia: chamados de manutenção, mapa de UHs, central de reservas e indicadores
                 gerenciais.
               </p>
             </div>
 
-            <div className="mt-16 grid gap-10 lg:grid-cols-2">
+            <div className="mt-10 grid gap-8 sm:mt-16 sm:gap-10 lg:grid-cols-2">
               {[
                 { url: 'royalpms.app/manutencao', title: 'Fila de chamados', desc: 'Tarefas com priorização, direcionamento por colaborador e SLA visível para a recepção e governança.', preview: <WorkQueuePreview /> },
                 { url: 'royalpms.app/recepcao', title: 'Mapa operacional de UHs', desc: 'Status de limpeza, ocupação e bloqueio em uma visão única. Recepção e governança com a mesma fonte.', preview: <RoomMapPreview /> },
@@ -437,7 +485,7 @@ export default function MarketingLanding() {
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="operacao" className="relative bg-ink py-28 text-paper lg:py-36">
+        <section id="operacao" className="relative bg-ink py-16 text-paper sm:py-24 lg:py-36">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-[0.06]"
@@ -446,15 +494,15 @@ export default function MarketingLanding() {
                 'radial-gradient(circle at 20% 0%, oklch(0.72 0.12 75) 0%, transparent 40%), radial-gradient(circle at 90% 100%, oklch(0.36 0.04 145) 0%, transparent 50%)',
             }}
           />
-          <div className="relative mx-auto max-w-7xl px-6 lg:px-10">
+          <div className="relative mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <div className="max-w-3xl">
               <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Como implantamos</p>
-              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:text-5xl lg:text-6xl">
+              <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                 Do <span className="italic text-gold">caderno de turno</span> a decisões em tempo real — em quatro etapas.
               </h2>
             </div>
 
-            <div className="mt-20 grid gap-px bg-paper/10 lg:grid-cols-4">
+            <div className="mt-12 grid gap-px bg-paper/10 grid-cols-1 sm:grid-cols-2 sm:mt-16 lg:grid-cols-4 lg:mt-20">
               {steps.map((s, i) => (
                 <motion.div
                   key={s.n}
@@ -462,31 +510,31 @@ export default function MarketingLanding() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: '-10%' }}
                   transition={{ duration: 0.6, delay: i * 0.1 }}
-                  className="relative bg-ink p-8 lg:p-10"
+                  className="relative bg-ink p-6 sm:p-8 lg:p-10"
                 >
                   <div className="flex items-baseline justify-between">
-                    <span className="font-display text-5xl font-light italic text-gold">{s.n}</span>
+                    <span className="font-display text-4xl font-light italic text-gold sm:text-5xl">{s.n}</span>
                     <span className="text-[10px] uppercase tracking-[0.22em] text-paper/40">{s.weeks}</span>
                   </div>
-                  <h3 className="mt-8 font-display text-xl font-medium leading-tight text-paper">{s.title}</h3>
+                  <h3 className="mt-6 font-display text-lg font-medium leading-tight text-paper sm:mt-8 sm:text-xl">{s.title}</h3>
                   <p className="mt-3 text-sm leading-relaxed text-paper/65 text-pretty">{s.desc}</p>
                 </motion.div>
               ))}
             </div>
 
-            <div className="mt-20 grid gap-10 border-t border-paper/15 pt-12 sm:grid-cols-3">
+            <div className="mt-12 grid gap-8 border-t border-paper/15 pt-10 sm:mt-20 sm:gap-10 sm:pt-12 sm:grid-cols-3">
               <div>
-                <p className="font-display text-5xl font-light text-paper">
+                <p className="font-display text-4xl font-light text-paper sm:text-5xl">
                   <span className="text-gold">×</span> 0
                 </p>
                 <p className="mt-2 text-sm text-paper/60">Servidores locais para gerenciar — tudo na nuvem.</p>
               </div>
               <div>
-                <p className="font-display text-5xl font-light text-paper">100%</p>
+                <p className="font-display text-4xl font-light text-paper sm:text-5xl">100%</p>
                 <p className="mt-2 text-sm text-paper/60">Acesso via navegador — qualquer dispositivo, em qualquer lugar.</p>
               </div>
               <div>
-                <p className="font-display text-5xl font-light text-paper">LGPD</p>
+                <p className="font-display text-4xl font-light text-paper sm:text-5xl">LGPD</p>
                 <p className="mt-2 text-sm text-paper/60">Infraestrutura em nuvem brasileira, com backups criptografados.</p>
               </div>
             </div>
@@ -494,35 +542,35 @@ export default function MarketingLanding() {
         </section>
 
         {/* GUESTS / BOOKING */}
-        <section id="hospedes" className="relative py-28 lg:py-36">
-          <div className="mx-auto grid max-w-7xl items-start gap-16 px-6 lg:grid-cols-12 lg:gap-12 lg:px-10">
+        <section id="hospedes" className="relative py-16 sm:py-24 lg:py-36">
+          <div className="mx-auto grid max-w-7xl items-start gap-10 px-5 sm:px-6 sm:gap-16 lg:grid-cols-12 lg:gap-12 lg:px-10">
             <div className="lg:col-span-5">
               <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Para hóspedes</p>
-              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl lg:text-[3.5rem]">
+              <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-[3.5rem]">
                 A discrição da hotelaria fina, <span className="italic">com a fluidez do digital.</span>
               </h2>
-              <p className="mt-6 max-w-md text-base leading-relaxed text-ink/70 text-pretty">
+              <p className="mt-5 max-w-md text-sm leading-relaxed text-ink/70 text-pretty sm:mt-6 sm:text-base">
                 Pré-check-in pelo celular, conta sempre atualizada, comandas do restaurante assinadas no quarto e
                 pagamento em um toque. O hóspede sente serviço — não sistema.
               </p>
 
-              <ul className="mt-10 space-y-5">
+              <ul className="mt-7 space-y-4 sm:mt-10 sm:space-y-5">
                 {guestFeatures.map((t) => (
-                  <li key={t} className="flex items-start gap-4">
-                    <span className="mt-2 h-px w-6 shrink-0 bg-gold" />
-                    <span className="text-ink/80">{t}</span>
+                  <li key={t} className="flex items-start gap-3">
+                    <span className="mt-2 h-px w-5 shrink-0 bg-gold sm:w-6" />
+                    <span className="text-sm text-ink/80 sm:text-base">{t}</span>
                   </li>
                 ))}
               </ul>
 
-              <p className="mt-10 font-display text-base italic text-ink/70">
+              <p className="mt-7 font-display text-sm italic text-ink/70 sm:mt-10 sm:text-base">
                 "Hóspede do Royal Macaé Palace? Reserve direto no formulário ao lado e ganhe a melhor tarifa, sem intermediário."
               </p>
             </div>
 
             <div className="relative lg:col-span-7">
-              <div className="absolute -inset-12 -z-10 rounded-full bg-gold/15 blur-3xl" />
-              <div className="rounded-[2rem] border border-ink/10 bg-paper p-6 shadow-[0_30px_80px_-30px_rgba(20,15,10,0.25)] sm:p-8">
+              <div className="absolute -inset-8 -z-10 rounded-full bg-gold/15 blur-3xl sm:-inset-12" />
+              <div className="rounded-2xl border border-ink/10 bg-paper p-4 shadow-[0_30px_80px_-30px_rgba(20,15,10,0.25)] sm:rounded-[2rem] sm:p-6 md:p-8">
                 <PublicBookingEngine />
               </div>
             </div>
@@ -530,21 +578,21 @@ export default function MarketingLanding() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="relative py-28 lg:py-36">
-          <div className="mx-auto grid max-w-7xl gap-16 px-6 lg:grid-cols-12 lg:gap-12 lg:px-10">
+        <section id="faq" className="relative py-16 sm:py-24 lg:py-36">
+          <div className="mx-auto grid max-w-7xl gap-10 px-5 sm:px-6 sm:gap-16 lg:grid-cols-12 lg:gap-12 lg:px-10">
             <div className="lg:col-span-4">
               <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Perguntas frequentes</p>
-              <h2 className="mt-5 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:text-5xl">
+              <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-5xl">
                 Antes de marcar a <span className="italic">demonstração.</span>
               </h2>
-              <p className="mt-6 text-ink/65 text-pretty">
+              <p className="mt-5 text-sm text-ink/65 text-pretty sm:mt-6 sm:text-base">
                 Não encontrou o que procurava? Fale direto com a nossa equipe comercial.
               </p>
               <a
                 href={WHATSAPP_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-6 inline-flex items-center gap-2 border-b border-ink/30 pb-1 text-sm font-medium text-ink hover:border-ink"
+                className="mt-5 inline-flex items-center gap-2 border-b border-ink/30 pb-1 text-sm font-medium text-ink hover:border-ink sm:mt-6"
               >
                 Conversar pelo WhatsApp →
               </a>
@@ -557,20 +605,20 @@ export default function MarketingLanding() {
                   <div key={i}>
                     <button
                       onClick={() => setOpenFaq(isOpen ? null : i)}
-                      className="group flex w-full items-center justify-between gap-6 py-6 text-left"
+                      className="group flex w-full items-center justify-between gap-4 py-5 text-left sm:gap-6 sm:py-6"
                     >
-                      <span className="flex items-baseline gap-5">
-                        <span className="font-display text-sm tracking-[0.2em] text-stone-500/70">
+                      <span className="flex items-baseline gap-3 sm:gap-5">
+                        <span className="hidden font-display text-sm tracking-[0.2em] text-stone-500/70 sm:inline">
                           {String(i + 1).padStart(2, '0')}
                         </span>
-                        <span className="font-display text-xl font-medium text-ink sm:text-2xl">{f.q}</span>
+                        <span className="font-display text-base font-medium text-ink sm:text-xl md:text-2xl">{f.q}</span>
                       </span>
                       <span
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-ink/15 transition-all ${
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-ink/15 transition-all sm:h-9 sm:w-9 ${
                           isOpen ? 'rotate-45 bg-ink text-paper' : 'text-ink/60'
                         }`}
                       >
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                           <path d="M12 5v14M5 12h14" strokeLinecap="round" />
                         </svg>
                       </span>
@@ -584,7 +632,7 @@ export default function MarketingLanding() {
                           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                           className="overflow-hidden"
                         >
-                          <p className="max-w-2xl pb-7 pl-12 text-ink/70 text-pretty">{f.a}</p>
+                          <p className="max-w-2xl pb-6 pl-0 text-sm text-ink/70 text-pretty sm:pl-12 sm:text-base sm:pb-7">{f.a}</p>
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -596,27 +644,27 @@ export default function MarketingLanding() {
         </section>
 
         {/* DEMO CTA */}
-        <section id="demo" className="relative overflow-hidden py-28 lg:py-36">
-          <div className="mx-auto max-w-7xl px-6 lg:px-10">
-            <div className="relative overflow-hidden rounded-[2rem] bg-ink p-10 text-paper sm:p-14 lg:p-20">
+        <section id="demo" className="relative overflow-hidden py-16 sm:py-24 lg:py-36">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
+            <div className="relative overflow-hidden rounded-2xl bg-ink p-6 text-paper sm:rounded-[2rem] sm:p-10 md:p-14 lg:p-20">
               <div aria-hidden className="absolute -right-20 -top-20 h-80 w-80 rounded-full bg-gold/25 blur-3xl" />
               <div aria-hidden className="absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-moss/30 blur-3xl" />
 
-              <div className="relative grid gap-12 lg:grid-cols-12">
+              <div className="relative grid gap-10 lg:grid-cols-12 lg:gap-12">
                 <div className="lg:col-span-7">
                   <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Solicitar demonstração</p>
-                  <h2 className="mt-5 font-display text-4xl font-light leading-[1.04] tracking-[-0.02em] text-balance sm:text-5xl lg:text-[3.5rem]">
+                  <h2 className="mt-4 font-display text-3xl font-light leading-[1.04] tracking-[-0.02em] text-balance sm:mt-5 sm:text-4xl lg:text-[3.5rem]">
                     Veja o Royal PMS <span className="italic text-gold">no seu cenário.</span>
                   </h2>
-                  <p className="mt-6 max-w-md text-paper/70 text-pretty">
+                  <p className="mt-5 max-w-md text-sm text-paper/70 text-pretty sm:mt-6 sm:text-base">
                     30 minutos, ao vivo, com um especialista em hotelaria. Sem apresentação comercial genérica —
                     abrimos o sistema e simulamos a sua operação.
                   </p>
 
-                  <ul className="mt-10 space-y-3 text-sm text-paper/75">
+                  <ul className="mt-7 space-y-3 text-sm text-paper/75 sm:mt-10">
                     {['Demonstração personalizada por porte do hotel', 'Proposta de implantação com prazo definido', 'Sem compromisso de contratação'].map((t) => (
                       <li key={t} className="flex items-center gap-3">
-                        <span className="h-1 w-1 rounded-full bg-gold" />
+                        <span className="h-1 w-1 shrink-0 rounded-full bg-gold" />
                         {t}
                       </li>
                     ))}
@@ -624,7 +672,7 @@ export default function MarketingLanding() {
                 </div>
 
                 <div className="lg:col-span-5">
-                  <div className="rounded-2xl border border-paper/15 bg-paper/5 p-6 backdrop-blur sm:p-8">
+                  <div className="rounded-2xl border border-paper/15 bg-paper/5 p-5 backdrop-blur sm:p-8">
                     <p className="text-[11px] uppercase tracking-[0.22em] text-paper/55">· Fale com o time comercial</p>
                     <p className="mt-3 font-display text-2xl text-paper">Atendemos pelo WhatsApp.</p>
                     <p className="mt-2 text-sm text-paper/65">
@@ -661,61 +709,61 @@ export default function MarketingLanding() {
 
       {/* FOOTER */}
       <footer className="border-t border-ink/10 bg-paper">
-        <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
-          <div className="grid gap-12 lg:grid-cols-12">
+        <div className="mx-auto max-w-7xl px-5 py-12 sm:px-6 sm:py-16 lg:px-10">
+          <div className="grid gap-10 lg:grid-cols-12">
             <div className="lg:col-span-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-ink/15">
-                  <span className="font-display text-xl italic text-ink">R</span>
+                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-ink/15">
+                  <span className="font-display text-lg italic text-ink">R</span>
                 </div>
                 <div>
-                  <p className="font-display text-lg text-ink">Royal PMS</p>
+                  <p className="font-display text-base text-ink">Royal PMS</p>
                   <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Plataforma de hotelaria</p>
                 </div>
               </div>
-              <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink/65 text-pretty">
+              <p className="mt-5 max-w-sm text-sm leading-relaxed text-ink/65 text-pretty">
                 Software para hotéis e pousadas que valorizam padrão, discrição e uma operação realmente integrada — do
                 check-in ao fechamento.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-7">
+            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 sm:gap-10 lg:col-span-7">
               <FCol title="Plataforma" items={[{ l: 'Módulos', h: '#modulos' }, { l: 'Telas do sistema', h: '#telas' }, { l: 'Como funciona', h: '#operacao' }, { l: 'Para hóspedes', h: '#hospedes' }]} />
               <FCol title="Empresa" items={[{ l: 'Royal Macaé Palace', h: 'https://royalmacaepalace.com.br', external: true }, { l: 'Reservar hospedagem', h: '#hospedes' }, { l: 'Solicitar demonstração', h: '#demo' }]} />
               <FCol title="Contato" items={[{ l: 'WhatsApp comercial', h: WHATSAPP_LINK, external: true }, { l: 'Macaé / RJ — Brasil', h: '#' }]} />
             </div>
           </div>
 
-          <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t border-ink/10 pt-8 text-xs text-stone-500 sm:flex-row sm:items-center">
+          <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-ink/10 pt-8 text-xs text-stone-500 sm:flex-row sm:items-center sm:mt-16">
             <p>© {new Date().getFullYear()} Royal PMS — Brasil</p>
             <p className="font-display italic">"Hospitalidade é detalhe."</p>
           </div>
         </div>
       </footer>
 
-      {/* LOGIN MODAL */}
+      {/* LOGIN MODAL — slides from bottom on mobile, centered on desktop */}
       <AnimatePresence>
         {loginOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
+            className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:px-4 sm:py-6"
             onClick={() => setLoginOpen(false)}
           >
             <div className="absolute inset-0 bg-ink/70 backdrop-blur-sm" />
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-md"
+              initial={{ opacity: 0, y: '100%' }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="relative w-full max-w-md rounded-t-3xl sm:rounded-2xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <button
                 onClick={() => setLoginOpen(false)}
                 aria-label="Fechar"
-                className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper text-ink shadow-lg transition hover:bg-white"
+                className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 bg-paper text-ink shadow-lg transition hover:bg-white"
               >
                 <X className="h-4 w-4" />
               </button>
