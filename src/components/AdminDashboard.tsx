@@ -1573,7 +1573,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select
                 value={fileType}
                 onChange={(e) => setFileType(e.target.value as any)}
@@ -2194,7 +2194,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 onChange={(e) => setNewUserPassword(e.target.value)}
                 className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <select
                   value={newUserRole}
                   onChange={(e) => {
@@ -3201,7 +3201,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         exit={{ opacity: 0, y: -20 }}
         className="space-y-8"
       >
-        <div className="bg-white p-8 rounded-2xl border border-neutral-200 shadow-sm">
+        <div className="bg-white p-4 sm:p-8 rounded-2xl border border-neutral-200 shadow-sm">
           <div className="flex items-center gap-3 mb-8">
             <div className="p-3 bg-neutral-900 rounded-xl">
               <Layers className="w-6 h-6 text-white" />
@@ -3254,7 +3254,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Valor Total</label>
                   <div className="relative">

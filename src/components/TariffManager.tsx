@@ -534,8 +534,8 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
                   <strong>Atenção:</strong> tarifas existentes com mesma empresa + categoria + tipo de quarto serão <strong>substituídas</strong>.
                 </div>
 
-                <div className="border border-neutral-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className="border border-neutral-200 rounded-xl overflow-x-auto">
+                  <table className="w-full text-xs min-w-[400px]">
                     <thead className="bg-neutral-50 text-neutral-600 uppercase font-bold">
                       <tr>
                         <th className="text-left px-3 py-2">Empresa</th>

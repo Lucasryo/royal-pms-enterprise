@@ -133,7 +133,8 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
       </div>
 
       <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="w-full text-left min-w-[480px]">
           <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
             <tr>
               <th className="px-6 py-4">Usuário</th>
@@ -191,6 +192,7 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
             ))}
           </tbody>
         </table>
+        </div>{/* end overflow-x-auto */}
       </div>
 
       {isModalOpen && (

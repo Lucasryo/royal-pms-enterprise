@@ -512,7 +512,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm"
+            className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm"
           >
             <EventItemsManager userId={profile.id} />
           </motion.div>
@@ -628,7 +628,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-7 gap-px bg-neutral-200 rounded-2xl overflow-hidden border border-neutral-200">
+              <div className="overflow-x-auto -mx-1">
+              <div className="grid grid-cols-7 gap-px bg-neutral-200 rounded-2xl overflow-hidden border border-neutral-200 min-w-[500px]">
                 {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map(day => (
                   <div key={day} className="bg-neutral-50 p-4 text-center">
                     <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{day}</p>
@@ -670,6 +671,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                   );
                 })}
               </div>
+              </div>{/* end overflow-x-auto */}
             </div>
 
             {/* Event List Card */}
@@ -781,7 +783,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                            </span>
                          )}
                        </label>
-                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                          {HALLS.map(h => {
                            const selected = formData.halls.includes(h);
                            return (
@@ -832,7 +834,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                        <div>
                           <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Início</label>
                           <input
@@ -934,8 +936,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                           {/* Quote items table */}
                           {formData.quote_items.length > 0 && (
-                            <div className="border border-neutral-200 rounded-xl overflow-hidden">
-                              <table className="w-full text-xs">
+                            <div className="border border-neutral-200 rounded-xl overflow-x-auto">
+                              <table className="w-full text-xs min-w-[360px]">
                                 <thead>
                                   <tr className="bg-neutral-50 border-b border-neutral-200">
                                     <th className="text-left px-3 py-2 font-black uppercase text-neutral-400 tracking-wide">Item</th>
@@ -1406,7 +1408,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               className="bg-paper w-full max-w-3xl rounded-[2rem] shadow-[0_40px_100px_-20px_rgba(20,15,10,0.45)] overflow-hidden max-h-[92vh] flex flex-col"
             >
               {/* ── Header ── */}
-              <div className="relative bg-ink px-10 pt-10 pb-8 text-paper overflow-hidden shrink-0">
+              <div className="relative bg-ink px-5 pt-6 pb-6 text-paper overflow-hidden shrink-0 sm:px-10 sm:pt-10 sm:pb-8">
                 <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-gold/20 blur-3xl" />
                 <div aria-hidden className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-gold/10 blur-2xl" />
                 <button
@@ -1464,8 +1466,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
               {/* ── Body ── */}
               <div className="overflow-y-auto flex-1 bg-white">
-                <div className="px-10 py-8 space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="px-5 py-6 space-y-6 sm:px-10 sm:py-8 sm:space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-10">
                     {/* Contract details */}
                     <div>
                       <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400 font-black mb-5">· Detalhes do contrato</p>
@@ -1516,8 +1518,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       {viewingEvent.quote_items && (viewingEvent.quote_items as QuoteItem[]).length > 0 && (
                         <div className="mt-5 pt-4 border-t border-neutral-200">
                           <p className="text-[10px] uppercase tracking-[0.22em] text-neutral-400 font-black mb-3">· Itens / Serviços</p>
-                          <div className="border border-neutral-200 rounded-xl overflow-hidden">
-                            <table className="w-full text-xs">
+                          <div className="border border-neutral-200 rounded-xl overflow-x-auto">
+                            <table className="w-full text-xs min-w-[360px]">
                               <thead>
                                 <tr className="bg-neutral-100 border-b border-neutral-200">
                                   <th className="text-left px-3 py-2 font-black uppercase text-neutral-500 tracking-wide">Item</th>
@@ -1600,7 +1602,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               </div>
 
               {/* ── Actions ── */}
-              <div className="px-10 py-6 border-t border-ink/10 flex items-center justify-between shrink-0 no-print flex-wrap gap-3">
+              <div className="px-5 py-5 border-t border-ink/10 flex items-center justify-between shrink-0 no-print flex-wrap gap-3 sm:px-10 sm:py-6">
                 <div className="flex gap-2 flex-wrap">
                   {viewingEvent.status !== 'cancelled' && (
                     <button

@@ -1272,7 +1272,7 @@ function CheckInModal({
                       <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
                         {floor}º Andar
                       </p>
-                      <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
                         {byFloor[floor]
                           .sort((a, b) => a.room_number.localeCompare(b.room_number))
                           .map(room => {
@@ -2083,7 +2083,7 @@ function WalkInModal({
                     <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
                       {floor}º Andar
                     </p>
-                    <div className="grid grid-cols-5 sm:grid-cols-8 gap-1.5">
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
                       {byFloor[floor]
                         .sort((a, b) => a.room_number.localeCompare(b.room_number))
                         .map(room => {
@@ -2542,7 +2542,7 @@ function TransferirUHPanel({
                 {Object.keys(byFloor).map(Number).sort((a, b) => a - b).map(floor => (
                   <div key={floor}>
                     <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">{floor}º Andar</p>
-                    <div className="grid grid-cols-5 sm:grid-cols-8 gap-1.5">
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
                       {byFloor[floor]
                         .sort((a, b) => a.room_number.localeCompare(b.room_number))
                         .map(room => {
