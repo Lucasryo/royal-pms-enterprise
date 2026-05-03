@@ -393,10 +393,10 @@ export default function App() {
       <PushNotificationBanner status={pushStatus} onSubscribe={subscribePush} />
 
       {/* ── DESKTOP SIDEBAR ─────────────────────────────── */}
-      <motion.aside
+      {!isMobile && <motion.aside
         initial={false}
         animate={{ width: isSidebarOpen ? 280 : 80 }}
-        className="hidden md:flex h-full bg-white border-r border-gray-200 flex-col relative z-50 shadow-sm shrink-0"
+        className="flex h-full bg-white border-r border-gray-200 flex-col relative z-50 shadow-sm shrink-0"
       >
         <div className="p-6 flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 bg-white border border-neutral-200 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden p-1">
@@ -466,13 +466,13 @@ export default function App() {
             <Menu className="w-5 h-5" />
           </button>
         </div>
-      </motion.aside>
+      </motion.aside>}
 
       {/* ── MAIN CONTENT ────────────────────────────────── */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#F8F9FA] relative overflow-hidden">
 
         {/* ── Mobile header ── */}
-        <header className="md:hidden h-14 bg-white border-b border-gray-100 px-4 flex items-center justify-between sticky top-0 z-30 shrink-0">
+        {isMobile && <header className="h-14 bg-white border-b border-gray-100 px-4 flex items-center justify-between sticky top-0 z-30 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-xl bg-white border border-neutral-200 shadow-sm overflow-hidden p-0.5 shrink-0">
               <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
@@ -523,10 +523,10 @@ export default function App() {
               )}
             </button>
           </div>
-        </header>
+        </header>}
 
         {/* ── Desktop header ── */}
-        <header className="hidden md:flex h-16 bg-white border-b border-gray-200 px-8 items-center justify-between sticky top-0 z-40 shrink-0">
+        {!isMobile && <header className="flex h-16 bg-white border-b border-gray-200 px-8 items-center justify-between sticky top-0 z-40 shrink-0">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-black uppercase tracking-widest text-gray-900 flex items-center gap-2">
               {navigationItems.find(i => i.id === currentView)?.label || 'Sistema'}
@@ -577,10 +577,10 @@ export default function App() {
               <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Terminal 01 • Conectado</p>
             </div>
           </div>
-        </header>
+        </header>}
 
         {/* ── Page content ── */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8 scrollbar-none mb-bottom-nav md:mb-0">
+        <div className={`flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8 scrollbar-none ${isMobile ? 'mb-bottom-nav' : ''}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
@@ -597,8 +597,8 @@ export default function App() {
       </main>
 
       {/* ── MOBILE BOTTOM NAVIGATION ────────────────────── */}
-      {navigationItems.length > 0 && (
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-100 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] pb-safe">
+      {isMobile && navigationItems.length > 0 && (
+        <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-100 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] pb-safe">
           <div className={`grid h-16 ${bottomNavItems.length < 4 ? `grid-cols-${bottomNavItems.length + 1}` : 'grid-cols-5'}`}>
             {bottomNavItems.map((item) => {
               const active = currentView === item.id;
@@ -634,8 +634,8 @@ export default function App() {
 
       {/* ── MOBILE "MAIS" BOTTOM SHEET ──────────────────── */}
       <AnimatePresence>
-        {showMoreSheet && (
-          <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+        {isMobile && showMoreSheet && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMoreSheet(false)} />
             <motion.div
