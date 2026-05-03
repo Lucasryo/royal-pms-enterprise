@@ -1194,8 +1194,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           </div>
           </>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[640px]">
+          <div className="mobile-card-list overflow-x-auto">
+            <table className="w-full text-left sm:min-w-[640px]">
               <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-4">Ref/Quarto</th>
@@ -1214,7 +1214,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                   </tr>
                 ) : filteredReservations.map(res => (
                   <tr key={res.id} className="hover:bg-neutral-50 transition-colors">
-                    <td className="px-6 py-4">
+                    <td data-label="Ref/Quarto" className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-neutral-400 uppercase leading-none mb-1">{res.reservation_code}</span>
                         <div className="flex items-center gap-2">
@@ -1223,13 +1223,13 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Hospede" className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-neutral-900">{res.guest_name}</span>
                         <span className="text-[10px] text-neutral-400 uppercase font-medium">{res.category}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Estadia" className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col">
                           <span className="text-[10px] text-neutral-400 font-bold uppercase">In</span>
@@ -1242,17 +1242,17 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Empresa" className="px-6 py-4">
                       <span className="text-xs text-neutral-600">
                         {companies.find(c => c.id === res.company_id)?.name || 'Particular'}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Status" className="px-6 py-4">
                       <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${statusColors[res.status as keyof typeof statusColors]}`}>
                         {statusLabels[res.status as keyof typeof statusLabels]}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Fluxo" className="px-6 py-4">
                       {(() => {
                         const flow = getReservationFlow(res);
                         const transitionIssue = getTransitionIssue(res);
@@ -1277,7 +1277,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         );
                       })()}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td data-label="Acoes" className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {isReservationLockedByFinance(res) && (
                           <span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold uppercase text-amber-700">

@@ -245,16 +245,16 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
   }
 
   return (
-    <div className="space-y-8 pb-12">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-4 md:space-y-8 pb-12">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.28em] text-amber-600">Prioridades altas e medias</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-neutral-950">Gestao Pro do PMS</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500">
+          <h1 className="mt-1 text-2xl md:text-3xl font-black tracking-tight text-neutral-950">Gestao Pro do PMS</h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500 hidden md:block">
             Auditoria noturna, revenue, fiscal, CRM, estoque, caixa, portal do hospede e relatorios executivos em uma unica central.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 md:gap-3 md:grid-cols-4">
           <Metric label="Ocupacao" value={`${occupancyRate}%`} />
           <Metric label="Receita" value={money(roomRevenue)} />
           <Metric label="Baixo estoque" value={String(lowStock.length)} />
@@ -826,9 +826,9 @@ function GuestPortalPanel({ canManage, requests, onSaved }: { canManage: boolean
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-neutral-200 bg-white px-5 py-4 shadow-sm">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
-      <p className="mt-2 text-xl font-black text-neutral-950">{value}</p>
+    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 md:px-5 md:py-4 shadow-sm">
+      <p className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
+      <p className="mt-1 text-lg md:text-xl font-black text-neutral-950">{value}</p>
     </div>
   );
 }
