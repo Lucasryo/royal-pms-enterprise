@@ -25,6 +25,7 @@ import POSDashboard from './components/POSDashboard';
 import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
 import ReportsDashboard from './components/ReportsDashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 import {
   AdminControlModuleDashboard,
   EventsModuleDashboard,
@@ -550,7 +551,7 @@ export default function App() {
               transition={{ duration: 0.2 }}
               className="max-w-7xl mx-auto"
             >
-              {renderContent()}
+              <ErrorBoundary key={currentView}>{renderContent()}</ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </div>

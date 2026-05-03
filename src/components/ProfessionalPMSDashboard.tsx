@@ -1,4 +1,4 @@
-import { ComponentType, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { ComponentType, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { MaintenanceTicket, Reservation, Room, UserProfile } from '../types';
 import { hasPermission } from '../lib/permissions';
@@ -136,6 +136,8 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
   const visibleTabs = allowedTabs ? tabs.filter((t) => allowedTabs.includes(t.id)) : tabs;
   const [activeTab, setActiveTab] = useState<ProTab>(visibleTabs[0]?.id ?? 'night-audit');
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
+  const loadedTabs = useRef<Set<ProTab>>(new Set());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
@@ -148,38 +150,71 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
   const [cashSessions, setCashSessions] = useState<CashSession[]>([]);
   const [guestRequests, setGuestRequests] = useState<GuestServiceRequest[]>([]);
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchSummary(); fetchTabData(activeTab); }, []);
 
-  async function fetchAll() {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!loadedTabs.current.has(activeTab)) fetchTabData(activeTab); }, [activeTab]);
+
+  async function fetchSummary() {
     setLoading(true);
-    const [res, room, ticket, audit, rules, competitorRes, fiscal, guests, stock, cash, requests] = await Promise.all([
+    const [res, room, ticket, stock, fiscal] = await Promise.all([
       supabase.from('reservations').select('*'),
       supabase.from('rooms').select('*'),
       supabase.from('maintenance_tickets').select('*'),
-      supabase.from('night_audits').select('*').order('audit_date', { ascending: false }).limit(20),
-      supabase.from('rate_rules').select('*').order('start_date', { ascending: false }),
-      supabase.from('rate_shopper_competitors').select('*').order('last_checked_at', { ascending: false }),
-      supabase.from('fiscal_jobs').select('*').order('created_at', { ascending: false }).limit(30),
-      supabase.from('guest_profiles').select('*').order('full_name'),
       supabase.from('inventory_items').select('*').order('department').order('name'),
-      supabase.from('cash_sessions').select('*').order('opened_at', { ascending: false }).limit(20),
-      supabase.from('guest_service_requests').select('*').order('created_at', { ascending: false }).limit(30),
+      supabase.from('fiscal_jobs').select('*').order('created_at', { ascending: false }).limit(30),
     ]);
-
     if (res.data) setReservations(res.data as Reservation[]);
     if (room.data) setRooms(room.data as Room[]);
     if (ticket.data) setTickets(ticket.data as MaintenanceTicket[]);
-    if (audit.data) setNightAudits(audit.data as NightAudit[]);
-    if (rules.data) setRateRules(rules.data as RateRule[]);
-    if (competitorRes.data) setCompetitors(competitorRes.data as RateShopperCompetitor[]);
-    if (fiscal.data) setFiscalJobs(fiscal.data as FiscalJob[]);
-    if (guests.data) setGuestProfiles(guests.data as GuestProfile[]);
     if (stock.data) setInventory(stock.data as InventoryItem[]);
-    if (cash.data) setCashSessions(cash.data as CashSession[]);
-    if (requests.data) setGuestRequests(requests.data as GuestServiceRequest[]);
+    if (fiscal.data) setFiscalJobs(fiscal.data as FiscalJob[]);
     setLoading(false);
+  }
+
+  async function fetchTabData(tab: ProTab) {
+    setTabLoading(true);
+    switch (tab) {
+      case 'night-audit': {
+        const { data } = await supabase.from('night_audits').select('*').order('audit_date', { ascending: false }).limit(20);
+        if (data) setNightAudits(data as NightAudit[]);
+        break;
+      }
+      case 'revenue': {
+        const [rules, competitorRes] = await Promise.all([
+          supabase.from('rate_rules').select('*').order('start_date', { ascending: false }),
+          supabase.from('rate_shopper_competitors').select('*').order('last_checked_at', { ascending: false }),
+        ]);
+        if (rules.data) setRateRules(rules.data as RateRule[]);
+        if (competitorRes.data) setCompetitors(competitorRes.data as RateShopperCompetitor[]);
+        break;
+      }
+      case 'crm': {
+        const { data } = await supabase.from('guest_profiles').select('*').order('full_name');
+        if (data) setGuestProfiles(data as GuestProfile[]);
+        break;
+      }
+      case 'cash': {
+        const { data } = await supabase.from('cash_sessions').select('*').order('opened_at', { ascending: false }).limit(20);
+        if (data) setCashSessions(data as CashSession[]);
+        break;
+      }
+      case 'guest-portal': {
+        const { data } = await supabase.from('guest_service_requests').select('*').order('created_at', { ascending: false }).limit(30);
+        if (data) setGuestRequests(data as GuestServiceRequest[]);
+        break;
+      }
+      // 'fiscal', 'inventory', 'enterprise': data comes from fetchSummary or is self-contained
+    }
+    loadedTabs.current.add(tab);
+    setTabLoading(false);
+  }
+
+  function refreshData() {
+    loadedTabs.current.delete(activeTab);
+    fetchSummary();
+    fetchTabData(activeTab);
   }
 
   const checkedIn = reservations.filter((reservation) => reservation.status === 'CHECKED_IN');
@@ -246,6 +281,12 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
         })}
       </div>
 
+      {tabLoading && (
+        <div className="flex items-center gap-2 rounded-2xl bg-neutral-50 px-4 py-3 text-xs font-bold text-neutral-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Carregando...
+        </div>
+      )}
       {activeTab === 'night-audit' && (
         <NightAuditPanel
           canManage={canManage}
@@ -254,7 +295,7 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
           occupancyRate={occupancyRate}
           roomRevenue={roomRevenue}
           pendingItems={openFiscal.length + openTickets.length}
-          onSaved={fetchAll}
+          onSaved={refreshData}
         />
       )}
       {activeTab === 'revenue' && (
@@ -266,14 +307,14 @@ export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { pro
           categoryAvailability={categoryAvailability}
           checkedIn={checkedIn.length}
           totalRooms={physicalRooms.length}
-          onSaved={fetchAll}
+          onSaved={refreshData}
         />
       )}
-      {activeTab === 'fiscal' && <FiscalPanel canManage={canManage} jobs={fiscalJobs} reservations={reservations} onSaved={fetchAll} />}
-      {activeTab === 'crm' && <CrmPanel canManage={canManage} guests={guestProfiles} onSaved={fetchAll} />}
-      {activeTab === 'inventory' && <InventoryPanel canManage={canManage} items={inventory} onSaved={fetchAll} />}
-      {activeTab === 'cash' && <CashPanel canManage={canManage} sessions={cashSessions} profile={profile} onSaved={fetchAll} />}
-      {activeTab === 'guest-portal' && <GuestPortalPanel canManage={canManage} requests={guestRequests} onSaved={fetchAll} />}
+      {activeTab === 'fiscal' && <FiscalPanel canManage={canManage} jobs={fiscalJobs} reservations={reservations} onSaved={refreshData} />}
+      {activeTab === 'crm' && <CrmPanel canManage={canManage} guests={guestProfiles} onSaved={refreshData} />}
+      {activeTab === 'inventory' && <InventoryPanel canManage={canManage} items={inventory} onSaved={refreshData} />}
+      {activeTab === 'cash' && <CashPanel canManage={canManage} sessions={cashSessions} profile={profile} onSaved={refreshData} />}
+      {activeTab === 'guest-portal' && <GuestPortalPanel canManage={canManage} requests={guestRequests} onSaved={refreshData} />}
       {activeTab === 'enterprise' && <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} />}
     </div>
   );

@@ -267,7 +267,9 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
         supabase
           .from('files')
           .select('id,company_id,amount,status,due_date,proof_date')
-          .neq('is_deleted', true),
+          .neq('is_deleted', true)
+          .gte('due_date', rangeStartStr)
+          .lte('due_date', rangeEndStr),
       ]);
 
       if (resResult.error) throw resResult.error;
