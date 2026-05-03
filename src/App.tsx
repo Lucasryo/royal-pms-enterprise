@@ -216,6 +216,9 @@ export default function App() {
       .catch(() => setLoading(false));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setLoading(true); // keep spinner up while profile loads
+      }
       setUser(session?.user || null);
       if (!session) {
         setProfile(null);
