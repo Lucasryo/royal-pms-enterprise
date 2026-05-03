@@ -305,7 +305,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
             Registre vendas diretas ou lance automaticamente itens de alimento e bebida na conta corrente da hospedagem.
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Metric label="Itens ativos" value={menuItems.length} />
           <Metric label="Hospedes in-house" value={reservations.length} />
           <Metric label="Pedidos hoje" value={orders.filter((order) => order.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length} />
@@ -603,7 +603,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.entries(categorySummary).map(([category, count]) => (
               <div key={category} className="rounded-3xl border border-neutral-200 bg-white p-5">
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-400">{categoryLabels[category as PosMenuItem['category']]}</p>

@@ -1820,7 +1820,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left min-w-[560px]">
               <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3 font-medium w-10">
@@ -2687,7 +2687,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left min-w-[560px]">
               <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3">Empresa</th>

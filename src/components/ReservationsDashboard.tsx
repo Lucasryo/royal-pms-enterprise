@@ -1195,7 +1195,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           </>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left min-w-[640px]">
               <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-4">Ref/Quarto</th>

@@ -290,8 +290,8 @@ export default function BlockedDatesManager({ profile }: { profile: UserProfile 
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-neutral-200">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl border border-neutral-200">
+            <table className="w-full text-sm min-w-[560px]">
               <thead className="bg-neutral-50 text-[10px] font-black uppercase tracking-widest text-neutral-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Periodo</th>

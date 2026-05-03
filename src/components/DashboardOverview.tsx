@@ -386,8 +386,8 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           {canSeeStats && !isBillingProfile && (
-            <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm relative overflow-hidden group">
-              <div className="flex items-center justify-between mb-8">
+            <div className="bg-white p-4 md:p-8 rounded-3xl border border-gray-200 shadow-sm relative overflow-hidden group">
+              <div className="flex items-center justify-between mb-4 md:mb-8">
                 <div>
                   <h3 className="text-lg font-black tracking-tight text-gray-900">Tendencia de Ocupacao</h3>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ultimos 7 dias x Projecao</p>
