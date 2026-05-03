@@ -8,11 +8,11 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     base: './',
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-        // pdf-lib v1.17.1 ESM build is missing internal files; use CJS build instead
-        'pdf-lib': path.resolve(__dirname, 'node_modules/pdf-lib/cjs/index.js'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+        // pdf-lib v1.17.1 ESM build is missing internal files; force CJS build
+        { find: /^pdf-lib$/, replacement: 'pdf-lib/cjs/index.js' },
+      ],
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
