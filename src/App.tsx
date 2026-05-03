@@ -201,25 +201,25 @@ export default function App() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setLoading(false);
-    }, 5000);
+    const timer = setTimeout(() => setLoading(false), 8000);
 
     supabase.auth.getSession()
-      .then(({ data: { session }, error }) => {
-        if (session) {
+      .then(({ data: { session } }) => {
+        console.log('[App] getSession result:', session ? 'has session' : 'no session');
+        if (session?.user) {
           setUser(session.user);
         } else {
           setLoading(false);
         }
       })
-      .catch(() => setLoading(false));
+      .catch((e) => {
+        console.error('[App] getSession error:', e);
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setLoading(true); // keep spinner up while profile loads
-      }
-      setUser(session?.user || null);
+      console.log('[App] onAuthStateChange:', event, session ? 'has session' : 'no session');
+      setUser(session?.user ?? null);
       if (!session) {
         setProfile(null);
         setCurrentView('dashboard');
@@ -238,20 +238,31 @@ export default function App() {
 
     const syncProfile = async () => {
       try {
+        console.log('[App] syncProfile starting for user', user.id);
         const profileData = await fetchProfile(user.id);
+        console.log('[App] fetchProfile returned:', profileData ? 'profile found' : 'no profile');
 
         if (!profileData) {
-          const newProfile = {
+          // Fallback profile so the app can still render even if insert fails
+          const fallbackProfile: UserProfile = {
             id: user.id,
-            name: user.user_metadata.full_name || 'Usuário',
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
             email: user.email || '',
             role: 'client',
           };
-          
-          await supabase.from('profiles').insert([newProfile]);
-          setProfile(newProfile as UserProfile);
-          setCurrentView(ROLE_HOME_VIEW[newProfile.role as UserRole] || 'dashboard');
+
+          try {
+            await supabase.from('profiles').insert([fallbackProfile]);
+            console.log('[App] inserted new profile');
+          } catch (insertErr) {
+            console.error('[App] profile insert failed, using fallback anyway:', insertErr);
+          }
+
+          setProfile(fallbackProfile);
+          setCurrentView(ROLE_HOME_VIEW[fallbackProfile.role as UserRole] || 'dashboard');
         }
+      } catch (err) {
+        console.error('[App] syncProfile error:', err);
       } finally {
         setLoading(false);
       }
