@@ -320,6 +320,16 @@ export default function App() {
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
+  // Bottom nav: up to 4 priority items based on role (must be before early returns — Rules of Hooks)
+  const mobileNavPriority: ViewType[] = ['dashboard', 'reservations', 'reception', 'finance'];
+  const bottomNavItems = useMemo(() => {
+    const priority = navigationItems.filter(i => mobileNavPriority.includes(i.id));
+    const rest = navigationItems.filter(i => !mobileNavPriority.includes(i.id));
+    return [...priority, ...rest].slice(0, 4);
+  }, [navigationItems]);
+
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#F8F9FA]">
@@ -376,16 +386,6 @@ export default function App() {
                <ReservationsDashboard profile={profile} />;
     }
   };
-
-  // Bottom nav: up to 4 priority items based on role
-  const mobileNavPriority: ViewType[] = ['dashboard', 'reservations', 'reception', 'finance'];
-  const bottomNavItems = useMemo(() => {
-    const priority = navigationItems.filter(i => mobileNavPriority.includes(i.id));
-    const rest = navigationItems.filter(i => !mobileNavPriority.includes(i.id));
-    return [...priority, ...rest].slice(0, 4);
-  }, [navigationItems]);
-
-  const [showMoreSheet, setShowMoreSheet] = useState(false);
 
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
