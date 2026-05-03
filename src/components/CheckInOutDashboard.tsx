@@ -1272,7 +1272,7 @@ function CheckInModal({
                       <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
                         {floor}º Andar
                       </p>
-                      <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
                         {byFloor[floor]
                           .sort((a, b) => a.room_number.localeCompare(b.room_number))
                           .map(room => {
@@ -1391,7 +1391,7 @@ function CheckOutModal({
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
               <div>
                 <p className="text-[9px] font-bold uppercase text-neutral-400 tracking-widest">Entrada</p>
                 <p className="text-xs font-bold text-neutral-900">
@@ -1621,7 +1621,7 @@ function NotaHospedagemModal({
 
             <div className="mt-5">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">Dados do Hóspede</h2>
-              <div className="grid grid-cols-2 gap-y-1.5 gap-x-6 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1.5 sm:gap-x-6 text-xs">
                 <div className="flex">
                   <span className="w-28 text-neutral-500 font-bold uppercase text-[9px] tracking-widest">Hóspede</span>
                   <span className="font-bold text-neutral-900">{reservation.guest_name}</span>
@@ -1663,6 +1663,7 @@ function NotaHospedagemModal({
 
             <div className="mt-6">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">Extrato de Consumo</h2>
+              <div className="overflow-x-auto">
               <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
                 <thead>
                   <tr className="bg-neutral-900 text-white">
@@ -1700,6 +1701,7 @@ function NotaHospedagemModal({
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
 
             <div className="mt-6 flex justify-end">
@@ -1729,7 +1731,7 @@ function NotaHospedagemModal({
             )}
 
             {!isExtract && (
-              <div className="grid grid-cols-2 gap-12 mt-16">
+              <div className="grid grid-cols-2 gap-4 sm:gap-12 mt-8 sm:mt-16">
                 <div>
                   <div className="border-t border-neutral-900 pt-2">
                     <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500">Assinatura do Hóspede</p>
@@ -2081,7 +2083,7 @@ function WalkInModal({
                     <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">
                       {floor}º Andar
                     </p>
-                    <div className="grid grid-cols-5 sm:grid-cols-8 gap-1.5">
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
                       {byFloor[floor]
                         .sort((a, b) => a.room_number.localeCompare(b.room_number))
                         .map(room => {
@@ -2507,7 +2509,7 @@ function TransferirUHPanel({
 
       {source && (
         <>
-          <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 grid grid-cols-3 gap-3 text-xs">
+          <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div>
               <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest">UH atual</p>
               <p className="text-sm font-bold text-neutral-900">{source.room_number || '—'}</p>
@@ -2540,7 +2542,7 @@ function TransferirUHPanel({
                 {Object.keys(byFloor).map(Number).sort((a, b) => a - b).map(floor => (
                   <div key={floor}>
                     <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-1.5">{floor}º Andar</p>
-                    <div className="grid grid-cols-5 sm:grid-cols-8 gap-1.5">
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
                       {byFloor[floor]
                         .sort((a, b) => a.room_number.localeCompare(b.room_number))
                         .map(room => {
@@ -2716,8 +2718,8 @@ function TransferirLancamentosPanel({
               <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Sem lançamentos no folio</p>
             </div>
           ) : (
-            <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
-              <table className="w-full text-sm">
+            <div className="border border-neutral-200 rounded-xl overflow-x-auto max-h-64 overflow-y-auto">
+              <table className="w-full text-sm min-w-[400px]">
                 <thead className="bg-neutral-50 sticky top-0">
                   <tr className="text-left">
                     <th className="px-3 py-2 w-10"></th>

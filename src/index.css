@@ -16,6 +16,76 @@
   --font-display: "Fraunces", ui-serif, Georgia, serif;
 }
 
+/* ─── Mobile-first foundations ──────────────────────────────────────────────── */
+
+/* Prevent double-tap zoom on buttons/links — feels native */
+* { touch-action: manipulation; }
+
+/* Prevent iOS Safari from zooming on input focus (requires 16px minimum) */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Momentum scrolling on iOS */
+.overflow-y-auto, .overflow-y-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area insets for notched phones (iPhone X+, Android) */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0.5rem); }
+.h-bottom-nav { height: calc(4rem + env(safe-area-inset-bottom, 0px)); }
+.mb-bottom-nav { margin-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
+
+/* Hide native scrollbar but keep scrolling */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Mobile card list — replaces tables on small screens */
+@media (max-width: 639px) {
+  .mobile-card-list table,
+  .mobile-card-list thead,
+  .mobile-card-list tbody,
+  .mobile-card-list tr { display: block; }
+
+  .mobile-card-list thead { display: none; }
+
+  .mobile-card-list tbody tr {
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    background: #fff;
+  }
+
+  .mobile-card-list td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    font-size: 0.8125rem;
+    border: none;
+    min-height: 1.75rem;
+  }
+
+  .mobile-card-list td::before {
+    content: attr(data-label);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #9ca3af;
+    flex-shrink: 0;
+    margin-right: 0.5rem;
+  }
+}
+
+
 /* Editorial animations */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }

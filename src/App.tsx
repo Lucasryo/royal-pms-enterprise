@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabase';
-import { UserProfile, Company, ViewType } from './types';
+import { UserProfile, UserRole, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
@@ -25,6 +25,7 @@ import POSDashboard from './components/POSDashboard';
 import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
 import ReportsDashboard from './components/ReportsDashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 import {
   AdminControlModuleDashboard,
   EventsModuleDashboard,
@@ -59,9 +60,21 @@ export default function App() {
   const setCurrentView = (view: ViewType) => {
     sessionStorage.setItem('pms_current_view', view);
     setCurrentViewRaw(view);
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth >= 768);
+
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setIsSidebarOpen(true);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<{
     companies: any[],
@@ -177,7 +190,7 @@ export default function App() {
         setProfile(userProfile);
         // Só redireciona para a home view no primeiro login — não em recargas de página
         if (!sessionStorage.getItem('pms_current_view')) {
-          setCurrentView(ROLE_HOME_VIEW[userProfile.role] || 'dashboard');
+          setCurrentView(ROLE_HOME_VIEW[userProfile.role as UserRole] || 'dashboard');
         }
         return userProfile;
       }
@@ -234,7 +247,7 @@ export default function App() {
           
           await supabase.from('profiles').insert([newProfile]);
           setProfile(newProfile as UserProfile);
-          setCurrentView(ROLE_HOME_VIEW[newProfile.role] || 'dashboard');
+          setCurrentView(ROLE_HOME_VIEW[newProfile.role as UserRole] || 'dashboard');
         }
       } finally {
         setLoading(false);
@@ -333,7 +346,7 @@ export default function App() {
 
   const renderContent = () => {
     switch (currentView) {
-      case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role] || 'dashboard')} />;
+      case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
       case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsModuleDashboard profile={profile} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
       case 'maintenance': return <MaintenanceModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager' || profile.role === 'maintenance'} />;
@@ -364,69 +377,64 @@ export default function App() {
     }
   };
 
+  // Bottom nav: up to 4 priority items based on role
+  const mobileNavPriority: ViewType[] = ['dashboard', 'reservations', 'reception', 'finance'];
+  const bottomNavItems = useMemo(() => {
+    const priority = navigationItems.filter(i => mobileNavPriority.includes(i.id));
+    const rest = navigationItems.filter(i => !mobileNavPriority.includes(i.id));
+    return [...priority, ...rest].slice(0, 4);
+  }, [navigationItems]);
+
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
       <Toaster position="top-right" richColors />
       <PushNotificationBanner status={pushStatus} onSubscribe={subscribePush} />
 
-      {/* Sidebar Navigation */}
-      <motion.aside 
+      {/* ── DESKTOP SIDEBAR ─────────────────────────────── */}
+      {!isMobile && <motion.aside
         initial={false}
         animate={{ width: isSidebarOpen ? 280 : 80 }}
-        className="h-full bg-white border-r border-gray-200 flex flex-col relative z-50 shadow-sm"
+        className="flex h-full bg-white border-r border-gray-200 flex-col relative z-50 shadow-sm shrink-0"
       >
         <div className="p-6 flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 bg-white border border-neutral-200 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden p-1">
-            <img 
-              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" 
-              alt="Logo" 
+            <img
+              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s"
+              alt="Logo"
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
           <AnimatePresence>
             {isSidebarOpen && (
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                className="whitespace-nowrap"
-              >
+              <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="whitespace-nowrap">
                 <h1 className="text-xl font-black tracking-tighter italic text-amber-500 uppercase">ROYAL</h1>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        <nav className="flex-1 px-3 space-y-1 mt-4 overflow-y-auto">
+        <nav className="flex-1 px-3 space-y-1 mt-4 overflow-y-auto scrollbar-none">
           {navigationItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id)}
               className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all group relative ${
-                currentView === item.id 
-                  ? 'bg-primary/5 text-primary' 
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                currentView === item.id ? 'bg-primary/5 text-primary' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
               }`}
             >
               <item.icon className={`w-5 h-5 shrink-0 ${currentView === item.id ? 'text-primary' : 'group-hover:text-gray-900'}`} />
               <AnimatePresence>
                 {isSidebarOpen && (
-                  <motion.span
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-sm font-bold whitespace-nowrap"
-                  >
+                  <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-bold whitespace-nowrap">
                     {item.label}
                   </motion.span>
                 )}
               </AnimatePresence>
               {currentView === item.id && (
-                <motion.div 
-                  layoutId="sidebar-active"
-                  className="absolute left-0 w-1 h-6 bg-primary rounded-r-full"
-                />
+                <motion.div layoutId="sidebar-active" className="absolute left-0 w-1 h-6 bg-primary rounded-r-full" />
               )}
             </button>
           ))}
@@ -434,127 +442,266 @@ export default function App() {
 
         <div className="p-4 border-t border-gray-100">
           <div className={`flex items-center gap-3 ${isSidebarOpen ? '' : 'justify-center'}`}>
-            <button 
-              onClick={() => setCurrentView('profile')}
-              className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden shrink-0 hover:border-primary transition-all cursor-pointer"
-            >
-              {profile.photo_url ? (
-                <img src={profile.photo_url} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-400">
-                  <UserIcon className="w-5 h-5" />
-                </div>
+            <button onClick={() => setCurrentView('profile')} className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden shrink-0 hover:border-primary transition-all cursor-pointer">
+              {profile.photo_url ? <img src={profile.photo_url} alt="Profile" className="w-full h-full object-cover" /> : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400"><UserIcon className="w-5 h-5" /></div>
               )}
             </button>
             {isSidebarOpen && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900 truncate">{profile.name}</p>
                 <div className="flex items-center gap-1">
-                   <ShieldCheck className="w-3 h-3 text-green-500" />
-                   <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">{profile.role}</span>
+                  <ShieldCheck className="w-3 h-3 text-green-500" />
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">{profile.role}</span>
                 </div>
               </div>
             )}
             {isSidebarOpen && (
-              <button 
-                onClick={() => supabase.auth.signOut()}
-                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-              >
+              <button onClick={() => supabase.auth.signOut()} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
                 <LogOut className="w-4 h-4" />
               </button>
             )}
           </div>
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="w-full mt-4 flex items-center justify-center p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all"
-          >
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="w-full mt-4 flex items-center justify-center p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all">
             <Menu className="w-5 h-5" />
           </button>
         </div>
-      </motion.aside>
+      </motion.aside>}
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#F8F9FA] relative">
-        {/* Top bar */}
-        <header className="h-16 bg-white border-b border-gray-200 px-8 flex items-center justify-between sticky top-0 z-40">
+      {/* ── MAIN CONTENT ────────────────────────────────── */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#F8F9FA] relative overflow-hidden">
+
+        {/* ── Mobile header ── */}
+        {isMobile && <header className="h-14 bg-white border-b border-gray-100 px-4 flex items-center justify-between sticky top-0 z-30 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-white border border-neutral-200 shadow-sm overflow-hidden p-0.5 shrink-0">
+              <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+            </div>
+            <span className="text-sm font-black text-gray-900 truncate">
+              {navigationItems.find(i => i.id === currentView)?.label || 'Royal PMS'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={() => setIsSearchOpen(true)} className="p-2.5 text-gray-400 rounded-xl active:bg-gray-100">
+              <SearchIcon className="w-5 h-5" />
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead(); }}
+                className="p-2.5 text-gray-400 rounded-xl active:bg-gray-100 relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.filter((n: any) => !n.read).length > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-sm bg-white rounded-2xl shadow-2xl border border-neutral-100 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-neutral-100 flex justify-between items-center">
+                    <span className="text-sm font-bold text-neutral-900">Notificações</span>
+                    <button onClick={() => setShowNotifications(false)} className="text-neutral-400 text-xs font-bold">Fechar</button>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-neutral-50">
+                    {notifications.length === 0 ? (
+                      <p className="text-sm text-neutral-400 text-center py-8">Nenhuma notificação</p>
+                    ) : (
+                      notifications.slice(0, 20).map((n: any) => (
+                        <div key={n.id} className={`px-4 py-3 ${n.read ? 'bg-white' : 'bg-blue-50'}`}>
+                          <p className="text-sm font-bold text-neutral-900">{n.title}</p>
+                          <p className="text-sm text-neutral-500 mt-0.5">{n.message}</p>
+                          <p className="text-xs text-neutral-300 mt-1">{n.timestamp ? new Date(n.timestamp).toLocaleString('pt-BR') : ''}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setCurrentView('profile')} className="ml-1 w-8 h-8 rounded-full bg-gray-100 overflow-hidden active:opacity-70 shrink-0">
+              {profile.photo_url ? <img src={profile.photo_url} alt="" className="w-full h-full object-cover" /> : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400"><UserIcon className="w-4 h-4" /></div>
+              )}
+            </button>
+          </div>
+        </header>}
+
+        {/* ── Desktop header ── */}
+        {!isMobile && <header className="flex h-16 bg-white border-b border-gray-200 px-8 items-center justify-between sticky top-0 z-40 shrink-0">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-black uppercase tracking-widest text-gray-900 flex items-center gap-2">
               {navigationItems.find(i => i.id === currentView)?.label || 'Sistema'}
               <ChevronRight className="w-4 h-4 text-gray-300" />
             </h2>
-            
-            {/* Desktop Search bar */}
-            <div className="relative group hidden sm:block">
+            <div className="relative group">
               <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                 <SearchIcon className="w-4 h-4 text-gray-400 group-focus-within:text-primary transition-colors" />
               </div>
-              <input
-                type="text"
-                placeholder="Busca global (Ctrl + K)"
-                onClick={() => setIsSearchOpen(true)}
-                readOnly
-                className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm w-80 cursor-pointer focus:ring-2 focus:ring-primary/10 transition-all outline-none"
-              />
+              <input type="text" placeholder="Busca global (Ctrl + K)" onClick={() => setIsSearchOpen(true)} readOnly
+                className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm w-72 lg:w-80 cursor-pointer focus:ring-2 focus:ring-primary/10 transition-all outline-none" />
             </div>
           </div>
-
           <div className="flex items-center gap-4">
-             <div className="relative">
-               <button
-                 onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead(); }}
-                 className="p-2 text-gray-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all relative"
-               >
-                 <Bell className="w-5 h-5" />
-                 {notifications.filter((n: any) => !n.read).length > 0 && (
-                   <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-                 )}
-               </button>
-               {showNotifications && (
-                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-neutral-100 z-50 overflow-hidden">
-                   <div className="px-4 py-3 border-b border-neutral-100 flex justify-between items-center">
-                     <span className="text-sm font-bold text-neutral-900">Notificações</span>
-                     <button onClick={() => setShowNotifications(false)} className="text-neutral-400 hover:text-neutral-700 text-xs">Fechar</button>
-                   </div>
-                   <div className="max-h-80 overflow-y-auto divide-y divide-neutral-50">
-                     {notifications.length === 0 ? (
-                       <p className="text-xs text-neutral-400 text-center py-6">Nenhuma notificação</p>
-                     ) : (
-                       notifications.slice(0, 20).map((n: any) => (
-                         <div key={n.id} className={`px-4 py-3 ${n.read ? 'bg-white' : 'bg-blue-50'}`}>
-                           <p className="text-xs font-bold text-neutral-900">{n.title}</p>
-                           <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">{n.message}</p>
-                           <p className="text-[10px] text-neutral-300 mt-1">{n.timestamp ? new Date(n.timestamp).toLocaleString('pt-BR') : ''}</p>
-                         </div>
-                       ))
-                     )}
-                   </div>
-                 </div>
-               )}
-             </div>
-             <div className="h-6 w-[1px] bg-gray-200 mx-2" />
-             <div className="flex flex-col items-end">
-                <p className="text-xs font-black text-gray-900">Hotel Royal Macaé</p>
-                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Terminal 01 • Conectado</p>
-             </div>
+            <div className="relative">
+              <button onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead(); }}
+                className="p-2 text-gray-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all relative">
+                <Bell className="w-5 h-5" />
+                {notifications.filter((n: any) => !n.read).length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-neutral-100 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-neutral-100 flex justify-between items-center">
+                    <span className="text-sm font-bold text-neutral-900">Notificações</span>
+                    <button onClick={() => setShowNotifications(false)} className="text-neutral-400 hover:text-neutral-700 text-xs">Fechar</button>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-neutral-50">
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-neutral-400 text-center py-6">Nenhuma notificação</p>
+                    ) : (
+                      notifications.slice(0, 20).map((n: any) => (
+                        <div key={n.id} className={`px-4 py-3 ${n.read ? 'bg-white' : 'bg-blue-50'}`}>
+                          <p className="text-xs font-bold text-neutral-900">{n.title}</p>
+                          <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">{n.message}</p>
+                          <p className="text-[10px] text-neutral-300 mt-1">{n.timestamp ? new Date(n.timestamp).toLocaleString('pt-BR') : ''}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="h-6 w-[1px] bg-gray-200 mx-1" />
+            <div className="flex flex-col items-end">
+              <p className="text-xs font-black text-gray-900">Hotel Royal Macaé</p>
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Terminal 01 • Conectado</p>
+            </div>
           </div>
-        </header>
+        </header>}
 
-        {/* Dynamic Page Content */}
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+        {/* ── Page content ── */}
+        <div className={`flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8 scrollbar-none ${isMobile ? 'mb-bottom-nav' : ''}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.15 }}
               className="max-w-7xl mx-auto"
             >
-              {renderContent()}
+              <ErrorBoundary key={currentView}>{renderContent()}</ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
+
+      {/* ── MOBILE BOTTOM NAVIGATION ────────────────────── */}
+      {isMobile && navigationItems.length > 0 && (
+        <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-100 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] pb-safe">
+          <div className={`grid h-16 ${bottomNavItems.length < 4 ? `grid-cols-${bottomNavItems.length + 1}` : 'grid-cols-5'}`}>
+            {bottomNavItems.map((item) => {
+              const active = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentView(item.id)}
+                  className={`flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-95 ${
+                    active ? 'text-primary' : 'text-gray-400'
+                  }`}
+                >
+                  <div className={`p-1.5 rounded-xl transition-colors ${active ? 'bg-primary/10' : ''}`}>
+                    <item.icon className="w-5 h-5" />
+                  </div>
+                  <span className={`text-[10px] font-bold leading-none ${active ? 'text-primary' : 'text-gray-400'}`}>
+                    {item.label.length > 8 ? item.label.slice(0, 7) + '…' : item.label}
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setShowMoreSheet(true)}
+              className="flex flex-col items-center justify-center gap-0.5 text-gray-400 active:scale-95 transition-colors"
+            >
+              <div className="p-1.5 rounded-xl">
+                <Menu className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-bold leading-none">Mais</span>
+            </button>
+          </div>
+        </nav>
+      )}
+
+      {/* ── MOBILE "MAIS" BOTTOM SHEET ──────────────────── */}
+      <AnimatePresence>
+        {isMobile && showMoreSheet && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMoreSheet(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+              className="relative bg-white rounded-t-3xl max-h-[85vh] flex flex-col"
+            >
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-gray-200" />
+              </div>
+
+              {/* Profile row */}
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                <div className="w-11 h-11 rounded-2xl bg-gray-100 overflow-hidden shrink-0">
+                  {profile.photo_url ? <img src={profile.photo_url} alt="" className="w-full h-full object-cover" /> : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400"><UserIcon className="w-5 h-5" /></div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">{profile.name}</p>
+                  <p className="text-xs text-gray-400 font-medium capitalize">{profile.role}</p>
+                </div>
+                <button onClick={() => setShowMoreSheet(false)} className="ml-auto p-2 rounded-full bg-gray-100 text-gray-500">
+                  <CloseIcon className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* All navigation items */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="grid grid-cols-3 gap-3">
+                  {navigationItems.map((item) => {
+                    const active = currentView === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => { setCurrentView(item.id); setShowMoreSheet(false); }}
+                        className={`flex flex-col items-center gap-2 p-3.5 rounded-2xl transition-all active:scale-95 ${
+                          active ? 'bg-primary/10 text-primary' : 'bg-gray-50 text-gray-600 active:bg-gray-100'
+                        }`}
+                      >
+                        <item.icon className="w-5 h-5" />
+                        <span className="text-[11px] font-bold text-center leading-tight">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Footer actions */}
+              <div className="p-4 border-t border-gray-100 pb-safe flex gap-2">
+                <button onClick={() => { setCurrentView('profile'); setShowMoreSheet(false); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gray-100 text-gray-700 font-bold text-sm active:bg-gray-200">
+                  <UserIcon className="w-4 h-4" />
+                  Meu Perfil
+                </button>
+                <button onClick={() => supabase.auth.signOut()}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm active:bg-red-100">
+                  <LogOut className="w-4 h-4" />
+                  Sair
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Global Search Modal */}
       <AnimatePresence>

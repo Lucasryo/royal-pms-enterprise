@@ -304,15 +304,15 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
   })();
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-4 md:space-y-8 pb-12">
       {/* Header Summary */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-gray-900">{greeting}, {profile.name.split(' ')[0]}!</h1>
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight text-gray-900">{greeting}, {profile.name.split(' ')[0]}!</h1>
           <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">Visao Geral do Operacional • {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
         <div className="flex gap-2">
-           <div className="px-4 py-2 bg-white border border-gray-200 rounded-xl shadow-sm flex items-center gap-2">
+           <div className="px-3 py-1.5 md:px-4 md:py-2 bg-white border border-gray-200 rounded-xl shadow-sm flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
               <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Banco de Dados (.txt) Conectado</span>
            </div>
@@ -321,7 +321,7 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
 
       {/* Hero Stats */}
       {canSeeStats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
           <StatCard
             label="Ocupacao Atual"
             value={`${occupancyPct}%`}
@@ -383,11 +383,11 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8">
         <div className="lg:col-span-2 space-y-6">
           {canSeeStats && !isBillingProfile && (
-            <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm relative overflow-hidden group">
-              <div className="flex items-center justify-between mb-8">
+            <div className="bg-white p-4 md:p-8 rounded-3xl border border-gray-200 shadow-sm relative overflow-hidden group">
+              <div className="flex items-center justify-between mb-4 md:mb-8">
                 <div>
                   <h3 className="text-lg font-black tracking-tight text-gray-900">Tendencia de Ocupacao</h3>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ultimos 7 dias x Projecao</p>
@@ -532,11 +532,11 @@ function StatCard({ label, value, subtext, icon: Icon, color, trend, onClick }: 
       whileHover={{ y: -4, scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`bg-white p-6 rounded-3xl border border-gray-200 shadow-sm relative group transition-all ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-lg hover:shadow-primary/5' : ''}`}
+      className={`bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-200 shadow-sm relative group transition-all ${onClick ? 'cursor-pointer hover:border-primary hover:shadow-lg hover:shadow-primary/5' : ''}`}
     >
       <div className="flex items-start justify-between">
-        <div className={`p-3 rounded-2xl ${colorMap[color] || colorMap.primary}`}>
-          <Icon className="w-6 h-6" />
+        <div className={`p-2 md:p-3 rounded-xl md:rounded-2xl ${colorMap[color] || colorMap.primary}`}>
+          <Icon className="w-5 h-5 md:w-6 md:h-6" />
         </div>
         {trend && (
           <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-lg ${trend.startsWith('+') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
@@ -545,10 +545,10 @@ function StatCard({ label, value, subtext, icon: Icon, color, trend, onClick }: 
           </div>
         )}
       </div>
-      <div className="mt-6">
-        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{label}</p>
-        <h3 className="text-2xl font-black text-gray-900 tracking-tight">{value}</h3>
-        <p className="text-xs font-bold text-gray-500 mt-1">{subtext}</p>
+      <div className="mt-3 md:mt-6">
+        <p className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+        <h3 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight">{value}</h3>
+        <p className="text-xs font-bold text-gray-500 mt-0.5 md:mt-1">{subtext}</p>
       </div>
     </motion.div>
   );

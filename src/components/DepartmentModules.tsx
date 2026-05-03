@@ -40,7 +40,7 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
         { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
         { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
         { id: 'tariffs', label: 'Tarifas corporativas', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="tariffs" /> },
-        { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
+        { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} allowedTabs={['revenue']} /> },
       ]}
     />
   );
@@ -105,7 +105,7 @@ export function FinanceBillingModuleDashboard({ profile, canManage }: { profile:
           icon: BarChart3,
           render: () => <ScopedEnterprise profile={profile} canManage={canManage} initialTab="receivables" allowedTabs={['receivables', 'forecast']} />,
         },
-        { id: 'fiscal', label: 'Fiscal/BI Pro', icon: ShieldCheck, render: () => <ProfessionalPMSDashboard profile={profile} /> },
+        { id: 'fiscal', label: 'Fiscal/NFS-e', icon: ShieldCheck, render: () => <ProfessionalPMSDashboard profile={profile} allowedTabs={['fiscal']} /> },
       ]}
     />
   );
@@ -146,19 +146,16 @@ export function AdminControlModuleDashboard({ profile, canManage }: { profile: U
     <ModuleShell
       eyebrow="Modulo Admin"
       title="Controle geral do PMS"
-      description="Admin controla tudo: usuarios, permissoes, empresas, tarifas, auditoria, configuracoes, Gestao Pro e operacao enterprise."
+      description="Admin controla tudo: usuarios, permissoes, empresas, auditoria, Gestao Pro e operacao enterprise."
       profile={profile}
       queueDepartment="admin"
       adminQueue
       tabs={[
         { id: 'overview', label: 'Gestao Pro', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
         { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
-        { id: 'enterprise', label: 'Enterprise', icon: Building2, render: () => <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} /> },
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
-        { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
-        { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
-        { id: 'finance', label: 'Financeiro', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="finance" /> },
+        { id: 'enterprise', label: 'Enterprise', icon: Building2, render: () => <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} /> },
         { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
       ]}
     />
@@ -220,7 +217,7 @@ function ModuleShell<T extends string>({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-2xl px-4 py-3 text-xs font-black transition ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-2xl px-3 py-2 md:px-4 md:py-3 text-xs font-black transition ${
                 selected ? 'bg-neutral-950 text-white' : 'bg-neutral-50 text-neutral-500 hover:bg-neutral-100'
               }`}
             >

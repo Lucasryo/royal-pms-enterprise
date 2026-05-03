@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, Reservation, Company, ReservationRequest, FiscalFile, AuditLog } from '../types';
-import { AlertCircle, Building2, CalendarPlus, ChevronLeft, ChevronRight, Check, CheckCircle, Clock, DollarSign, Filter, FileText, Hash, History, Hotel, IdCard, Loader2, LogOut, MoreVertical, Phone, Plus, Printer, Receipt, Search, User, UserPlus, X as CloseIcon, X, XCircle, Calendar, ArrowRightCircle } from 'lucide-react';
+import { AlertCircle, Building2, CalendarPlus, ChevronLeft, ChevronRight, Check, CheckCircle, Clock, DollarSign, Filter, FileText, Hash, History, Hotel, IdCard, Loader2, LogOut, MoreVertical, Pencil, Phone, Plus, Printer, Receipt, Search, User, UserPlus, X as CloseIcon, X, XCircle, Calendar, ArrowRightCircle } from 'lucide-react';
 import ReservationVoucher from './ReservationVoucher';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -116,6 +116,23 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
   const [voucherReservation, setVoucherReservation] = useState<Reservation | null>(null);
   const [historyReservation, setHistoryReservation] = useState<Reservation | null>(null);
   const [cancelReservation, setCancelReservation] = useState<{ reservation: Reservation; reason: string } | null>(null);
+  const [editReservation, setEditReservation] = useState<Reservation | null>(null);
+  const [editFields, setEditFields] = useState({
+    guest_name: '',
+    check_in: '',
+    check_out: '',
+    category: 'executivo',
+    room_number: '',
+    tariff: 0,
+    company_id: '',
+    contact_phone: '',
+    guests_per_uh: 1,
+    billing_obs: '',
+    cost_center: '',
+    fiscal_data: '',
+    payment_method: 'BILLED' as 'BILLED' | 'VIRTUAL_CARD',
+  });
+  const [physicalRoomsForEdit, setPhysicalRoomsForEdit] = useState<Array<{ id: string; room_number: string; category: string }>>([]);
   const canCreateReservation = hasPermission(profile, 'canCreateReservations', ['admin', 'reservations']);
   const canEditReservation = hasPermission(profile, 'canEditReservations', ['admin', 'reservations']);
   const canCancelReservation = hasPermission(profile, 'canCancelReservations', ['admin', 'reservations']);
@@ -432,6 +449,65 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     }
   };
 
+  async function handleOpenEdit(reservation: Reservation) {
+    setEditFields({
+      guest_name: reservation.guest_name,
+      check_in: reservation.check_in,
+      check_out: reservation.check_out,
+      category: reservation.category,
+      room_number: reservation.room_number || '',
+      tariff: reservation.tariff || 0,
+      company_id: reservation.company_id || '',
+      contact_phone: reservation.contact_phone || '',
+      guests_per_uh: reservation.guests_per_uh || 1,
+      billing_obs: reservation.billing_obs || '',
+      cost_center: reservation.cost_center || '',
+      fiscal_data: reservation.fiscal_data || '',
+      payment_method: reservation.payment_method || 'BILLED',
+    });
+    setEditReservation(reservation);
+    if (physicalRoomsForEdit.length === 0) {
+      const { data } = await supabase.from('rooms').select('id,room_number,category').eq('is_virtual', false);
+      if (data) setPhysicalRoomsForEdit(data as Array<{ id: string; room_number: string; category: string }>);
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!editReservation) return;
+    if (!editFields.guest_name.trim()) { toast.error('Nome do hóspede obrigatório.'); return; }
+    if (editFields.check_out <= editFields.check_in) { toast.error('Data de checkout deve ser posterior ao check-in.'); return; }
+    const nights = Math.max(1, Math.round(
+      (new Date(editFields.check_out).getTime() - new Date(editFields.check_in).getTime()) / 86400000
+    ));
+    const { error } = await supabase.from('reservations').update({
+      guest_name: editFields.guest_name,
+      check_in: editFields.check_in,
+      check_out: editFields.check_out,
+      category: editFields.category,
+      room_number: editFields.room_number || null,
+      tariff: editFields.tariff,
+      total_amount: nights * (editFields.tariff || 0),
+      company_id: editFields.company_id || null,
+      contact_phone: editFields.contact_phone,
+      guests_per_uh: editFields.guests_per_uh,
+      billing_obs: editFields.billing_obs || null,
+      cost_center: editFields.cost_center,
+      fiscal_data: editFields.fiscal_data || null,
+      payment_method: editFields.payment_method,
+    }).eq('id', editReservation.id);
+    if (error) { toast.error('Erro ao salvar: ' + error.message); return; }
+    await logAudit({
+      user_id: profile.id,
+      user_name: profile.name,
+      action: `Reserva ${editReservation.reservation_code} editada`,
+      details: `Editada por ${profile.name}`,
+      type: 'update',
+    });
+    toast.success('Reserva atualizada com sucesso.');
+    setEditReservation(null);
+    fetchData();
+  }
+
   const handleCheckoutReservation = async (reservation: Reservation) => {
     if (reservation.status !== 'CHECKED_IN') {
       toast.error('O faturamento só pode ser iniciado depois que a reserva estiver em hospedagem.');
@@ -508,12 +584,21 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         .eq('id', reservation.id);
 
       const companyUsers = users.filter(u => u.company_id === reservation.company_id);
-      for (const user of companyUsers) {
+      for (const u of companyUsers) {
         await sendNotification({
-          user_id: user.id,
+          user_id: u.id,
           title: 'Fatura Gerada no Checkout',
           message: `A reserva ${reservation.reservation_code} foi faturada e o documento já está disponível no portal.`,
           link: '/dashboard'
+        });
+        await supabase.functions.invoke('send-push-notification', {
+          body: {
+            user_id: u.id,
+            title: 'Checkout Realizado',
+            message: `Reserva ${reservation.reservation_code} encerrada. Fatura disponível no portal.`,
+            link: '/dashboard',
+            tag: `checkout-${reservation.id}`,
+          },
         });
       }
 
@@ -562,7 +647,28 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         cancel_reason: reason.trim() || 'Cancelamento sem custo a pedido do hóspede',
       }).eq('reservation_code', reservation.reservation_code);
 
-      await logAudit(supabase, profile, 'update', `Reserva ${reservation.reservation_code} cancelada sem custo. Motivo: ${reason.trim() || 'Não informado'}`);
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: `Reserva ${reservation.reservation_code} cancelada sem custo`,
+        details: `Motivo: ${reason.trim() || 'Não informado'}`,
+        type: 'update',
+      });
+
+      const cancelMsg = `Reserva ${reservation.reservation_code} cancelada. Motivo: ${reason.trim() || 'Não informado'}.`;
+      const companyUsersForCancel = users.filter(u => u.company_id === reservation.company_id);
+      for (const u of companyUsersForCancel) {
+        await supabase.functions.invoke('send-push-notification', {
+          body: {
+            user_id: u.id,
+            title: 'Reserva Cancelada',
+            message: cancelMsg,
+            link: '/dashboard',
+            tag: `cancel-${reservation.id}`,
+          },
+        });
+      }
+
       toast.success(`Reserva ${reservation.reservation_code} cancelada sem custo.`);
       fetchData();
     } catch (err: any) {
@@ -1088,8 +1194,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           </div>
           </>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
+          <div className="mobile-card-list overflow-x-auto">
+            <table className="w-full text-left sm:min-w-[640px]">
               <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-4">Ref/Quarto</th>
@@ -1108,7 +1214,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                   </tr>
                 ) : filteredReservations.map(res => (
                   <tr key={res.id} className="hover:bg-neutral-50 transition-colors">
-                    <td className="px-6 py-4">
+                    <td data-label="Ref/Quarto" className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-neutral-400 uppercase leading-none mb-1">{res.reservation_code}</span>
                         <div className="flex items-center gap-2">
@@ -1117,13 +1223,13 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Hospede" className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-neutral-900">{res.guest_name}</span>
                         <span className="text-[10px] text-neutral-400 uppercase font-medium">{res.category}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Estadia" className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col">
                           <span className="text-[10px] text-neutral-400 font-bold uppercase">In</span>
@@ -1136,17 +1242,17 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Empresa" className="px-6 py-4">
                       <span className="text-xs text-neutral-600">
                         {companies.find(c => c.id === res.company_id)?.name || 'Particular'}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${statusColors[res.status]}`}>
-                        {statusLabels[res.status]}
+                    <td data-label="Status" className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase ${statusColors[res.status as keyof typeof statusColors]}`}>
+                        {statusLabels[res.status as keyof typeof statusLabels]}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td data-label="Fluxo" className="px-6 py-4">
                       {(() => {
                         const flow = getReservationFlow(res);
                         const transitionIssue = getTransitionIssue(res);
@@ -1171,7 +1277,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         );
                       })()}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td data-label="Acoes" className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {isReservationLockedByFinance(res) && (
                           <span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold uppercase text-amber-700">
@@ -1185,6 +1291,15 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                         >
                           <History className="w-4 h-4" />
                         </button>
+                        {canEditReservation && (res.status === 'PENDING' || res.status === 'CONFIRMED') && (
+                          <button
+                            onClick={() => handleOpenEdit(res)}
+                            className="p-2 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="Editar reserva"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setVoucherReservation(res)}
                           className="p-2 text-neutral-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
@@ -1347,6 +1462,176 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                     Confirmar cancelamento
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editReservation && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-white w-full max-w-2xl max-h-[92vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-5 border-b border-neutral-100 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-base font-bold text-neutral-900">Editar reserva {editReservation.reservation_code}</h3>
+                </div>
+                <button onClick={() => setEditReservation(null)} className="p-2 hover:bg-neutral-100 rounded-full">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-5 space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Hóspede principal *</label>
+                    <input
+                      type="text"
+                      value={editFields.guest_name}
+                      onChange={(e) => setEditFields({ ...editFields, guest_name: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Empresa</label>
+                    <select
+                      value={editFields.company_id}
+                      onChange={(e) => setEditFields({ ...editFields, company_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">Particular</option>
+                      {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Check-in</label>
+                    <input
+                      type="date"
+                      value={editFields.check_in}
+                      onChange={(e) => setEditFields({ ...editFields, check_in: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Check-out</label>
+                    <input
+                      type="date"
+                      value={editFields.check_out}
+                      onChange={(e) => setEditFields({ ...editFields, check_out: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Categoria</label>
+                    <select
+                      value={editFields.category}
+                      onChange={(e) => setEditFields({ ...editFields, category: e.target.value, room_number: '' })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="executivo">Executivo</option>
+                      <option value="master">Master</option>
+                      <option value="suite presidencial">Suite presidencial</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">UH (quarto)</label>
+                    <select
+                      value={editFields.room_number}
+                      onChange={(e) => setEditFields({ ...editFields, room_number: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="">— A definir no check-in —</option>
+                      {physicalRoomsForEdit
+                        .filter((r) => r.category === editFields.category)
+                        .map((r) => <option key={r.id} value={r.room_number}>{r.room_number}</option>)
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Diária (R$)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editFields.tariff}
+                      onChange={(e) => setEditFields({ ...editFields, tariff: Number(e.target.value) })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Hóspedes/UH</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editFields.guests_per_uh}
+                      onChange={(e) => setEditFields({ ...editFields, guests_per_uh: Number(e.target.value) })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Telefone de contato</label>
+                    <input
+                      type="text"
+                      value={editFields.contact_phone}
+                      onChange={(e) => setEditFields({ ...editFields, contact_phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 mb-1">Forma de pagamento</label>
+                    <select
+                      value={editFields.payment_method}
+                      onChange={(e) => setEditFields({ ...editFields, payment_method: e.target.value as 'BILLED' | 'VIRTUAL_CARD' })}
+                      className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="BILLED">Faturado</option>
+                      <option value="VIRTUAL_CARD">Cartão virtual</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-neutral-500 mb-1">Centro de custo</label>
+                  <input
+                    type="text"
+                    value={editFields.cost_center}
+                    onChange={(e) => setEditFields({ ...editFields, cost_center: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-neutral-500 mb-1">Observação de faturamento</label>
+                  <textarea
+                    rows={2}
+                    value={editFields.billing_obs}
+                    onChange={(e) => setEditFields({ ...editFields, billing_obs: e.target.value })}
+                    className="w-full px-3 py-2 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                  />
+                </div>
+              </div>
+              <div className="p-5 border-t border-neutral-100 flex justify-end gap-2">
+                <button
+                  onClick={() => setEditReservation(null)}
+                  className="px-4 py-2 text-sm font-bold text-neutral-600 hover:bg-neutral-100 rounded-xl transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-5 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Salvar alterações
+                </button>
               </div>
             </motion.div>
           </div>

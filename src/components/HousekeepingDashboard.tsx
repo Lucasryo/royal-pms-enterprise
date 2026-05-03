@@ -94,8 +94,8 @@ export default function HousekeepingDashboard({ profile }: { profile: UserProfil
   }
 
   const physicalRooms = rooms.filter((room) => !room.is_virtual);
-  const floors = Array.from(new Set(physicalRooms.map((room) => Number(room.floor)))).sort(
-    (a: number, b: number) => a - b,
+  const floors = (Array.from(new Set(physicalRooms.map((room) => Number(room.floor)))) as number[]).sort(
+    (a, b) => a - b,
   );
 
   const stats = {

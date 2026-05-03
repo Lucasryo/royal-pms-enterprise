@@ -37,7 +37,7 @@ const formatAuditDetails = (details: unknown) => {
 
 export default function AdminDashboard({ profile, initialTab = 'documents' }: { 
   profile: UserProfile, 
-  initialTab?: 'documents' | 'banks' | 'finance' | 'assembly' | 'bi' | 'tariffs' | 'companies' | 'users' | 'guests' | 'stats' | 'tracking' | 'registration'
+  initialTab?: 'documents' | 'banks' | 'finance' | 'assembly' | 'tariffs' | 'companies' | 'users' | 'guests' | 'stats' | 'tracking' | 'registration'
 }) {
   const isFinancePowerUser = profile.role === 'admin' || profile.role === 'finance';
   const isBillingOperator = profile.role === 'faturamento';
@@ -1420,7 +1420,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         </div>
       )}
 
-      {((profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'reservations' || profile.permissions?.canViewTariffs) && ['documents', 'banks', 'finance', 'bi', 'assembly', 'tariffs', 'registration', 'companies', 'users'].includes(initialTab)) && (
+      {((profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'reservations' || profile.permissions?.canViewTariffs) && ['documents', 'banks', 'finance', 'assembly', 'tariffs', 'registration', 'companies', 'users'].includes(initialTab)) && (
       <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit mb-6">
         {/* Sub-tabs for main "Finance" context */}
         {initialTab === 'finance' && (
@@ -1573,7 +1573,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select
                 value={fileType}
                 onChange={(e) => setFileType(e.target.value as any)}
@@ -1820,7 +1820,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left min-w-[560px]">
               <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3 font-medium w-10">
@@ -2194,7 +2194,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 onChange={(e) => setNewUserPassword(e.target.value)}
                 className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <select
                   value={newUserRole}
                   onChange={(e) => {
@@ -2687,7 +2687,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left min-w-[560px]">
               <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3">Empresa</th>
@@ -3148,162 +3148,6 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           </div>
         )}
       </motion.div>
-    ) : activeTab === 'bi' ? (
-      <motion.div
-        key="bi"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        className="space-y-8"
-      >
-        {/* BI Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <Receipt className="w-5 h-5 text-blue-600" />
-              </div>
-              <span className="text-xs font-bold text-neutral-500 uppercase">Ticket MÃ©dio Geral</span>
-            </div>
-            <p className="text-2xl font-bold text-neutral-900">
-              {(financeStats.biData.reduce((acc, curr) => acc + curr.avgTicket, 0) / (financeStats.biData.length || 1)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </p>
-            <p className="text-[10px] text-neutral-500 mt-1">MÃ©dia ponderada por empresa</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-amber-50 rounded-lg">
-                <Clock className="w-5 h-5 text-amber-600" />
-              </div>
-              <span className="text-xs font-bold text-neutral-500 uppercase">Lead Time MÃ©dio</span>
-            </div>
-            <p className="text-2xl font-bold text-neutral-900">
-              {(financeStats.biData.reduce((acc, curr) => acc + curr.avgLeadTime, 0) / (financeStats.biData.length || 1)).toFixed(1)} dias
-            </p>
-            <p className="text-[10px] text-neutral-500 mt-1">Tempo mÃ©dio para liquidaÃ§Ã£o</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-green-50 rounded-lg">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              </div>
-              <span className="text-xs font-bold text-neutral-500 uppercase">Taxa de AdimplÃªncia</span>
-            </div>
-            <p className="text-2xl font-bold text-green-600">
-              {(financeStats.biData.reduce((acc, curr) => acc + curr.paymentRate, 0) / (financeStats.biData.length || 1)).toFixed(1)}%
-            </p>
-            <p className="text-[10px] text-green-500 mt-1">MÃ©dia de faturas pagas</p>
-          </div>
-        </div>
-
-        {/* BI Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-6">
-              <BarChartIcon className="w-5 h-5 text-neutral-900" />
-              <h3 className="font-bold text-neutral-900">Ticket MÃ©dio por Empresa</h3>
-            </div>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={financeStats.biData.slice(0, 10)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
-                  <XAxis type="number" fontSize={10} hide />
-                  <YAxis dataKey="name" type="category" fontSize={10} width={100} tickLine={false} axisLine={false} />
-                  <Tooltip 
-                    formatter={(value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="avgTicket" name="Ticket MÃ©dio" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-6">
-              <Clock className="w-5 h-5 text-neutral-900" />
-              <h3 className="font-bold text-neutral-900">Lead Time de Pagamento (Dias)</h3>
-            </div>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={financeStats.biData.slice(0, 10)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
-                  <XAxis type="number" fontSize={10} hide />
-                  <YAxis dataKey="name" type="category" fontSize={10} width={100} tickLine={false} axisLine={false} />
-                  <Tooltip 
-                    formatter={(value: number) => `${value.toFixed(1)} dias`}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="avgLeadTime" name="Lead Time MÃ©dio" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        {/* BI Table */}
-        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-neutral-100">
-            <h3 className="font-bold text-neutral-900">Ranking de Performance por Cliente</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
-                <tr>
-                  <th className="px-6 py-3">Empresa</th>
-                  <th className="px-6 py-3 text-right">Ticket MÃ©dio</th>
-                  <th className="px-6 py-3 text-right">Faturamento Pago</th>
-                  <th className="px-6 py-3 text-center">Lead Time</th>
-                  <th className="px-6 py-3 text-center">AdimplÃªncia</th>
-                  <th className="px-6 py-3 text-center">Status BI</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {financeStats.biData.map(item => (
-                  <tr key={item.id} className="hover:bg-neutral-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-neutral-900">{item.name}</div>
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm text-neutral-600">
-                      {item.avgTicket.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-bold text-green-600">
-                      {item.totalPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <span className={`text-sm font-medium ${item.avgLeadTime > 5 ? 'text-red-600' : item.avgLeadTime > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                        {item.avgLeadTime.toFixed(1)} dias
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="w-16 bg-neutral-100 h-1.5 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full transition-all ${item.paymentRate > 90 ? 'bg-green-500' : item.paymentRate > 70 ? 'bg-amber-500' : 'bg-red-500'}`}
-                            style={{ width: `${item.paymentRate}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold text-neutral-600">{item.paymentRate.toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {item.paymentRate > 90 && item.avgLeadTime <= 2 ? (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold uppercase">Excelente</span>
-                      ) : item.paymentRate < 70 || item.avgLeadTime > 7 ? (
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-bold uppercase">Risco</span>
-                      ) : (
-                        <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold uppercase">AtenÃ§Ã£o</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </motion.div>
     ) : activeTab === 'tariffs' ? (
       <motion.div
         key="tariffs"
@@ -3357,7 +3201,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         exit={{ opacity: 0, y: -20 }}
         className="space-y-8"
       >
-        <div className="bg-white p-8 rounded-2xl border border-neutral-200 shadow-sm">
+        <div className="bg-white p-4 sm:p-8 rounded-2xl border border-neutral-200 shadow-sm">
           <div className="flex items-center gap-3 mb-8">
             <div className="p-3 bg-neutral-900 rounded-xl">
               <Layers className="w-6 h-6 text-white" />
@@ -3410,7 +3254,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Valor Total</label>
                   <div className="relative">

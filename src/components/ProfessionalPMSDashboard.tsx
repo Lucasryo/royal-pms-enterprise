@@ -1,12 +1,9 @@
-import { ComponentType, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { ComponentType, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { MaintenanceTicket, Reservation, Room, UserProfile } from '../types';
 import { hasPermission } from '../lib/permissions';
 import { logAudit } from '../lib/audit';
 import {
-  BadgeCheck,
-  BarChart3,
-  CalendarRange,
   ClipboardCheck,
   CreditCard,
   FileWarning,
@@ -21,7 +18,7 @@ import {
 import { toast } from 'sonner';
 import EnterpriseExtensionsDashboard from './EnterpriseExtensionsDashboard';
 
-type ProTab = 'night-audit' | 'revenue' | 'fiscal' | 'crm' | 'inventory' | 'cash' | 'guest-portal' | 'reports' | 'enterprise';
+type ProTab = 'night-audit' | 'revenue' | 'fiscal' | 'crm' | 'inventory' | 'cash' | 'guest-portal' | 'enterprise';
 
 type NightAudit = {
   id: string;
@@ -129,16 +126,18 @@ const tabs: Array<{ id: ProTab; label: string; icon: ComponentType<{ className?:
   { id: 'inventory', label: 'Estoque', icon: PackageCheck },
   { id: 'cash', label: 'Caixa POS', icon: CreditCard },
   { id: 'guest-portal', label: 'Portal Hospede', icon: Sparkles },
-  { id: 'reports', label: 'Relatorios', icon: BarChart3 },
   { id: 'enterprise', label: 'Enterprise', icon: Star },
 ];
 
 const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export default function ProfessionalPMSDashboard({ profile }: { profile: UserProfile }) {
+export default function ProfessionalPMSDashboard({ profile, allowedTabs }: { profile: UserProfile; allowedTabs?: ProTab[] }) {
   const canManage = hasPermission(profile, 'canManageProfessionalTools', ['admin', 'manager', 'finance', 'faturamento']);
-  const [activeTab, setActiveTab] = useState<ProTab>('night-audit');
+  const visibleTabs = allowedTabs ? tabs.filter((t) => allowedTabs.includes(t.id)) : tabs;
+  const [activeTab, setActiveTab] = useState<ProTab>(visibleTabs[0]?.id ?? 'night-audit');
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
+  const loadedTabs = useRef<Set<ProTab>>(new Set());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
@@ -151,38 +150,71 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
   const [cashSessions, setCashSessions] = useState<CashSession[]>([]);
   const [guestRequests, setGuestRequests] = useState<GuestServiceRequest[]>([]);
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchSummary(); fetchTabData(activeTab); }, []);
 
-  async function fetchAll() {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!loadedTabs.current.has(activeTab)) fetchTabData(activeTab); }, [activeTab]);
+
+  async function fetchSummary() {
     setLoading(true);
-    const [res, room, ticket, audit, rules, competitorRes, fiscal, guests, stock, cash, requests] = await Promise.all([
+    const [res, room, ticket, stock, fiscal] = await Promise.all([
       supabase.from('reservations').select('*'),
       supabase.from('rooms').select('*'),
       supabase.from('maintenance_tickets').select('*'),
-      supabase.from('night_audits').select('*').order('audit_date', { ascending: false }).limit(20),
-      supabase.from('rate_rules').select('*').order('start_date', { ascending: false }),
-      supabase.from('rate_shopper_competitors').select('*').order('last_checked_at', { ascending: false }),
-      supabase.from('fiscal_jobs').select('*').order('created_at', { ascending: false }).limit(30),
-      supabase.from('guest_profiles').select('*').order('full_name'),
       supabase.from('inventory_items').select('*').order('department').order('name'),
-      supabase.from('cash_sessions').select('*').order('opened_at', { ascending: false }).limit(20),
-      supabase.from('guest_service_requests').select('*').order('created_at', { ascending: false }).limit(30),
+      supabase.from('fiscal_jobs').select('*').order('created_at', { ascending: false }).limit(30),
     ]);
-
     if (res.data) setReservations(res.data as Reservation[]);
     if (room.data) setRooms(room.data as Room[]);
     if (ticket.data) setTickets(ticket.data as MaintenanceTicket[]);
-    if (audit.data) setNightAudits(audit.data as NightAudit[]);
-    if (rules.data) setRateRules(rules.data as RateRule[]);
-    if (competitorRes.data) setCompetitors(competitorRes.data as RateShopperCompetitor[]);
-    if (fiscal.data) setFiscalJobs(fiscal.data as FiscalJob[]);
-    if (guests.data) setGuestProfiles(guests.data as GuestProfile[]);
     if (stock.data) setInventory(stock.data as InventoryItem[]);
-    if (cash.data) setCashSessions(cash.data as CashSession[]);
-    if (requests.data) setGuestRequests(requests.data as GuestServiceRequest[]);
+    if (fiscal.data) setFiscalJobs(fiscal.data as FiscalJob[]);
     setLoading(false);
+  }
+
+  async function fetchTabData(tab: ProTab) {
+    setTabLoading(true);
+    switch (tab) {
+      case 'night-audit': {
+        const { data } = await supabase.from('night_audits').select('*').order('audit_date', { ascending: false }).limit(20);
+        if (data) setNightAudits(data as NightAudit[]);
+        break;
+      }
+      case 'revenue': {
+        const [rules, competitorRes] = await Promise.all([
+          supabase.from('rate_rules').select('*').order('start_date', { ascending: false }),
+          supabase.from('rate_shopper_competitors').select('*').order('last_checked_at', { ascending: false }),
+        ]);
+        if (rules.data) setRateRules(rules.data as RateRule[]);
+        if (competitorRes.data) setCompetitors(competitorRes.data as RateShopperCompetitor[]);
+        break;
+      }
+      case 'crm': {
+        const { data } = await supabase.from('guest_profiles').select('*').order('full_name');
+        if (data) setGuestProfiles(data as GuestProfile[]);
+        break;
+      }
+      case 'cash': {
+        const { data } = await supabase.from('cash_sessions').select('*').order('opened_at', { ascending: false }).limit(20);
+        if (data) setCashSessions(data as CashSession[]);
+        break;
+      }
+      case 'guest-portal': {
+        const { data } = await supabase.from('guest_service_requests').select('*').order('created_at', { ascending: false }).limit(30);
+        if (data) setGuestRequests(data as GuestServiceRequest[]);
+        break;
+      }
+      // 'fiscal', 'inventory', 'enterprise': data comes from fetchSummary or is self-contained
+    }
+    loadedTabs.current.add(tab);
+    setTabLoading(false);
+  }
+
+  function refreshData() {
+    loadedTabs.current.delete(activeTab);
+    fetchSummary();
+    fetchTabData(activeTab);
   }
 
   const checkedIn = reservations.filter((reservation) => reservation.status === 'CHECKED_IN');
@@ -213,16 +245,16 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
   }
 
   return (
-    <div className="space-y-8 pb-12">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-4 md:space-y-8 pb-12">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.28em] text-amber-600">Prioridades altas e medias</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-neutral-950">Gestao Pro do PMS</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500">
+          <h1 className="mt-1 text-2xl md:text-3xl font-black tracking-tight text-neutral-950">Gestao Pro do PMS</h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500 hidden md:block">
             Auditoria noturna, revenue, fiscal, CRM, estoque, caixa, portal do hospede e relatorios executivos em uma unica central.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 md:gap-3 md:grid-cols-4">
           <Metric label="Ocupacao" value={`${occupancyRate}%`} />
           <Metric label="Receita" value={money(roomRevenue)} />
           <Metric label="Baixo estoque" value={String(lowStock.length)} />
@@ -231,14 +263,14 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-2xl px-4 py-3 text-xs font-black transition ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-2xl px-3 py-2 md:px-4 md:py-3 text-xs font-black transition ${
                 active ? 'bg-neutral-950 text-white' : 'bg-neutral-50 text-neutral-500 hover:bg-neutral-100'
               }`}
             >
@@ -249,6 +281,12 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
         })}
       </div>
 
+      {tabLoading && (
+        <div className="flex items-center gap-2 rounded-2xl bg-neutral-50 px-4 py-3 text-xs font-bold text-neutral-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Carregando...
+        </div>
+      )}
       {activeTab === 'night-audit' && (
         <NightAuditPanel
           canManage={canManage}
@@ -257,7 +295,7 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
           occupancyRate={occupancyRate}
           roomRevenue={roomRevenue}
           pendingItems={openFiscal.length + openTickets.length}
-          onSaved={fetchAll}
+          onSaved={refreshData}
         />
       )}
       {activeTab === 'revenue' && (
@@ -269,25 +307,14 @@ export default function ProfessionalPMSDashboard({ profile }: { profile: UserPro
           categoryAvailability={categoryAvailability}
           checkedIn={checkedIn.length}
           totalRooms={physicalRooms.length}
-          onSaved={fetchAll}
+          onSaved={refreshData}
         />
       )}
-      {activeTab === 'fiscal' && <FiscalPanel canManage={canManage} jobs={fiscalJobs} reservations={reservations} onSaved={fetchAll} />}
-      {activeTab === 'crm' && <CrmPanel canManage={canManage} guests={guestProfiles} onSaved={fetchAll} />}
-      {activeTab === 'inventory' && <InventoryPanel canManage={canManage} items={inventory} onSaved={fetchAll} />}
-      {activeTab === 'cash' && <CashPanel canManage={canManage} sessions={cashSessions} profile={profile} onSaved={fetchAll} />}
-      {activeTab === 'guest-portal' && <GuestPortalPanel canManage={canManage} requests={guestRequests} onSaved={fetchAll} />}
-      {activeTab === 'reports' && (
-        <ReportsPanel
-          rooms={physicalRooms}
-          reservations={reservations}
-          fiscalJobs={fiscalJobs}
-          inventory={inventory}
-          tickets={tickets}
-          occupancyRate={occupancyRate}
-          roomRevenue={roomRevenue}
-        />
-      )}
+      {activeTab === 'fiscal' && <FiscalPanel canManage={canManage} jobs={fiscalJobs} reservations={reservations} onSaved={refreshData} />}
+      {activeTab === 'crm' && <CrmPanel canManage={canManage} guests={guestProfiles} onSaved={refreshData} />}
+      {activeTab === 'inventory' && <InventoryPanel canManage={canManage} items={inventory} onSaved={refreshData} />}
+      {activeTab === 'cash' && <CashPanel canManage={canManage} sessions={cashSessions} profile={profile} onSaved={refreshData} />}
+      {activeTab === 'guest-portal' && <GuestPortalPanel canManage={canManage} requests={guestRequests} onSaved={refreshData} />}
       {activeTab === 'enterprise' && <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} />}
     </div>
   );
@@ -796,42 +823,12 @@ function GuestPortalPanel({ canManage, requests, onSaved }: { canManage: boolean
   );
 }
 
-function ReportsPanel({
-  rooms,
-  reservations,
-  fiscalJobs,
-  inventory,
-  tickets,
-  occupancyRate,
-  roomRevenue,
-}: {
-  rooms: Room[];
-  reservations: Reservation[];
-  fiscalJobs: FiscalJob[];
-  inventory: InventoryItem[];
-  tickets: MaintenanceTicket[];
-  occupancyRate: number;
-  roomRevenue: number;
-}) {
-  const adr = reservations.length ? roomRevenue / reservations.length : 0;
-  const revpar = rooms.length ? roomRevenue / rooms.length : 0;
-  return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <ReportCard title="Ocupacao" value={`${occupancyRate}%`} detail="Base UHs fisicas" icon={CalendarRange} />
-      <ReportCard title="ADR" value={money(adr)} detail="Diaria media simplificada" icon={TrendingUp} />
-      <ReportCard title="RevPAR" value={money(revpar)} detail="Receita por UH disponivel" icon={BadgeCheck} />
-      <ReportCard title="Fiscal pendente" value={String(fiscalJobs.filter((job) => job.status === 'pending' || job.status === 'error').length)} detail="Fila NFS-e/RPS" icon={FileWarning} />
-      <ReportCard title="Estoque critico" value={String(inventory.filter((item) => Number(item.quantity) <= Number(item.min_quantity)).length)} detail="Itens abaixo do minimo" icon={PackageCheck} />
-      <ReportCard title="Chamados ativos" value={String(tickets.filter((ticket) => ticket.status === 'open' || ticket.status === 'in_progress').length)} detail="Manutencao e SLA" icon={Star} />
-    </div>
-  );
-}
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-neutral-200 bg-white px-5 py-4 shadow-sm">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
-      <p className="mt-2 text-xl font-black text-neutral-950">{value}</p>
+    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 md:px-5 md:py-4 shadow-sm">
+      <p className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
+      <p className="mt-1 text-lg md:text-xl font-black text-neutral-950">{value}</p>
     </div>
   );
 }
@@ -855,18 +852,6 @@ function Row({ title, meta, danger = false }: { title: string; meta: string; dan
   );
 }
 
-function ReportCard({ title, value, detail, icon: Icon }: { title: string; value: string; detail: string; icon: ComponentType<{ className?: string }> }) {
-  return (
-    <div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <Icon className="h-6 w-6 text-amber-700" />
-        <p className="text-2xl font-black text-neutral-950">{value}</p>
-      </div>
-      <p className="mt-5 text-sm font-black text-neutral-950">{title}</p>
-      <p className="mt-1 text-xs text-neutral-500">{detail}</p>
-    </div>
-  );
-}
 
 function Empty({ label }: { label: string }) {
   return (

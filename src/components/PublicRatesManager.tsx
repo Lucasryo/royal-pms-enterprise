@@ -415,8 +415,8 @@ export default function PublicRatesManager({ profile }: { profile: UserProfile }
               <p className="text-xs font-black uppercase tracking-[0.24em] text-neutral-500">
                 {CATEGORY_LABELS[cat]} <span className="text-neutral-400">· {list.length} tarifa(s)</span>
               </p>
-              <div className="mt-3 overflow-hidden rounded-2xl border border-neutral-200">
-                <table className="w-full text-sm">
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-neutral-200">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead className="bg-neutral-50 text-[10px] font-black uppercase tracking-widest text-neutral-500">
                     <tr>
                       <th className="px-4 py-3 text-left">Rotulo</th>

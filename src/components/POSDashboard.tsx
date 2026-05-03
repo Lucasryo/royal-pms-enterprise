@@ -305,7 +305,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
             Registre vendas diretas ou lance automaticamente itens de alimento e bebida na conta corrente da hospedagem.
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Metric label="Itens ativos" value={menuItems.length} />
           <Metric label="Hospedes in-house" value={reservations.length} />
           <Metric label="Pedidos hoje" value={orders.filter((order) => order.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length} />
@@ -332,7 +332,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-black text-neutral-950">{item.name}</p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-neutral-400">{categoryLabels[item.category]}</p>
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-neutral-400">{categoryLabels[item.category as keyof typeof categoryLabels]}</p>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-700 shadow-sm">
                       {item.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -594,7 +594,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-bold text-neutral-900">{order.guest_name || 'Cliente avulso'}</p>
-                      <p className="mt-1 text-xs text-neutral-500">{order.room_number ? `UH ${order.room_number}` : paymentLabels[order.payment_method]}</p>
+                      <p className="mt-1 text-xs text-neutral-500">{order.room_number ? `UH ${order.room_number}` : paymentLabels[order.payment_method as keyof typeof paymentLabels]}</p>
                     </div>
                     <p className="text-sm font-black text-neutral-950">{Number(order.subtotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                   </div>
@@ -603,7 +603,7 @@ export default function POSDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.entries(categorySummary).map(([category, count]) => (
               <div key={category} className="rounded-3xl border border-neutral-200 bg-white p-5">
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-400">{categoryLabels[category as PosMenuItem['category']]}</p>

@@ -20,7 +20,7 @@ export default function PermissionsSelector({ permissions, onChange, role }: Per
   };
 
   const handleLoadDefaults = () => {
-    onChange(DEFAULT_PERMISSIONS[role] || DEFAULT_PERMISSIONS.client);
+    onChange(DEFAULT_PERMISSIONS[role as keyof typeof DEFAULT_PERMISSIONS] || DEFAULT_PERMISSIONS.client);
   };
 
   const permissionGroups = [

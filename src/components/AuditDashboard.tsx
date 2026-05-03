@@ -215,7 +215,7 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm min-w-[560px]">
               <thead className="bg-neutral-50 border-b border-neutral-100">
                 <tr>
                   <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-neutral-400">Data / Hora</th>

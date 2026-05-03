@@ -613,7 +613,7 @@ function DetailModal({
                     <p className="font-bold text-neutral-900">{r.guest_name || '—'}</p>
                     <div className="flex items-center gap-2">
                       <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-stone-700">
-                        {CATEGORY_SHORT[r.cat]}
+                        {CATEGORY_SHORT[r.cat as keyof typeof CATEGORY_SHORT]}
                       </span>
                       <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
                         r.status === 'CHECKED_IN'

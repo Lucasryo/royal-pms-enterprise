@@ -290,8 +290,8 @@ export default function BlockedDatesManager({ profile }: { profile: UserProfile 
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-neutral-200">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl border border-neutral-200">
+            <table className="w-full text-sm min-w-[560px]">
               <thead className="bg-neutral-50 text-[10px] font-black uppercase tracking-widest text-neutral-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Periodo</th>
@@ -315,7 +315,7 @@ export default function BlockedDatesManager({ profile }: { profile: UserProfile 
                     </td>
                     <td className="px-4 py-3 text-neutral-600">
                       {b.category ? (
-                        CATEGORY_LABELS[b.category]
+                        CATEGORY_LABELS[b.category as keyof typeof CATEGORY_LABELS]
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-red-700">
                           <Ban className="h-3 w-3" />

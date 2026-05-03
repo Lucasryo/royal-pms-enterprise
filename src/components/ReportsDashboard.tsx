@@ -7,6 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  CartesianGrid,
 } from 'recharts';
 import {
   TrendingUp,
@@ -18,6 +19,9 @@ import {
   Users,
   Building2,
   RefreshCw,
+  FileWarning,
+  Package,
+  Wrench,
 } from 'lucide-react';
 import {
   format,
@@ -74,11 +78,49 @@ interface RawCompany {
   name: string;
 }
 
+interface RawFiscalJob {
+  id: string;
+  status: string;
+}
+
+interface RawInventoryItem {
+  id: string;
+  quantity: number;
+  min_quantity: number;
+}
+
+interface RawMaintenanceTix {
+  id: string;
+  status: string;
+}
+
+interface RawBillingFile {
+  id: string;
+  company_id: string | null;
+  amount: number | null;
+  status: string;
+  due_date: string | null;
+  proof_date: string | null;
+}
+
+interface BiEntry {
+  id: string;
+  name: string;
+  avgTicket: number;
+  avgLeadTime: number;
+  totalPaid: number;
+  paymentRate: number;
+}
+
 interface FetchedData {
   reservations: RawReservation[];
   events: RawEvent[];
   rooms: RawRoom[];
   companies: RawCompany[];
+  fiscalJobs: RawFiscalJob[];
+  inventoryItems: RawInventoryItem[];
+  maintenanceTix: RawMaintenanceTix[];
+  billingFiles: RawBillingFile[];
 }
 
 function getPeriodRange(key: PeriodKey): { rangeStart: Date; rangeEnd: Date } {
@@ -184,7 +226,16 @@ function KpiCard({
 export default function ReportsDashboard({ profile }: { profile: UserProfile }) {
   const [period, setPeriod] = useState<PeriodKey>('3m');
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<FetchedData>({ reservations: [], events: [], rooms: [], companies: [] });
+  const [data, setData] = useState<FetchedData>({
+    reservations: [],
+    events: [],
+    rooms: [],
+    companies: [],
+    fiscalJobs: [],
+    inventoryItems: [],
+    maintenanceTix: [],
+    billingFiles: [],
+  });
 
   const { rangeStart, rangeEnd } = useMemo(() => getPeriodRange(period), [period]);
 
@@ -198,7 +249,7 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
       const rangeStartStr = format(rangeStart, 'yyyy-MM-dd');
       const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd');
 
-      const [resResult, evtResult, roomResult, coResult] = await Promise.all([
+      const [resResult, evtResult, roomResult, coResult, fjResult, invResult, mxResult, bfResult] = await Promise.all([
         supabase
           .from('reservations')
           .select('id,guest_name,check_in,check_out,status,total_amount,category,company_id,tariff')
@@ -210,6 +261,15 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
           .lte('start_date', rangeEndStr),
         supabase.from('rooms').select('id,category,is_virtual'),
         supabase.from('companies').select('id,name'),
+        supabase.from('fiscal_jobs').select('id,status'),
+        supabase.from('inventory_items').select('id,quantity,min_quantity'),
+        supabase.from('maintenance_tickets').select('id,status'),
+        supabase
+          .from('files')
+          .select('id,company_id,amount,status,due_date,proof_date')
+          .neq('is_deleted', true)
+          .gte('due_date', rangeStartStr)
+          .lte('due_date', rangeEndStr),
       ]);
 
       if (resResult.error) throw resResult.error;
@@ -222,6 +282,10 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
         events: (evtResult.data as RawEvent[]) ?? [],
         rooms: (roomResult.data as RawRoom[]) ?? [],
         companies: (coResult.data as RawCompany[]) ?? [],
+        fiscalJobs: (fjResult.data as RawFiscalJob[]) ?? [],
+        inventoryItems: (invResult.data as RawInventoryItem[]) ?? [],
+        maintenanceTix: (mxResult.data as RawMaintenanceTix[]) ?? [],
+        billingFiles: (bfResult.data as RawBillingFile[]) ?? [],
       });
     } catch (err) {
       toast.error('Erro ao carregar relatórios');
@@ -370,6 +434,59 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
 
     const totalAttendees = confirmedEvents.reduce((s, e) => s + (e.attendees_count ?? 0), 0);
 
+    const fiscalPending = data.fiscalJobs.filter(
+      (j) => j.status === 'pending' || j.status === 'error'
+    ).length;
+    const inventoryCritical = data.inventoryItems.filter(
+      (i) => Number(i.quantity) <= Number(i.min_quantity)
+    ).length;
+    const maintenanceActive = data.maintenanceTix.filter(
+      (t) => t.status === 'open' || t.status === 'in_progress'
+    ).length;
+
+    const companyStats: Record<string, {
+      name: string;
+      totalAmount: number;
+      count: number;
+      paidCount: number;
+      totalLeadTime: number;
+      paidAmount: number;
+    }> = {};
+    data.companies.forEach((c) => {
+      companyStats[c.id] = { name: c.name, totalAmount: 0, count: 0, paidCount: 0, totalLeadTime: 0, paidAmount: 0 };
+    });
+    data.billingFiles.forEach((f) => {
+      const cid = f.company_id;
+      if (!cid || !companyStats[cid]) return;
+      companyStats[cid].totalAmount += Number(f.amount) || 0;
+      companyStats[cid].count += 1;
+      if (f.status === 'PAID') {
+        companyStats[cid].paidCount += 1;
+        companyStats[cid].paidAmount += Number(f.amount) || 0;
+        if (f.due_date && f.proof_date) {
+          const diffDays = Math.floor(
+            (new Date(f.proof_date).getTime() - new Date(f.due_date).getTime()) / (1000 * 60 * 60 * 24)
+          );
+          companyStats[cid].totalLeadTime += diffDays;
+        }
+      }
+    });
+    const biData: BiEntry[] = Object.entries(companyStats)
+      .filter(([, s]) => s.count > 0)
+      .map(([id, s]) => ({
+        id,
+        name: s.name,
+        avgTicket: s.count > 0 ? s.totalAmount / s.count : 0,
+        avgLeadTime: s.paidCount > 0 ? s.totalLeadTime / s.paidCount : 0,
+        totalPaid: s.paidAmount,
+        paymentRate: s.count > 0 ? (s.paidCount / s.count) * 100 : 0,
+      }))
+      .sort((a, b) => b.totalPaid - a.totalPaid);
+
+    const avgTicketGlobal = biData.length > 0 ? biData.reduce((s, e) => s + e.avgTicket, 0) / biData.length : 0;
+    const avgLeadTimeGlobal = biData.length > 0 ? biData.reduce((s, e) => s + e.avgLeadTime, 0) / biData.length : 0;
+    const avgPaymentRateGlobal = biData.length > 0 ? biData.reduce((s, e) => s + e.paymentRate, 0) / biData.length : 0;
+
     return {
       totalRooms,
       physicalRooms,
@@ -391,6 +508,13 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
       totalAttendees,
       eventTypeRows,
       daysInRange,
+      fiscalPending,
+      inventoryCritical,
+      maintenanceActive,
+      biData,
+      avgTicketGlobal,
+      avgLeadTimeGlobal,
+      avgPaymentRateGlobal,
     };
   }, [data, rangeStart, rangeEnd]);
 
@@ -606,6 +730,187 @@ export default function ReportsDashboard({ profile }: { profile: UserProfile }) 
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      {/* Indicadores Operacionais */}
+      <div className="bg-white rounded-3xl border border-neutral-200 shadow-sm p-6">
+        <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Operacional</p>
+        <p className="font-display text-lg font-light text-ink mb-6">Indicadores Operacionais</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KpiCard
+            label="Fiscal Pendente"
+            value={String(metrics.fiscalPending)}
+            sub="Fila NFS-e/RPS"
+            icon={FileWarning}
+          />
+          <KpiCard
+            label="Estoque Crítico"
+            value={String(metrics.inventoryCritical)}
+            sub="Itens abaixo do mínimo"
+            icon={Package}
+          />
+          <KpiCard
+            label="Chamados Ativos"
+            value={String(metrics.maintenanceActive)}
+            sub="Manutenção e SLA"
+            icon={Wrench}
+          />
+        </div>
+      </div>
+
+      {/* BI Financeiro */}
+      <div className="space-y-6">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.28em] text-stone-500">Financeiro</p>
+          <h2 className="font-display text-2xl font-light text-ink">BI Financeiro</h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KpiCard
+            label="Ticket Médio Geral"
+            value={fmtBRL(metrics.avgTicketGlobal)}
+            sub="Média ponderada por empresa"
+            icon={DollarSign}
+          />
+          <KpiCard
+            label="Lead Time Médio"
+            value={`${metrics.avgLeadTimeGlobal.toFixed(1)} dias`}
+            sub="Tempo médio para liquidação"
+            icon={Calendar}
+          />
+          <KpiCard
+            label="Taxa de Adimplência"
+            value={fmtPct(metrics.avgPaymentRateGlobal)}
+            sub="Média de faturas pagas"
+            icon={TrendingUp}
+          />
+        </div>
+
+        {metrics.biData.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-3xl border border-neutral-200 shadow-sm p-6">
+                <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Faturamento</p>
+                <p className="font-display text-lg font-light text-ink mb-6">Ticket Médio por Empresa</p>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={metrics.biData.slice(0, 10)} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
+                    <XAxis
+                      type="number"
+                      fontSize={10}
+                      tick={{ fill: '#78716C' }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      fontSize={10}
+                      width={110}
+                      tick={{ fill: '#78716C' }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      formatter={(v: number) => [fmtBRL(v), 'Ticket Médio']}
+                      contentStyle={{ borderRadius: 12, border: '1px solid #e5e5e5', fontSize: 12 }}
+                      cursor={{ fill: '#f5f5f4' }}
+                    />
+                    <Bar dataKey="avgTicket" fill="#3b82f6" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-neutral-200 shadow-sm p-6">
+                <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Pagamentos</p>
+                <p className="font-display text-lg font-light text-ink mb-6">Lead Time de Pagamento (dias)</p>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={metrics.biData.slice(0, 10)} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
+                    <XAxis
+                      type="number"
+                      fontSize={10}
+                      tick={{ fill: '#78716C' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      fontSize={10}
+                      width={110}
+                      tick={{ fill: '#78716C' }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      formatter={(v: number) => [`${v.toFixed(1)} dias`, 'Lead Time']}
+                      contentStyle={{ borderRadius: 12, border: '1px solid #e5e5e5', fontSize: 12 }}
+                      cursor={{ fill: '#f5f5f4' }}
+                    />
+                    <Bar dataKey="avgLeadTime" fill="#C49A3C" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-neutral-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-neutral-100">
+                <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1">Ranking</p>
+                <p className="font-display text-lg font-light text-ink">Performance por Cliente</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-neutral-100 bg-neutral-50">
+                      <th className="text-left px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Empresa</th>
+                      <th className="text-right px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Ticket Médio</th>
+                      <th className="text-right px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Faturamento Pago</th>
+                      <th className="text-center px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Lead Time</th>
+                      <th className="text-center px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Adimplência</th>
+                      <th className="text-center px-6 py-3 text-[10px] font-black uppercase text-neutral-400 tracking-widest">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-50">
+                    {metrics.biData.map((item) => (
+                      <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                        <td className="px-6 py-3 font-light text-ink truncate max-w-[160px]">{item.name}</td>
+                        <td className="px-6 py-3 text-right tabular-nums text-stone-600">{fmtBRL(item.avgTicket)}</td>
+                        <td className="px-6 py-3 text-right tabular-nums font-medium text-emerald-600">{fmtBRL(item.totalPaid)}</td>
+                        <td className="px-6 py-3 text-center">
+                          <span className={`text-sm font-medium ${item.avgLeadTime > 5 ? 'text-red-600' : item.avgLeadTime > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {item.avgLeadTime.toFixed(1)} dias
+                          </span>
+                        </td>
+                        <td className="px-6 py-3">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="w-16 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all ${item.paymentRate > 90 ? 'bg-emerald-500' : item.paymentRate > 70 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                style={{ width: `${item.paymentRate}%` }}
+                              />
+                            </div>
+                            <span className="text-[11px] font-black text-stone-600 tabular-nums">{item.paymentRate.toFixed(0)}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 text-center">
+                          {item.paymentRate > 90 && item.avgLeadTime <= 2 ? (
+                            <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-black uppercase">Excelente</span>
+                          ) : item.paymentRate < 70 || item.avgLeadTime > 7 ? (
+                            <span className="px-2 py-1 bg-red-50 text-red-700 rounded-full text-[10px] font-black uppercase">Risco</span>
+                          ) : (
+                            <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-black uppercase">Atenção</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
