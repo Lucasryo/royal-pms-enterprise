@@ -10,6 +10,8 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        // pdf-lib v1.17.1 ESM build is missing internal files; use CJS build instead
+        'pdf-lib': path.resolve(__dirname, 'node_modules/pdf-lib/cjs/index.js'),
       },
     },
     server: {
