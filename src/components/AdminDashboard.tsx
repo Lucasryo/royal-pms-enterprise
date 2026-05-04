@@ -3039,7 +3039,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden"
               >
-                <div className="p-6 border-b border-neutral-100 flex justify-between items-center">
+                <div className="p-4 sm:p-6 border-b border-neutral-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                   <div>
                     <h3 className="font-bold text-neutral-900">Dados Decodificados</h3>
                     <p className="text-xs text-neutral-500">{itauExtractedData.length} transacoes encontradas.</p>

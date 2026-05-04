@@ -690,7 +690,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     );
                     return upcoming.length > 0 ? (
                       upcoming.map(event => (
-                      <div key={event.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all group bg-neutral-50 border-neutral-100 hover:border-primary`}>
+                      <div key={event.id} className={`flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4 rounded-2xl border transition-all group bg-neutral-50 border-neutral-100 hover:border-primary`}>
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 rounded-xl bg-white border border-neutral-200 flex flex-col items-center justify-center">
                               <span className="text-[10px] font-black uppercase text-neutral-400 leading-none mb-0.5">{format(parseISO(event.start_date), 'MMM', { locale: ptBR })}</span>
