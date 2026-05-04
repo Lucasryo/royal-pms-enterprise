@@ -2328,7 +2328,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         className="space-y-6"
       >
         {/* Finance Sub-navigation */}
-        <div className="flex gap-2 p-1 bg-white border border-neutral-200 rounded-xl w-fit shadow-sm">
+        <div className="flex gap-2 p-1 bg-white border border-neutral-200 rounded-xl max-w-full overflow-x-auto shadow-sm">
           {financeMainTabs.map(tab => (
             <button
               key={tab.id}
@@ -2588,7 +2588,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
               
               {/* Sub-tabs */}
               <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-                <div className="flex bg-neutral-100 p-1 rounded-lg">
+                <div className="flex bg-neutral-100 p-1 rounded-lg max-w-full overflow-x-auto">
                   {[
                     { id: 'pending', label: 'Pendentes', count: financeStats.pendingCount + financeStats.overdueCount },
                     { id: 'paid', label: 'Pagas', count: financeStats.paidCount },
@@ -2599,7 +2599,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     <button
                       key={tab.id}
                       onClick={() => setFinanceSubTab(tab.id as any)}
-                      className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${
+                      className={`shrink-0 px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${
                         financeSubTab === tab.id 
                           ? 'bg-white text-neutral-900 shadow-sm' 
                           : 'text-neutral-500 hover:text-neutral-700'
@@ -2930,12 +2930,12 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       </div>
         ) : financeMainTab === 'baixa' ? (
           <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-neutral-100">
+            <div className="p-4 sm:p-6 border-b border-neutral-100">
               <h3 className="font-bold text-neutral-900">Baixa Rapida de Pagamentos</h3>
               <p className="text-xs text-neutral-500">Selecione as faturas pendentes para dar baixa em lote ou individualmente.</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
+              <table className="w-full text-left min-w-[640px]">
                 <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                   <tr>
                     <th className="px-6 py-3">Empresa</th>
@@ -3062,7 +3062,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left">
+                  <table className="w-full text-left min-w-[640px]">
                     <thead className="bg-neutral-50 text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-3">Data</th>

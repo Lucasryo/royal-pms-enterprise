@@ -945,23 +945,23 @@ function BrowserFrame({ url, children }: { url: string; children: ReactNode }) {
           <span className="font-mono text-[10px] uppercase tracking-widest">{url}</span>
         </div>
       </div>
-      <div className="p-4 sm:p-5">{children}</div>
+      <div className="p-3 sm:p-5">{children}</div>
     </div>
   );
 }
 
 function WorkQueuePreview() {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Work Queue</p>
-          <h3 className="mt-1 text-base font-black text-neutral-950">Fila de Manutenção</h3>
+          <h3 className="mt-1 text-sm sm:text-base font-black text-neutral-950">Fila de Manutenção</h3>
         </div>
         <button className="rounded-xl bg-neutral-950 px-3 py-1.5 text-[10px] font-black text-white">Nova tarefa</button>
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-2">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { icon: UsersRound, label: 'Ativas', value: '4' },
           { icon: AlertTriangle, label: 'Críticas', value: '1', danger: true },
@@ -981,10 +981,10 @@ function WorkQueuePreview() {
         ))}
       </div>
 
-      <div className="mt-3 inline-flex rounded-xl border border-neutral-200 bg-neutral-50 p-1 text-[9px]">
-        <span className="rounded-lg bg-neutral-950 px-2 py-1 font-black uppercase tracking-widest text-white">Ativas (3)</span>
-        <span className="px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Em andamento (1)</span>
-        <span className="px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Histórico</span>
+      <div className="mt-3 flex max-w-full overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-1 text-[9px]">
+        <span className="shrink-0 rounded-lg bg-neutral-950 px-2 py-1 font-black uppercase tracking-widest text-white">Ativas (3)</span>
+        <span className="shrink-0 px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Em andamento (1)</span>
+        <span className="shrink-0 px-2 py-1 font-black uppercase tracking-widest text-neutral-500">Histórico</span>
       </div>
 
       <div className="mt-3 space-y-2">
@@ -1030,13 +1030,13 @@ function RoomMapPreview() {
   const labels = { clean: 'Limpo', dirty: 'Sujo', occupied: 'Ocupado', block: 'Bloqueado', inspect: 'Inspeção' };
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Governança</p>
-          <h3 className="mt-1 text-base font-black text-neutral-950">Mapa de UHs — andar 3</h3>
+          <h3 className="mt-1 text-sm sm:text-base font-black text-neutral-950">Mapa de UHs — andar 3</h3>
         </div>
-        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">81/108 ocupadas (75%)</p>
+        <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-neutral-500">81/108 (75%)</p>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2 text-[9px]">
@@ -1048,7 +1048,7 @@ function RoomMapPreview() {
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-8 gap-1.5">
+      <div className="mt-3 grid grid-cols-4 sm:grid-cols-8 gap-1.5">
         {rooms.map((r) => (
           <div key={r.n} className={`flex flex-col items-center justify-center rounded-lg border px-1 py-2 ${statusStyle[r.status]}`}>
             <BedDouble className="h-3 w-3" />
@@ -1073,11 +1073,11 @@ function ReservationsPreview() {
     PENDING: 'bg-amber-100 text-amber-800',
   };
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Reservas</p>
-          <h3 className="mt-1 text-base font-black text-neutral-950">Próximas chegadas</h3>
+          <h3 className="mt-1 text-sm sm:text-base font-black text-neutral-950">Próximas chegadas</h3>
         </div>
         <button className="rounded-xl bg-amber-700 px-3 py-1.5 text-[10px] font-black text-white">Nova reserva</button>
       </div>
@@ -1097,8 +1097,8 @@ function ReservationsPreview() {
         </div>
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200">
-        <table className="w-full text-[10px]">
+      <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200">
+        <table className="w-full text-[10px] min-w-[420px]">
           <thead className="bg-neutral-50 text-neutral-500">
             <tr>
               <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Reserva</th>
@@ -1133,16 +1133,16 @@ function ReservationsPreview() {
 function DashboardPreview() {
   const bars = [42, 58, 71, 65, 82, 78, 84];
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="flex items-center justify-between">
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-amber-600">Gestão Pro</p>
-          <h3 className="mt-1 text-base font-black text-neutral-950">Indicadores da operação</h3>
+          <h3 className="mt-1 text-sm sm:text-base font-black text-neutral-950">Indicadores da operação</h3>
         </div>
-        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">▲ 12% vs semana anterior</p>
+        <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-600">▲ 12% vs semana anterior</p>
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-2">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
         {[
           { l: 'Ocupação', v: '84%' },
           { l: 'ADR', v: 'R$ 286' },
