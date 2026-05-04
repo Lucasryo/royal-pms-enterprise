@@ -714,7 +714,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       </motion.div>
 
       {/* Tabs */}
-      <div className="flex bg-neutral-100 p-1 rounded-xl w-fit">
+      <div className="flex bg-neutral-100 p-1 rounded-xl max-w-full overflow-x-auto">
         {!isExternalClient && (
           <>
             <button

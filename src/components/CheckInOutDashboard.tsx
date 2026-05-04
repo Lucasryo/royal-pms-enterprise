@@ -642,7 +642,7 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
         {currentFocus}
       </div>
 
-      <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl max-w-full overflow-x-auto">
         {tabs.map(tab => (
           <button
             key={tab.id}

@@ -1421,7 +1421,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       )}
 
       {((profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'reservations' || profile.permissions?.canViewTariffs) && ['documents', 'banks', 'finance', 'assembly', 'tariffs', 'registration', 'companies', 'users'].includes(initialTab)) && (
-      <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit mb-6">
+      <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl max-w-full overflow-x-auto mb-6">
         {/* Sub-tabs for main "Finance" context */}
         {initialTab === 'finance' && (
           <button
