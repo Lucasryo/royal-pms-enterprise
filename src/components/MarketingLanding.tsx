@@ -172,7 +172,7 @@ export default function MarketingLanding() {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-paper font-sans text-ink antialiased">
+    <div className="relative min-h-screen overflow-x-clip bg-paper font-sans text-ink antialiased">
       {/* HEADER */}
       <header
         className={`fixed inset-x-0 top-0 z-40 transition-all duration-500 ${
@@ -467,6 +467,7 @@ export default function MarketingLanding() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: '-10%' }}
                   transition={{ duration: 0.6, delay: (i % 2) * 0.12 }}
+                  className="min-w-0"
                 >
                   <BrowserFrame url={s.url}>{s.preview}</BrowserFrame>
                   <div className="mt-5 flex items-baseline gap-4">
@@ -940,9 +941,9 @@ function BrowserFrame({ url, children }: { url: string; children: ReactNode }) {
           <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
           <span className="h-2.5 w-2.5 rounded-full bg-ink/15" />
         </div>
-        <div className="ml-3 flex flex-1 items-center gap-2 rounded-lg border border-ink/10 bg-white px-3 py-1 text-xs text-stone-500">
-          <span className="h-2 w-2 rounded-full bg-moss" />
-          <span className="font-mono text-[10px] uppercase tracking-widest">{url}</span>
+        <div className="ml-3 flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-ink/10 bg-white px-3 py-1 text-xs text-stone-500">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-moss" />
+          <span className="truncate font-mono text-[10px] uppercase tracking-widest">{url}</span>
         </div>
       </div>
       <div className="p-3 sm:p-5">{children}</div>
@@ -1098,7 +1099,7 @@ function ReservationsPreview() {
       </div>
 
       <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200">
-        <table className="w-full text-[10px] min-w-[420px]">
+        <table className="w-full text-[10px] min-w-[380px]">
           <thead className="bg-neutral-50 text-neutral-500">
             <tr>
               <th className="px-2 py-1.5 text-left font-black uppercase tracking-widest">Reserva</th>
