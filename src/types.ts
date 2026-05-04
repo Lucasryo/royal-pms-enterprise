@@ -20,7 +20,8 @@ export type ViewType =
   | 'audit'
   | 'profile'
   | 'prio-billing'
-  | 'reports';
+  | 'reports'
+  | 'maintenance-qr';
 
 export interface EventItem {
   id: string;

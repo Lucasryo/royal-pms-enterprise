@@ -26,6 +26,9 @@ import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
 import ReportsDashboard from './components/ReportsDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
+import PublicMaintenanceReport from './components/PublicMaintenanceReport';
+import MaintenanceQueueBoard from './components/MaintenanceQueueBoard';
+import MaintenanceQRPrint from './components/MaintenanceQRPrint';
 import {
   AdminControlModuleDashboard,
   EventsModuleDashboard,
@@ -328,6 +331,7 @@ export default function App() {
       { id: 'audit' as ViewType, label: 'Auditoria', icon: ShieldCheck },
       { id: 'admin-control' as ViewType, label: 'Admin', icon: ShieldCheck },
       { id: 'reports' as ViewType, label: 'Relatórios', icon: BarChart3 },
+      { id: 'maintenance-qr' as ViewType, label: 'QR Manutenção', icon: Wrench },
     ];
 
     const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'professional', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
@@ -343,6 +347,12 @@ export default function App() {
   }, [navigationItems]);
 
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+
+  // Public routes — bypass auth gate
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const reportMatch = path.match(/^\/report\/([^/?#]+)\/?$/);
+  if (reportMatch) return <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} />;
+  if (path === '/board/maintenance') return <MaintenanceQueueBoard />;
 
   if (loading) {
     return (
@@ -391,6 +401,7 @@ export default function App() {
       case 'staff': return <AdminDashboard profile={profile} initialTab="users" />;
       case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;
       case 'audit': return <AuditDashboard profile={profile} />;
+      case 'maintenance-qr': return <MaintenanceQRPrint />;
       case 'dashboard':
       default:
         return (profile.role === 'client' || profile.role === 'external_client')
