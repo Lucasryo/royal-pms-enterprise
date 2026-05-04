@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, Reservation, Company } from '../types';
 import { LogIn, LogOut, Receipt, Loader2, Search, User, Hash, Building2, CalendarDays, X as CloseIcon, Bed, Check, AlertCircle, Plus, Trash2, DollarSign, Printer, FileText, UserPlus, Phone, IdCard, Settings, ArrowRightLeft, RotateCcw, Briefcase, Wallet } from 'lucide-react';
@@ -88,6 +88,8 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [allCharges, setAllCharges] = useState<FolioCharge[]>([]);
   const [configTab, setConfigTab] = useState<ConfigSubTab>('especiais');
+
+  const prevRoomStatusRef = useRef<Map<string, Room['status']>>(new Map());
 
   const canPerformCheckIn = hasPermission(profile, 'canPerformCheckIn', ['admin', 'reception']);
   const canPerformCheckOut = hasPermission(profile, 'canPerformCheckOut', ['admin', 'reception']);
@@ -545,7 +547,22 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
     ]);
     if (resRes.data) setReservations(resRes.data as Reservation[]);
     if (compRes.data) setCompanies(compRes.data as Company[]);
-    if (roomRes.data) setRooms(roomRes.data as Room[]);
+    if (roomRes.data) {
+      const newRooms = roomRes.data as Room[];
+      const prev = prevRoomStatusRef.current;
+      if (prev.size > 0) {
+        newRooms.forEach((room) => {
+          const prevStatus = prev.get(room.id);
+          if (prevStatus && prevStatus !== 'maintenance' && room.status === 'maintenance') {
+            toast.warning(`UH ${room.room_number} bloqueada pela manutencao`, { duration: 8000 });
+          } else if (prevStatus === 'maintenance' && room.status !== 'maintenance') {
+            toast.success(`UH ${room.room_number} liberada pela manutencao`);
+          }
+        });
+      }
+      prevRoomStatusRef.current = new Map(newRooms.map((r) => [r.id, r.status]));
+      setRooms(newRooms);
+    }
     if (chRes.data) setAllCharges(chRes.data as FolioCharge[]);
     setLoading(false);
   }
@@ -641,6 +658,24 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
       <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-5 py-4 text-sm text-neutral-600">
         {currentFocus}
       </div>
+
+      {(() => {
+        const blocked = physicalRooms.filter((r) => r.status === 'maintenance');
+        if (blocked.length === 0) return null;
+        return (
+          <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+            <div>
+              <p className="text-sm font-bold text-red-800">
+                {blocked.length === 1
+                  ? `UH ${blocked[0].room_number} esta bloqueada pela manutencao`
+                  : `${blocked.length} UHs bloqueadas pela manutencao: ${blocked.map((r) => r.room_number).join(', ')}`}
+              </p>
+              <p className="mt-0.5 text-xs text-red-700">Estas UHs nao aparecem na lista de disponibilidade para check-in e walk-in.</p>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl max-w-full overflow-x-auto">
         {tabs.map(tab => (
