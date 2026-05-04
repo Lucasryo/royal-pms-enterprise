@@ -77,6 +77,8 @@ export function canAccessView(
       return hasPermission(profile, 'canViewFinance', ['admin', 'faturamento', 'finance', 'manager']);
     case 'reports':
       return ['admin', 'manager', 'finance', 'faturamento'].includes(profile.role);
+    case 'maintenance-qr':
+      return ['admin', 'manager', 'maintenance', 'reception'].includes(profile.role);
     case 'profile':
       return true;
     default:
