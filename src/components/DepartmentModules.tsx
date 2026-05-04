@@ -200,10 +200,10 @@ function ModuleShell<T extends string>({
 
   return (
     <div className={moduleShellClass}>
-      <div className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-amber-600">{eyebrow}</p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight text-neutral-950">{title}</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-7 text-neutral-500">{description}</p>
+      <div className="rounded-[2rem] border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm">
+        <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-amber-600">{eyebrow}</p>
+        <h1 className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-neutral-950">{title}</h1>
+        <p className="mt-2 max-w-4xl text-xs sm:text-sm leading-6 sm:leading-7 text-neutral-500">{description}</p>
       </div>
 
       <SharedHotelCalendar compact />

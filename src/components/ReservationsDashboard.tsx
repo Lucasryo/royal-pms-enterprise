@@ -952,7 +952,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h2 className="text-xl font-bold text-neutral-900">Gestao de Reservas</h2>
           <p className="text-sm text-neutral-500">Controle de solicitacoes, ocupacao e faturamento automatico.</p>
@@ -974,7 +974,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         </button>
       </div>
 
-      <div className="flex bg-neutral-100 p-1 rounded-xl w-fit">
+      <div className="flex bg-neutral-100 p-1 rounded-xl max-w-full overflow-x-auto">
         <button
           onClick={() => setActiveSubTab('requests')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
@@ -1142,8 +1142,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-8">
-                    <div className="flex gap-4 border-l border-neutral-100 pl-8">
+                  <div className="flex flex-wrap items-center gap-4 md:gap-8">
+                    <div className="flex gap-4 md:border-l md:border-neutral-100 md:pl-8">
                       <div className="text-center">
                         <p className="text-[9px] font-bold text-neutral-400 uppercase">Check-in</p>
                         <p className={`text-sm font-bold ${isRejected ? 'text-neutral-500 line-through' : 'text-neutral-900'}`}>{format(new Date(req.check_in + 'T12:00:00'), 'dd/MM/yy')}</p>

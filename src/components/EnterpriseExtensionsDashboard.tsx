@@ -258,13 +258,13 @@ export default function EnterpriseExtensionsDashboard({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[2rem] border border-neutral-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-amber-950 p-6 text-white shadow-sm">
-        <p className="text-xs font-black uppercase tracking-[0.3em] text-amber-300">Hotel gigante</p>
-        <h2 className="mt-2 text-2xl font-black">Camadas enterprise sem dependencias externas</h2>
-        <p className="mt-2 max-w-4xl text-sm leading-7 text-white/70">
+      <div className="rounded-[2rem] border border-neutral-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-amber-950 p-4 sm:p-6 text-white shadow-sm">
+        <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.3em] text-amber-300">Hotel gigante</p>
+        <h2 className="mt-2 text-xl sm:text-2xl font-black">Camadas enterprise sem dependencias externas</h2>
+        <p className="mt-2 max-w-4xl text-xs sm:text-sm leading-6 sm:leading-7 text-white/70">
           Grupos, mapa de UHs, preventiva, mensagens, AR, compras, lavanderia, minibar, forecast, controles de seguranca e multi-propriedade operando de forma manual/auditavel.
         </p>
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           <MiniMetric label="AR aberto" value={currency(enterpriseMetrics.arOpen)} />
           <MiniMetric label="Pickup forecast" value={String(enterpriseMetrics.pickup)} />
           <MiniMetric label="Preventivas criticas" value={String(enterpriseMetrics.overduePreventive)} />

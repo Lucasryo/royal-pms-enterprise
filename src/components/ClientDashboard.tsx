@@ -615,7 +615,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   if (!profile.company_id) {
     return (
       <div className="space-y-8">
-        <div className="bg-white p-16 rounded-3xl border border-neutral-200 text-center space-y-6 shadow-sm">
+        <div className="bg-white p-6 sm:p-16 rounded-3xl border border-neutral-200 text-center space-y-6 shadow-sm">
           <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
             <ShieldCheck className="w-10 h-10 text-amber-500" />
           </div>
@@ -644,16 +644,16 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white p-8 rounded-xl border border-neutral-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative"
+        className="bg-white p-4 sm:p-8 rounded-xl border border-neutral-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative"
       >
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-2xl font-bold text-neutral-900">{company?.name || 'Sua Empresa'}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-neutral-900">{company?.name || 'Sua Empresa'}</h2>
             <Sparkles className="w-5 h-5 text-amber-500" />
           </div>
           <p className="text-neutral-500 text-sm">CNPJ: {company?.cnpj || 'N/A'}</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-2 px-4 py-2 bg-neutral-100 rounded-lg text-neutral-600 font-medium text-sm">
             <FileText className="w-4 h-4" />
             {files.length} Documentos
@@ -714,7 +714,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       </motion.div>
 
       {/* Tabs */}
-      <div className="flex bg-neutral-100 p-1 rounded-xl w-fit">
+      <div className="flex bg-neutral-100 p-1 rounded-xl max-w-full overflow-x-auto">
         {!isExternalClient && (
           <>
             <button
@@ -756,7 +756,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       {/* Main Content Area */}
       {activeTab === 'reservations' ? (
         <div className="space-y-6">
-          <div className="flex justify-between items-center bg-white p-6 rounded-xl border border-neutral-200">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white p-4 sm:p-6 rounded-xl border border-neutral-200">
             <div>
               <h3 className="text-xl font-bold text-neutral-900">Portal de Reservas</h3>
               <p className="text-neutral-400 text-xs mt-2">Solicite hospedagens, acompanhe aprovacoes e consulte vouchers sem depender da equipe interna.</p>

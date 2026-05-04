@@ -524,8 +524,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             exit={{ opacity: 0, x: -20 }}
             className="space-y-4"
           >
-            <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
+            <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pendentes de aprovação</p>
                   <h2 className="text-xl font-black text-gray-900 mt-0.5">Cotações em aberto</h2>
@@ -547,7 +547,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               ) : (
                 <div className="space-y-3">
                   {events.filter(e => e.is_quote && e.status !== 'cancelled').map(event => (
-                    <div key={event.id} className="flex items-center justify-between p-5 rounded-2xl border border-neutral-200 hover:border-amber-300 bg-amber-50/30 transition-all group">
+                    <div key={event.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-5 rounded-2xl border border-neutral-200 hover:border-amber-300 bg-amber-50/30 transition-all group">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                           <FileText className="w-4 h-4 text-amber-700" />
@@ -601,8 +601,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             exit={{ opacity: 0, x: 20 }}
             className="space-y-6"
           >
-            <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
-              <div className="flex items-center justify-between mb-8">
+            <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-8">
                 <div className="flex items-center gap-4">
                   <h2 className="text-xl font-black text-gray-900 capitalize">
                     {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}
@@ -675,7 +675,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             </div>
 
             {/* Event List Card */}
-            <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
+            <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
                <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
                  <Clock className="w-5 h-5 text-primary" />
                  Próximos Eventos
@@ -690,7 +690,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     );
                     return upcoming.length > 0 ? (
                       upcoming.map(event => (
-                      <div key={event.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all group bg-neutral-50 border-neutral-100 hover:border-primary`}>
+                      <div key={event.id} className={`flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4 rounded-2xl border transition-all group bg-neutral-50 border-neutral-100 hover:border-primary`}>
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 rounded-xl bg-white border border-neutral-200 flex flex-col items-center justify-center">
                               <span className="text-[10px] font-black uppercase text-neutral-400 leading-none mb-0.5">{format(parseISO(event.start_date), 'MMM', { locale: ptBR })}</span>
@@ -744,7 +744,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           >
             {/* Form */}
             <div className="xl:col-span-5 space-y-6">
-              <div className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm">
+              <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Quote vs O.S. toggle */}
                   {!editingId && (
