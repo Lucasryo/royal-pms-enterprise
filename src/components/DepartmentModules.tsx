@@ -78,6 +78,7 @@ export function MaintenanceModuleDashboard({ profile, canManage }: { profile: Us
       tabs={[
         { id: 'tickets', label: 'Chamados internos', icon: Wrench, render: () => <OperationalWorkQueue profile={profile} department="maintenance" /> },
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
+        { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
         {
           id: 'preventive',
@@ -101,6 +102,8 @@ type MaintTicket = {
   resolution_notes: string | null;
   created_at: string;
   started_at: string | null;
+  resolved_at: string | null;
+  rating: number | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -118,6 +121,19 @@ function elapsed(iso: string) {
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   return h < 24 ? `${h}h${m % 60 > 0 ? ` ${m % 60}min` : ''}` : `${Math.floor(h / 24)}d`;
+}
+
+function fmtMins(m: number): string {
+  if (m < 1) return 'menos de 1min';
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem > 0 ? `${h}h ${rem}min` : `${h}h`;
+}
+
+function resolutionMins(t: { created_at: string; resolved_at: string | null }): number | null {
+  if (!t.resolved_at) return null;
+  return Math.round((new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 60_000);
 }
 
 type Collaborator = { id: string; name: string; role: string };
@@ -160,7 +176,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -220,6 +236,24 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
     else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); }
+  }
+
+  async function reopen(ticket: MaintTicket) {
+    const reason = prompt('Motivo da reabertura (obrigatorio):')?.trim();
+    if (reason === undefined) return;
+    if (!reason) { toast.error('Motivo obrigatorio para reabrir.'); return; }
+    const { error } = await supabase.from('maintenance_tickets').update({
+      status: 'open',
+      assigned_to: null,
+      status_reason: null,
+      started_at: null,
+      resolved_at: null,
+      rating: null,
+      resolution_notes: `Reaberto: ${reason} (${profile.name})`,
+      updated_at: new Date().toISOString(),
+    }).eq('id', ticket.id);
+    if (error) toast.error('Erro: ' + error.message);
+    else { toast.success('Chamado reaberto.'); fetchTickets(); }
   }
 
   const open       = useMemo(() => tickets.filter(t => t.status === 'open').sort((a, b) => {
@@ -353,17 +387,34 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           <div className="space-y-2">
             {closed.map(ticket => {
               const isCancelled = ticket.status === 'cancelled';
+              const mins = !isCancelled ? resolutionMins(ticket) : null;
               return (
-                <div key={ticket.id} className={`rounded-2xl border px-4 py-3 ${isCancelled ? 'border-neutral-300 bg-neutral-100 opacity-60' : 'border-neutral-200 bg-neutral-50 opacity-70'}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${isCancelled ? 'bg-neutral-200 text-neutral-700 border-neutral-300' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                      {isCancelled ? 'CANCELADO' : 'RESOLVIDO'}
-                    </span>
-                    {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                <div key={ticket.id} className={`rounded-2xl border px-4 py-3 ${isCancelled ? 'border-neutral-300 bg-neutral-100' : 'border-neutral-200 bg-neutral-50'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${isCancelled ? 'bg-neutral-200 text-neutral-700 border-neutral-300' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                          {isCancelled ? 'CANCELADO' : 'RESOLVIDO'}
+                        </span>
+                        {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                        {mins !== null && (
+                          <span className="rounded-full bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 text-[10px] font-black">⏱ {fmtMins(mins)}</span>
+                        )}
+                        {ticket.rating !== null && ticket.rating !== undefined && (
+                          <span className="rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-[10px] font-black">⭐ {ticket.rating}/5</span>
+                        )}
+                      </div>
+                      <p className="mt-1.5 text-sm font-bold text-neutral-700">{ticket.title}</p>
+                      {ticket.status_reason && <p className="text-[11px] text-neutral-500">👷 {ticket.status_reason}</p>}
+                      {ticket.resolution_notes && <p className="text-[11px] text-neutral-500">{isCancelled ? '🚫' : '📝'} {ticket.resolution_notes}</p>}
+                    </div>
+                    <button
+                      onClick={() => reopen(ticket)}
+                      className="shrink-0 rounded-xl bg-neutral-200 px-3 py-1.5 text-[11px] font-black text-neutral-700 hover:bg-amber-200 hover:text-amber-800 transition"
+                    >
+                      🔄 Reabrir
+                    </button>
                   </div>
-                  <p className="mt-1.5 text-sm font-bold text-neutral-700">{ticket.title}</p>
-                  {ticket.status_reason && <p className="text-[11px] text-neutral-500">👷 {ticket.status_reason}</p>}
-                  {ticket.resolution_notes && <p className="text-[11px] text-neutral-500">{isCancelled ? '🚫' : '📝'} {ticket.resolution_notes}</p>}
                 </div>
               );
             })}
@@ -374,6 +425,161 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       {open.length === 0 && inProgress.length === 0 && (
         <div className="rounded-3xl border border-dashed border-neutral-200 bg-neutral-50 py-16 text-center text-sm font-bold text-neutral-400">
           Nenhum chamado ativo via QR ou Telegram.
+        </div>
+      )}
+    </div>
+  );
+}
+
+type PerfTicket = {
+  id: string;
+  status: 'resolved' | 'cancelled';
+  status_reason: string | null;
+  priority: string;
+  created_at: string;
+  resolved_at: string | null;
+  rating: number | null;
+};
+
+type Period = '7d' | '30d' | 'all';
+
+function MaintenancePerformanceTab() {
+  const [tickets, setTickets] = useState<PerfTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<Period>('30d');
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
+
+  async function loadData() {
+    setLoading(true);
+    let q = supabase
+      .from('maintenance_tickets')
+      .select('id,status,status_reason,priority,created_at,resolved_at,rating')
+      .in('status', ['resolved', 'cancelled'])
+      .order('resolved_at', { ascending: false })
+      .limit(500);
+
+    if (period !== 'all') {
+      const days = period === '7d' ? 7 : 30;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      q = q.gte('created_at', since.toISOString());
+    }
+
+    const { data, error } = await q;
+    if (error) { toast.error('Erro: ' + error.message); setLoading(false); return; }
+    setTickets((data ?? []) as PerfTicket[]);
+    setLoading(false);
+  }
+
+  const stats = useMemo(() => {
+    const byPerson: Record<string, { name: string; resolved: number; cancelled: number; times: number[]; ratings: number[] }> = {};
+    for (const t of tickets) {
+      const key = t.status_reason ?? 'Sem registro';
+      if (!byPerson[key]) byPerson[key] = { name: key, resolved: 0, cancelled: 0, times: [], ratings: [] };
+      if (t.status === 'resolved') {
+        byPerson[key].resolved++;
+        if (t.resolved_at && t.created_at) {
+          const mins = Math.round((new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 60_000);
+          byPerson[key].times.push(mins);
+        }
+        if (t.rating) byPerson[key].ratings.push(t.rating);
+      } else {
+        byPerson[key].cancelled++;
+      }
+    }
+    return Object.values(byPerson)
+      .map(p => ({
+        name: p.name,
+        resolved: p.resolved,
+        cancelled: p.cancelled,
+        avgTime: p.times.length > 0 ? Math.round(p.times.reduce((a, b) => a + b, 0) / p.times.length) : null,
+        avgRating: p.ratings.length > 0 ? p.ratings.reduce((a, b) => a + b, 0) / p.ratings.length : null,
+      }))
+      .sort((a, b) => b.resolved - a.resolved);
+  }, [tickets]);
+
+  const totals = useMemo(() => {
+    const resolved = tickets.filter(t => t.status === 'resolved');
+    const cancelled = tickets.filter(t => t.status === 'cancelled').length;
+    const withTime = resolved.filter(t => t.resolved_at && t.created_at);
+    const avgMins = withTime.length > 0
+      ? Math.round(withTime.reduce((sum, t) => sum + (new Date(t.resolved_at!).getTime() - new Date(t.created_at).getTime()) / 60_000, 0) / withTime.length)
+      : null;
+    const ratings = tickets.filter(t => t.rating).map(t => t.rating as number);
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+    return { resolved: resolved.length, cancelled, avgMins, avgRating, ratingCount: ratings.length };
+  }, [tickets]);
+
+  if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando desempenho...</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex max-w-full overflow-x-auto gap-2">
+        {(['7d', '30d', 'all'] as const).map(p => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black transition ${period === p ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
+          >
+            {p === '7d' ? 'Ultimos 7 dias' : p === '30d' ? 'Ultimos 30 dias' : 'Tudo'}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Resolvidos</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-black text-emerald-800">{totals.resolved}</p>
+        </div>
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Cancelados</p>
+          <p className="mt-1 text-2xl sm:text-3xl font-black text-neutral-800">{totals.cancelled}</p>
+        </div>
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tempo medio</p>
+          <p className="mt-1 text-xl sm:text-2xl font-black text-blue-800">{totals.avgMins !== null ? fmtMins(totals.avgMins) : '—'}</p>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Avaliacao</p>
+          <p className="mt-1 text-xl sm:text-2xl font-black text-amber-800">
+            {totals.avgRating !== null ? `⭐ ${totals.avgRating.toFixed(1)}` : '—'}
+          </p>
+          <p className="text-[10px] text-amber-600">{totals.ratingCount} avaliacao{totals.ratingCount === 1 ? '' : 'oes'}</p>
+        </div>
+      </div>
+
+      {stats.length > 0 ? (
+        <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
+          <table className="min-w-[560px] w-full text-sm">
+            <thead>
+              <tr className="border-b border-neutral-100">
+                <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-neutral-400">Colaborador</th>
+                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Resolvidos</th>
+                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Cancelados</th>
+                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Tempo medio</th>
+                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Avaliacao</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((p, i) => (
+                <tr key={p.name} className={i % 2 === 0 ? 'bg-neutral-50' : 'bg-white'}>
+                  <td className="px-4 py-3 font-bold text-neutral-900">{p.name}</td>
+                  <td className="px-4 py-3 text-center font-black text-emerald-700">{p.resolved}</td>
+                  <td className="px-4 py-3 text-center text-neutral-500">{p.cancelled}</td>
+                  <td className="px-4 py-3 text-center text-neutral-700">{p.avgTime !== null ? fmtMins(p.avgTime) : '—'}</td>
+                  <td className="px-4 py-3 text-center text-amber-600 font-bold">{p.avgRating !== null ? `⭐ ${p.avgRating.toFixed(1)}` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded-3xl border border-dashed border-neutral-200 bg-neutral-50 py-16 text-center text-sm font-bold text-neutral-400">
+          Nenhum chamado encerrado no periodo.
         </div>
       )}
     </div>
