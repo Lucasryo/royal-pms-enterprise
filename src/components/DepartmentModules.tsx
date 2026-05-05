@@ -120,10 +120,17 @@ function elapsed(iso: string) {
   return h < 24 ? `${h}h${m % 60 > 0 ? ` ${m % 60}min` : ''}` : `${Math.floor(h / 24)}d`;
 }
 
+type Collaborator = { id: string; name: string; role: string };
+
 function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [tickets, setTickets] = useState<MaintTicket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [directingId, setDirectingId] = useState<string | null>(null);
+  const [directTarget, setDirectTarget] = useState<string>('');
   const [, setTick] = useState(0);
+
+  const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 30_000);
@@ -132,19 +139,30 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     fetchTickets();
+    if (canDirect) loadCollaborators();
     const ch = supabase
       .channel('maint-tickets-module')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_tickets' }, fetchTickets)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadCollaborators() {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, name, role')
+      .in('role', ['maintenance', 'manager', 'admin'])
+      .order('name', { ascending: true });
+    setCollaborators((data ?? []) as Collaborator[]);
+  }
 
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
       .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at')
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
     setTickets((data ?? []) as MaintTicket[]);
     setLoading(false);
@@ -173,13 +191,44 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     else { toast.success('Chamado resolvido.'); fetchTickets(); }
   }
 
+  async function direct(ticket: MaintTicket) {
+    const target = collaborators.find(c => c.id === directTarget);
+    if (!target) { toast.error('Escolha um colaborador.'); return; }
+    const { error } = await supabase.from('maintenance_tickets').update({
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      assigned_to: target.id,
+      status_reason: target.name,
+    }).eq('id', ticket.id);
+    if (error) { toast.error('Erro: ' + error.message); return; }
+    toast.success(`Direcionado para ${target.name}.`);
+    setDirectingId(null);
+    setDirectTarget('');
+    fetchTickets();
+  }
+
+  async function cancel(ticket: MaintTicket) {
+    const reason = prompt('Justificativa para cancelar este chamado (obrigatoria):')?.trim();
+    if (reason === undefined) return;
+    if (!reason) { toast.error('Justificativa obrigatoria para cancelar.'); return; }
+    const { error } = await supabase.from('maintenance_tickets').update({
+      status: 'cancelled',
+      updated_at: new Date().toISOString(),
+      resolution_notes: `Cancelado: ${reason} (${profile.name})`,
+      status_reason: profile.name,
+    }).eq('id', ticket.id);
+    if (error) toast.error('Erro: ' + error.message);
+    else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); }
+  }
+
   const open       = useMemo(() => tickets.filter(t => t.status === 'open').sort((a, b) => {
     const pp = ['urgent','high','medium','low'];
     const pd = pp.indexOf(a.priority) - pp.indexOf(b.priority);
     return pd !== 0 ? pd : a.created_at.localeCompare(b.created_at);
   }), [tickets]);
   const inProgress = useMemo(() => tickets.filter(t => t.status === 'in_progress'), [tickets]);
-  const resolved   = useMemo(() => tickets.filter(t => t.status === 'resolved').slice(0, 10), [tickets]);
+  const closed     = useMemo(() => tickets.filter(t => t.status === 'resolved' || t.status === 'cancelled').slice(0, 15), [tickets]);
 
   if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando chamados...</div>;
 
@@ -221,10 +270,45 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       {ticket.description && <p className="mt-1 text-xs text-neutral-500 line-clamp-2">{ticket.description}</p>}
                       <p className="mt-1.5 text-[11px] text-neutral-400">aberto ha {elapsed(ticket.created_at)}</p>
                     </div>
-                    <button onClick={() => assume(ticket)} className="shrink-0 rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white hover:bg-amber-700 transition">
-                      Assumir
-                    </button>
+                    <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[140px]">
+                      <button onClick={() => assume(ticket)} className="flex-1 rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white hover:bg-amber-700 transition">
+                        Assumir
+                      </button>
+                      {canDirect && (
+                        <button
+                          onClick={() => { setDirectingId(directingId === ticket.id ? null : ticket.id); setDirectTarget(''); }}
+                          className="flex-1 rounded-xl bg-amber-700 px-4 py-2 text-xs font-black text-white hover:bg-amber-600 transition"
+                        >
+                          Direcionar
+                        </button>
+                      )}
+                      <button onClick={() => cancel(ticket)} className="flex-1 rounded-xl bg-neutral-200 px-4 py-2 text-xs font-black text-neutral-700 hover:bg-neutral-300 transition">
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
+
+                  {directingId === ticket.id && canDirect && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Direcionar para colaborador</p>
+                      <select
+                        value={directTarget}
+                        onChange={(e) => setDirectTarget(e.target.value)}
+                        className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Escolher colaborador...</option>
+                        {collaborators
+                          .filter(c => c.id !== profile.id)
+                          .map(c => (
+                            <option key={c.id} value={c.id}>{c.name} ({c.role})</option>
+                          ))}
+                      </select>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => direct(ticket)} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white">Confirmar</button>
+                        <button onClick={() => { setDirectingId(null); setDirectTarget(''); }} className="rounded-xl bg-neutral-300 px-3 py-2 text-xs font-black text-neutral-700">Fechar</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -248,9 +332,14 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     {ticket.status_reason && <p className="mt-1 text-xs font-bold text-blue-700">👷 {ticket.status_reason}</p>}
                     <p className="mt-1 text-[11px] text-blue-500">em andamento ha {elapsed(ticket.started_at ?? ticket.created_at)}</p>
                   </div>
-                  <button onClick={() => resolve(ticket)} className="shrink-0 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-500 transition">
-                    Resolver
-                  </button>
+                  <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[140px]">
+                    <button onClick={() => resolve(ticket)} className="flex-1 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-500 transition">
+                      Resolver
+                    </button>
+                    <button onClick={() => cancel(ticket)} className="flex-1 rounded-xl bg-neutral-200 px-4 py-2 text-xs font-black text-neutral-700 hover:bg-neutral-300 transition">
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -258,21 +347,26 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
         </section>
       )}
 
-      {resolved.length > 0 && (
+      {closed.length > 0 && (
         <section>
-          <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-neutral-400">Resolvidos recentes</h3>
+          <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-neutral-400">Encerrados recentes</h3>
           <div className="space-y-2">
-            {resolved.map(ticket => (
-              <div key={ticket.id} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 opacity-70">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-black">RESOLVIDO</span>
-                  {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+            {closed.map(ticket => {
+              const isCancelled = ticket.status === 'cancelled';
+              return (
+                <div key={ticket.id} className={`rounded-2xl border px-4 py-3 ${isCancelled ? 'border-neutral-300 bg-neutral-100 opacity-60' : 'border-neutral-200 bg-neutral-50 opacity-70'}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${isCancelled ? 'bg-neutral-200 text-neutral-700 border-neutral-300' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                      {isCancelled ? 'CANCELADO' : 'RESOLVIDO'}
+                    </span>
+                    {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                  </div>
+                  <p className="mt-1.5 text-sm font-bold text-neutral-700">{ticket.title}</p>
+                  {ticket.status_reason && <p className="text-[11px] text-neutral-500">👷 {ticket.status_reason}</p>}
+                  {ticket.resolution_notes && <p className="text-[11px] text-neutral-500">{isCancelled ? '🚫' : '📝'} {ticket.resolution_notes}</p>}
                 </div>
-                <p className="mt-1.5 text-sm font-bold text-neutral-700">{ticket.title}</p>
-                {ticket.status_reason && <p className="text-[11px] text-neutral-500">👷 {ticket.status_reason}</p>}
-                {ticket.resolution_notes && <p className="text-[11px] text-neutral-500">📝 {ticket.resolution_notes}</p>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
