@@ -749,9 +749,6 @@ function printPerformanceReport(
     <p style="font-size:9px;color:#d4d4d4">Royal PMS Enterprise</p>
   </div>
 
-  <script>
-    window.onload = function() { window.print(); };
-  </script>
 </body>
 </html>`;
 
@@ -759,6 +756,8 @@ function printPerformanceReport(
   if (!win) return;
   win.document.write(html);
   win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
 }
 
 function MaintenancePerformanceTab() {
