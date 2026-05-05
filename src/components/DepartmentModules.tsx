@@ -592,6 +592,175 @@ type BonusTicket = {
 
 type BonusView = 'monthly' | 'weekly';
 
+function printPerformanceReport(
+  view: BonusView,
+  grandTotal: number,
+  monthlyData: {
+    months: string[];
+    monthLabels: string[];
+    byPerson: Record<string, Record<string, number>>;
+    people: string[];
+    ratingsByPerson: Record<string, number[]>;
+  },
+  weeklyData: {
+    weeks: string[];
+    byPerson: Record<string, Record<string, number>>;
+    people: string[];
+  },
+) {
+  const year = new Date().getFullYear();
+  const now = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  let tableHTML = '';
+
+  if (view === 'monthly') {
+    const headerCols = monthlyData.monthLabels
+      .map(m => `<th style="padding:8px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:52px">${m}</th>`)
+      .join('');
+
+    const bodyRows = monthlyData.people.map((name, i) => {
+      const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v: number) => s + v, 0);
+      const ratings = monthlyData.ratingsByPerson[name] ?? [];
+      const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = monthlyData.months.map(m => {
+        const count = monthlyData.byPerson[name][m] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 10px;text-align:center"><span style="display:inline-block;min-width:24px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 6px">${count}</span></td>`
+          : `<td style="padding:8px 10px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+        <td style="padding:8px 10px;text-align:center;font-weight:700;color:#d97706">${avgRating ? `★ ${avgRating}` : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const totalRow = monthlyData.months.map(m => {
+      const t = monthlyData.people.reduce((s, name) => s + (monthlyData.byPerson[name][m] ?? 0), 0);
+      return `<td style="padding:8px 10px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d97706;min-width:64px">Avaliação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${grandTotal}</td>
+            <td style="padding:8px 10px"></td>
+          </tr>
+        </tbody>
+      </table>`;
+  } else {
+    const headerCols = weeklyData.weeks
+      .map(w => `<th style="padding:8px 8px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#737373;min-width:44px">${w.replace(/\d{4}-/, '')}</th>`)
+      .join('');
+
+    const bodyRows = weeklyData.people.map((name, i) => {
+      const total = weeklyData.weeks.reduce((s, w) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = weeklyData.weeks.map(w => {
+        const count = weeklyData.byPerson[name]?.[w] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 8px;text-align:center"><span style="display:inline-block;min-width:20px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 5px">${count}</span></td>`
+          : `<td style="padding:8px 8px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+      </tr>`;
+    }).join('');
+
+    const weeklyGrandTotal = weeklyData.people.reduce((s, name) => s + weeklyData.weeks.reduce((ws, w) => ws + (weeklyData.byPerson[name]?.[w] ?? 0), 0), 0);
+    const totalRow = weeklyData.weeks.map(w => {
+      const t = weeklyData.people.reduce((s, name) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      return `<td style="padding:8px 8px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${weeklyGrandTotal}</td>
+          </tr>
+        </tbody>
+      </table>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Relatório de Desempenho — Manutenção ${year}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #fff; color: #0a0a0a; padding: 32px; }
+    @page { size: A4 landscape; margin: 16mm; }
+    @media print {
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header Royal PMS -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #0a0a0a">
+    <div>
+      <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.28em;color:#d97706;margin-bottom:4px">Royal PMS Enterprise</p>
+      <h1 style="font-size:22px;font-weight:900;color:#0a0a0a;margin-bottom:2px">Relatório de Desempenho — Manutenção</h1>
+      <p style="font-size:11px;color:#737373">${view === 'monthly' ? `Matriz mensal · ${year}` : `Últimas 12 semanas · ${year}`}</p>
+    </div>
+    <div style="text-align:right">
+      <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373">Emitido em</p>
+      <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin-top:2px">${now}</p>
+      <p style="font-size:9px;color:#737373;margin-top:6px">${grandTotal} resoluções no ano</p>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div style="overflow:auto;border-radius:12px;border:1px solid #e5e5e5">
+    ${tableHTML}
+  </div>
+
+  <!-- Rodapé -->
+  <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
+    <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3">Base: chamados resolvidos e aprovados na vistoria · ${year}</p>
+    <p style="font-size:9px;color:#d4d4d4">Royal PMS Enterprise</p>
+  </div>
+
+  <script>
+    window.onload = function() { window.print(); };
+  </script>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=1100,height=750');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+}
+
 function MaintenancePerformanceTab() {
   const [tickets, setTickets] = useState<BonusTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -706,7 +875,7 @@ function MaintenancePerformanceTab() {
             ))}
           </div>
           <button
-            onClick={() => window.print()}
+            onClick={() => printPerformanceReport(view, grandTotal, monthlyData, weeklyData)}
             className="shrink-0 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500 transition"
           >
             🖨 Imprimir
