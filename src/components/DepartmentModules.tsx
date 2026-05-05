@@ -592,6 +592,251 @@ type BonusTicket = {
 
 type BonusView = 'monthly' | 'weekly';
 
+function printPerformanceReport(
+  view: BonusView,
+  grandTotal: number,
+  monthlyData: {
+    months: string[];
+    monthLabels: string[];
+    byPerson: Record<string, Record<string, number>>;
+    people: string[];
+    ratingsByPerson: Record<string, number[]>;
+  },
+  weeklyData: {
+    weeks: string[];
+    byPerson: Record<string, Record<string, number>>;
+    people: string[];
+  },
+) {
+  const year = new Date().getFullYear();
+  const now = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  let tableHTML = '';
+
+  if (view === 'monthly') {
+    const headerCols = monthlyData.monthLabels
+      .map(m => `<th style="padding:8px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:52px">${m}</th>`)
+      .join('');
+
+    const bodyRows = monthlyData.people.map((name, i) => {
+      const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v: number) => s + v, 0);
+      const ratings = monthlyData.ratingsByPerson[name] ?? [];
+      const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = monthlyData.months.map(m => {
+        const count = monthlyData.byPerson[name][m] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 10px;text-align:center"><span style="display:inline-block;min-width:24px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 6px">${count}</span></td>`
+          : `<td style="padding:8px 10px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+        <td style="padding:8px 10px;text-align:center;font-weight:700;color:#d97706">${avgRating ? `★ ${avgRating}` : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const totalRow = monthlyData.months.map(m => {
+      const t = monthlyData.people.reduce((s, name) => s + (monthlyData.byPerson[name][m] ?? 0), 0);
+      return `<td style="padding:8px 10px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d97706;min-width:64px">Avaliação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${grandTotal}</td>
+            <td style="padding:8px 10px"></td>
+          </tr>
+        </tbody>
+      </table>`;
+  } else {
+    const headerCols = weeklyData.weeks
+      .map(w => `<th style="padding:8px 8px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#737373;min-width:44px">${w.replace(/\d{4}-/, '')}</th>`)
+      .join('');
+
+    const bodyRows = weeklyData.people.map((name, i) => {
+      const total = weeklyData.weeks.reduce((s, w) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = weeklyData.weeks.map(w => {
+        const count = weeklyData.byPerson[name]?.[w] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 8px;text-align:center"><span style="display:inline-block;min-width:20px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 5px">${count}</span></td>`
+          : `<td style="padding:8px 8px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+      </tr>`;
+    }).join('');
+
+    const weeklyGrandTotal = weeklyData.people.reduce((s, name) => s + weeklyData.weeks.reduce((ws, w) => ws + (weeklyData.byPerson[name]?.[w] ?? 0), 0), 0);
+    const totalRow = weeklyData.weeks.map(w => {
+      const t = weeklyData.people.reduce((s, name) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      return `<td style="padding:8px 8px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${weeklyGrandTotal}</td>
+          </tr>
+        </tbody>
+      </table>`;
+  }
+
+  const contentHTML = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;padding:0;margin:0">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #0a0a0a">
+        <div>
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.28em;color:#d97706;margin:0 0 4px">Royal PMS Enterprise</p>
+          <h1 style="font-size:20px;font-weight:900;color:#0a0a0a;margin:0 0 2px">Relatório de Desempenho — Manutenção</h1>
+          <p style="font-size:11px;color:#737373;margin:0">${view === 'monthly' ? `Matriz mensal · ${year}` : `Últimas 12 semanas · ${year}`}</p>
+        </div>
+        <div style="text-align:right">
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373;margin:0">Emitido em</p>
+          <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin:2px 0 0">${now}</p>
+          <p style="font-size:9px;color:#737373;margin:4px 0 0">${grandTotal} resoluções no ano</p>
+        </div>
+      </div>
+      <div style="border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+        ${tableHTML}
+      </div>
+      <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
+        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados resolvidos e aprovados na vistoria · ${year}</p>
+        <p style="font-size:9px;color:#d4d4d4;margin:0">Royal PMS Enterprise</p>
+      </div>
+    </div>`;
+
+  const fullHTML = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Relatório de Desempenho — Manutenção ${year}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { padding: 24px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0a0a0a; }
+    @page { size: A4 landscape; margin: 12mm; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>${contentHTML}</body>
+</html>`;
+
+  // Use an iframe — most reliable across desktop browsers, including Chrome/Safari.
+  // For iOS Safari (which can route iframe.print() to the parent window), we fall back
+  // to a DOM overlay technique using display:none/block (visibility-only fails on Safari).
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream;
+
+  if (!isIOS) {
+    // Desktop: hidden iframe approach
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!doc) {
+      iframe.remove();
+      toast.error('Não foi possível abrir a janela de impressão.');
+      return;
+    }
+    doc.open();
+    doc.write(fullHTML);
+    doc.close();
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.error('Print failed:', e);
+      }
+      setTimeout(() => iframe.remove(), 2000);
+    };
+
+    // Wait for iframe to render the written content before printing
+    if (iframe.contentWindow?.document.readyState === 'complete') {
+      setTimeout(triggerPrint, 200);
+    } else {
+      iframe.onload = () => setTimeout(triggerPrint, 200);
+      // Fallback in case onload never fires
+      setTimeout(triggerPrint, 800);
+    }
+    return;
+  }
+
+  // iOS Safari: DOM overlay with display:none/block (visibility approach fails on iOS)
+  const OVERLAY_ID = 'royal-perf-print-overlay';
+  const STYLE_ID = 'royal-perf-print-style';
+  document.getElementById(OVERLAY_ID)?.remove();
+  document.getElementById(STYLE_ID)?.remove();
+
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    #${OVERLAY_ID} { display: none; }
+    @page { size: A4 landscape; margin: 12mm; }
+    @media print {
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+      body > *:not(#${OVERLAY_ID}) { display: none !important; }
+      #${OVERLAY_ID} {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  `;
+
+  const overlay = document.createElement('div');
+  overlay.id = OVERLAY_ID;
+  overlay.innerHTML = contentHTML;
+
+  document.head.appendChild(style);
+  document.body.appendChild(overlay);
+
+  // Give the browser a tick to apply the styles before invoking print
+  setTimeout(() => window.print(), 100);
+
+  const cleanup = () => {
+    document.getElementById(OVERLAY_ID)?.remove();
+    document.getElementById(STYLE_ID)?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 60000);
+}
+
 function MaintenancePerformanceTab() {
   const [tickets, setTickets] = useState<BonusTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -706,7 +951,7 @@ function MaintenancePerformanceTab() {
             ))}
           </div>
           <button
-            onClick={() => window.print()}
+            onClick={() => printPerformanceReport(view, grandTotal, monthlyData, weeklyData)}
             className="shrink-0 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500 transition"
           >
             🖨 Imprimir
