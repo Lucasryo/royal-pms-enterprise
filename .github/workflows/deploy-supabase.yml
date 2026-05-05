@@ -86,3 +86,44 @@ jobs:
             "query": "create table if not exists public.event_items (id uuid default gen_random_uuid() primary key, name text not null, description text, unit text not null default 'por_unidade', default_price numeric(12,2) not null default 0, category text, active boolean not null default true, created_at timestamptz default timezone('utc', now()) not null, created_by uuid references auth.users(id)); create index if not exists idx_event_items_active on public.event_items(active, name); alter table public.hotel_events add column if not exists halls text[] default '{}'; alter table public.hotel_events add column if not exists pricing_model text default 'fixed'; alter table public.hotel_events add column if not exists quote_items jsonb default '[]'; alter table public.hotel_events add column if not exists subtotal_value numeric(12,2) default 0; alter table public.hotel_events add column if not exists iss_enabled boolean default false; alter table public.hotel_events add column if not exists iss_rate numeric(5,2) default 5.0; alter table public.hotel_events add column if not exists iss_amount numeric(12,2) default 0; alter table public.hotel_events add column if not exists hall_price numeric(12,2) default 0; alter table public.hotel_events add column if not exists is_quote boolean default false; alter table public.hotel_events add column if not exists quote_number text; alter table public.event_items enable row level security; do $$ begin if not exists (select 1 from pg_policies where tablename='event_items' and policyname='event_items_select_staff') then create policy event_items_select_staff on public.event_items for select using (exists (select 1 from public.profiles where id = auth.uid())); end if; if not exists (select 1 from pg_policies where tablename='event_items' and policyname='event_items_manage_events') then create policy event_items_manage_events on public.event_items for all using (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','manager','eventos'))) with check (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','manager','eventos'))); end if; end $$;"
           }
           SQL
+
+      - name: Deploy edge function — notify-maintenance-ticket
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy notify-maintenance-ticket \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+            --no-verify-jwt
+
+      - name: Set Telegram secrets on Edge Function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        continue-on-error: true
+        run: |
+          supabase secrets set \
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
+            TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }} \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Register Telegram webhook
+        continue-on-error: true
+        run: |
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook" \
+            -H "Content-Type: application/json" \
+            -d "{\"url\": \"https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/notify-maintenance-ticket\"}" \
+            | cat
+
+      - name: Run maintenance tickets RLS migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<'SQLEOF'
+          {
+            "query": "do $$ begin if not exists (select 1 from pg_policies where tablename='maintenance_tickets' and policyname='authenticated_can_view_all_tickets') then create policy \"authenticated_can_view_all_tickets\" on public.maintenance_tickets for select to authenticated using (true); end if; if not exists (select 1 from pg_policies where tablename='maintenance_tickets' and policyname='authenticated_can_update_tickets') then create policy \"authenticated_can_update_tickets\" on public.maintenance_tickets for update to authenticated using (true) with check (true); end if; end $$;"
+          }
+          SQLEOF
