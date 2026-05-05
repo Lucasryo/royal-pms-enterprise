@@ -67,7 +67,7 @@ const isSLABreached = (ticket: Ticket) => {
 export default function MaintenanceQueueBoard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [, setTick] = useState(0); // forces re-render every minute for live timer
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
@@ -213,12 +213,15 @@ function OpenTicketCard({ ticket }: { ticket: Ticket }) {
   const breached = isSLABreached(ticket);
 
   async function assume() {
+    const name = prompt('Seu nome (para registro):')?.trim();
+    if (name === null) return;
     const { error } = await supabase
       .from('maintenance_tickets')
       .update({
         status: 'in_progress',
         started_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        status_reason: name || null,
       })
       .eq('id', ticket.id);
     if (error) alert('Erro ao assumir: ' + error.message);
@@ -318,7 +321,10 @@ function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
             )}
           </div>
           <h3 className="mt-1.5 font-black text-sm text-white">{ticket.title}</h3>
-          <div className="mt-2 inline-flex items-center gap-1.5 text-blue-300 text-[11px] font-bold">
+          {ticket.status_reason && (
+            <p className="mt-1 text-[11px] text-blue-200 font-semibold">👷 {ticket.status_reason}</p>
+          )}
+          <div className="mt-1.5 inline-flex items-center gap-1.5 text-blue-300 text-[11px] font-bold">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
             em andamento ha <span className="tabular-nums">{formatElapsed(start)}</span>
           </div>
