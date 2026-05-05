@@ -62,10 +62,11 @@ function openKb(id: string) {
   ]] };
 }
 
-function inProgressKb(id: string) {
+function inProgressKb(id: string, tgUserId?: number) {
+  const suffix = tgUserId ? `:${tgUserId}` : "";
   return { inline_keyboard: [[
-    { text: "✅ Concluir",        callback_data: `resolve:${id}` },
-    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`   },
+    { text: "✅ Concluir",        callback_data: `resolve:${id}${suffix}` },
+    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}${suffix}`   },
   ]] };
 }
 
@@ -122,13 +123,38 @@ async function handleCallback(query: Record<string, unknown>) {
   const chatId = (msg.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const msgId  = msg.message_id;
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
+  const fromId = Number(from.id);
 
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
-
+  // callback_data formats:
+  //   assume:UUID                 — anyone
+  //   parts:UUID                  — anyone (open ticket)
+  //   resolve:UUID:LOCKED_TG_ID   — only LOCKED_TG_ID
+  //   parts:UUID:LOCKED_TG_ID     — only LOCKED_TG_ID (in-progress)
   const colonIdx = data.indexOf(":");
   const action   = data.slice(0, colonIdx);
-  const ticketId = data.slice(colonIdx + 1);
-  if (!ticketId) return { ok: true };
+  const rest     = data.slice(colonIdx + 1);
+  const restParts = rest.split(":");
+  const ticketId = restParts[0];
+  const lockedTgUserId = restParts[1] ? Number(restParts[1]) : null;
+
+  if (!ticketId) {
+    await tg("answerCallbackQuery", { callback_query_id: cbId });
+    return { ok: true };
+  }
+
+  // Ownership lock: only the user who assumed can resolve/report parts
+  if (lockedTgUserId && lockedTgUserId !== fromId) {
+    const { data: tk } = await db
+      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
+    await tg("answerCallbackQuery", {
+      callback_query_id: cbId,
+      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado.`,
+      show_alert: true,
+    });
+    return { ok: true };
+  }
+
+  await tg("answerCallbackQuery", { callback_query_id: cbId });
 
   const { data: ticket } = await db
     .from("maintenance_tickets").select("*").eq("id", ticketId).single();
@@ -144,7 +170,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
     if (msgId) {
       await tg("editMessageReplyMarkup", {
-        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId),
+        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
       });
     }
     await tg("sendMessage", {
@@ -154,18 +180,20 @@ async function handleCallback(query: Record<string, unknown>) {
     });
 
   } else if (action === "resolve") {
-    // Ask for resolution note; ticket ID embedded in text so the reply handler can parse it
+    // Embed ticket ID + locked tg user ID in the prompt so handleReply can verify
+    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✍️ Descreva a solução \\[${esc(ticketId)}\\]:\n_${esc(ticket.title)}_`,
+      text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
 
   } else if (action === "parts") {
+    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}\\]\n_${esc(ticket.title)}_`,
+      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
@@ -181,12 +209,25 @@ async function handleReply(message: Record<string, unknown>) {
   const userText  = (message.text as string) ?? "";
   const chatId    = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const from      = (message.from as Record<string, unknown>) ?? {};
+  const fromId    = Number(from.id);
   const name      = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
 
-  // Ticket ID is embedded as [uuid] inside the force_reply prompt text
-  const match = replyText.match(/\[([0-9a-f-]{36})\]/i);
+  // Force-reply prompt embeds [uuid] or [uuid|lockedTgUserId]
+  const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
   if (!match) return { ok: true };
-  const ticketId = match[1];
+  const ticketId       = match[1];
+  const lockedTgUserId = match[2] ? Number(match[2]) : null;
+
+  if (lockedTgUserId && lockedTgUserId !== fromId) {
+    const { data: tk } = await db
+      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔒 Apenas *${esc(tk?.status_reason ?? "quem assumiu")}* pode finalizar este chamado\\.`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
 
   const isResolve = replyText.startsWith("✍️");
   const isParts   = replyText.startsWith("🔩");
