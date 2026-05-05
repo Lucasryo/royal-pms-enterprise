@@ -104,6 +104,10 @@ type MaintTicket = {
   started_at: string | null;
   resolved_at: string | null;
   rating: number | null;
+  inspection_status: 'pending' | 'approved' | 'rejected' | null;
+  inspector_id: string | null;
+  inspection_notes: string | null;
+  inspected_at: string | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -144,6 +148,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [directingId, setDirectingId] = useState<string | null>(null);
   const [directTarget, setDirectTarget] = useState<string>('');
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [inspectorTarget, setInspectorTarget] = useState<string>('');
   const [, setTick] = useState(0);
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
@@ -176,7 +182,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -249,6 +255,10 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       started_at: null,
       resolved_at: null,
       rating: null,
+      inspection_status: null,
+      inspector_id: null,
+      inspection_notes: null,
+      inspected_at: null,
       resolution_notes: `Reaberto: ${reason} (${profile.name})`,
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
@@ -256,13 +266,63 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     else { toast.success('Chamado reaberto.'); fetchTickets(); }
   }
 
-  const open       = useMemo(() => tickets.filter(t => t.status === 'open').sort((a, b) => {
+  async function requestInspection(ticket: MaintTicket, inspectorId: string) {
+    const inspector = collaborators.find(c => c.id === inspectorId);
+    if (!inspector) return;
+    const { error } = await supabase.from('maintenance_tickets').update({
+      inspection_status: 'pending',
+      inspector_id: inspectorId,
+      updated_at: new Date().toISOString(),
+    }).eq('id', ticket.id);
+    if (error) toast.error('Erro: ' + error.message);
+    else { toast.success(`Vistoria solicitada para ${inspector.name}.`); fetchTickets(); }
+  }
+
+  async function approveInspection(ticket: MaintTicket) {
+    const note = prompt('Observacoes da vistoria (opcional):') ?? '';
+    const { error } = await supabase.from('maintenance_tickets').update({
+      inspection_status: 'approved',
+      inspection_notes: note || null,
+      inspected_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', ticket.id);
+    if (error) toast.error('Erro: ' + error.message);
+    else { toast.success('Vistoria aprovada.'); fetchTickets(); }
+  }
+
+  async function rejectInspection(ticket: MaintTicket) {
+    const note = prompt('Descreva o problema encontrado na vistoria (obrigatorio):')?.trim();
+    if (note === undefined) return;
+    if (!note) { toast.error('Descricao obrigatoria para reprovar.'); return; }
+    const { error } = await supabase.from('maintenance_tickets').update({
+      status: 'in_progress',
+      inspection_status: 'rejected',
+      inspection_notes: note,
+      inspected_at: new Date().toISOString(),
+      resolved_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', ticket.id);
+    if (error) toast.error('Erro: ' + error.message);
+    else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); }
+  }
+
+  const open = useMemo(() => tickets.filter(t => t.status === 'open').sort((a, b) => {
     const pp = ['urgent','high','medium','low'];
     const pd = pp.indexOf(a.priority) - pp.indexOf(b.priority);
     return pd !== 0 ? pd : a.created_at.localeCompare(b.created_at);
   }), [tickets]);
   const inProgress = useMemo(() => tickets.filter(t => t.status === 'in_progress'), [tickets]);
-  const closed     = useMemo(() => tickets.filter(t => t.status === 'resolved' || t.status === 'cancelled').slice(0, 15), [tickets]);
+  const pendingInspection = useMemo(() =>
+    tickets.filter(t => t.status === 'resolved' && t.inspection_status === 'pending'),
+  [tickets]);
+  const closed = useMemo(() =>
+    tickets
+      .filter(t => (t.status === 'resolved' && t.inspection_status !== 'pending') || t.status === 'cancelled')
+      .slice(0, 15),
+  [tickets]);
+
+  const canInspect = (t: MaintTicket) =>
+    t.inspector_id === profile.id || profile.role === 'admin' || profile.role === 'manager';
 
   if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando chamados...</div>;
 
@@ -381,6 +441,95 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
         </section>
       )}
 
+      {/* Vistoria picker for resolved tickets without inspection */}
+      {tickets.filter(t => t.status === 'resolved' && !t.inspection_status).length > 0 && canDirect && (
+        <section>
+          <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-emerald-600">Resolvidos — solicitar vistoria</h3>
+          <div className="space-y-2">
+            {tickets.filter(t => t.status === 'resolved' && !t.inspection_status).map(ticket => (
+              <div key={ticket.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-neutral-900">{ticket.title}</p>
+                    {ticket.room_number && <span className="text-xs text-neutral-500">UH {ticket.room_number} · </span>}
+                    {ticket.status_reason && <span className="text-xs text-neutral-500">Resolvido por {ticket.status_reason}</span>}
+                  </div>
+                  <div className="shrink-0 flex items-center gap-2">
+                    {inspectingId === ticket.id ? (
+                      <>
+                        <select
+                          value={inspectorTarget}
+                          onChange={e => setInspectorTarget(e.target.value)}
+                          className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="">Escolher vistoriador...</option>
+                          {collaborators.filter(c => c.id !== profile.id).map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => { if (inspectorTarget) { requestInspection(ticket, inspectorTarget); setInspectingId(null); setInspectorTarget(''); } else toast.error('Escolha um vistoriador.'); }}
+                          className="rounded-xl bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500 transition"
+                        >
+                          Solicitar
+                        </button>
+                        <button onClick={() => { setInspectingId(null); setInspectorTarget(''); }} className="rounded-xl bg-neutral-200 px-3 py-2 text-xs font-black text-neutral-700 transition">
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => { setInspectingId(ticket.id); setInspectorTarget(''); }}
+                        className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white hover:bg-purple-500 transition"
+                      >
+                        🔍 Solicitar Vistoria
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {pendingInspection.length > 0 && (
+        <section>
+          <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-purple-600">Aguardando vistoria</h3>
+          <div className="space-y-3">
+            {pendingInspection.map(ticket => {
+              const inspector = collaborators.find(c => c.id === ticket.inspector_id);
+              const canAct = canInspect(ticket);
+              return (
+                <div key={ticket.id} className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 text-[10px] font-black uppercase">VISTORIA</span>
+                        {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                      </div>
+                      <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
+                      {ticket.status_reason && <p className="mt-1 text-xs text-neutral-500">👷 Resolvido por: {ticket.status_reason}</p>}
+                      {inspector && <p className="mt-0.5 text-xs font-bold text-purple-700">🔍 Vistoriador: {inspector.name}</p>}
+                    </div>
+                    {canAct && (
+                      <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[130px]">
+                        <button onClick={() => approveInspection(ticket)} className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500 transition">
+                          ✅ Aprovar
+                        </button>
+                        <button onClick={() => rejectInspection(ticket)} className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white hover:bg-red-400 transition">
+                          ❌ Reprovar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {closed.length > 0 && (
         <section>
           <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-neutral-400">Encerrados recentes</h3>
@@ -431,157 +580,256 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   );
 }
 
-type PerfTicket = {
+type BonusTicket = {
   id: string;
-  status: 'resolved' | 'cancelled';
+  status: string;
   status_reason: string | null;
-  priority: string;
   created_at: string;
   resolved_at: string | null;
   rating: number | null;
+  inspection_status: string | null;
 };
 
-type Period = '7d' | '30d' | 'all';
+type BonusView = 'monthly' | 'weekly';
 
 function MaintenancePerformanceTab() {
-  const [tickets, setTickets] = useState<PerfTicket[]>([]);
+  const [tickets, setTickets] = useState<BonusTicket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>('30d');
+  const [view, setView] = useState<BonusView>('monthly');
 
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period]);
+  useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     setLoading(true);
-    let q = supabase
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+    const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,status,status_reason,priority,created_at,resolved_at,rating')
-      .in('status', ['resolved', 'cancelled'])
+      .select('id,status,status_reason,created_at,resolved_at,rating,inspection_status')
+      .eq('status', 'resolved')
+      .gte('resolved_at', yearStart)
       .order('resolved_at', { ascending: false })
-      .limit(500);
-
-    if (period !== 'all') {
-      const days = period === '7d' ? 7 : 30;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
-      q = q.gte('created_at', since.toISOString());
-    }
-
-    const { data, error } = await q;
+      .limit(2000);
     if (error) { toast.error('Erro: ' + error.message); setLoading(false); return; }
-    setTickets((data ?? []) as PerfTicket[]);
+    setTickets((data ?? []) as BonusTicket[]);
     setLoading(false);
   }
 
-  const stats = useMemo(() => {
-    const byPerson: Record<string, { name: string; resolved: number; cancelled: number; times: number[]; ratings: number[] }> = {};
+  // ── Monthly bonus matrix ──────────────────────────────────────────────────
+  const monthlyData = useMemo(() => {
+    const monthSet = new Set<string>();
+    const byPerson: Record<string, Record<string, number>> = {};
+    const ratingsByPerson: Record<string, number[]> = {};
+
     for (const t of tickets) {
-      const key = t.status_reason ?? 'Sem registro';
-      if (!byPerson[key]) byPerson[key] = { name: key, resolved: 0, cancelled: 0, times: [], ratings: [] };
-      if (t.status === 'resolved') {
-        byPerson[key].resolved++;
-        if (t.resolved_at && t.created_at) {
-          const mins = Math.round((new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 60_000);
-          byPerson[key].times.push(mins);
-        }
-        if (t.rating) byPerson[key].ratings.push(t.rating);
-      } else {
-        byPerson[key].cancelled++;
+      const date = new Date(t.resolved_at ?? t.created_at);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      monthSet.add(key);
+      const name = t.status_reason ?? 'Sem registro';
+      if (!byPerson[name]) byPerson[name] = {};
+      byPerson[name][key] = (byPerson[name][key] ?? 0) + 1;
+      if (t.rating) {
+        if (!ratingsByPerson[name]) ratingsByPerson[name] = [];
+        ratingsByPerson[name].push(t.rating);
       }
     }
-    return Object.values(byPerson)
-      .map(p => ({
-        name: p.name,
-        resolved: p.resolved,
-        cancelled: p.cancelled,
-        avgTime: p.times.length > 0 ? Math.round(p.times.reduce((a, b) => a + b, 0) / p.times.length) : null,
-        avgRating: p.ratings.length > 0 ? p.ratings.reduce((a, b) => a + b, 0) / p.ratings.length : null,
-      }))
-      .sort((a, b) => b.resolved - a.resolved);
+
+    const months = Array.from(monthSet).sort();
+    const PT_MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const monthLabels = months.map(m => {
+      const [y, mo] = m.split('-');
+      return `${PT_MONTHS[Number(mo) - 1]}/${y.slice(2)}`;
+    });
+
+    const people = Object.keys(byPerson).sort((a, b) => {
+      const ta = Object.values(byPerson[a]).reduce((s, v) => s + v, 0);
+      const tb = Object.values(byPerson[b]).reduce((s, v) => s + v, 0);
+      return tb - ta;
+    });
+
+    return { months, monthLabels, byPerson, people, ratingsByPerson };
   }, [tickets]);
 
-  const totals = useMemo(() => {
-    const resolved = tickets.filter(t => t.status === 'resolved');
-    const cancelled = tickets.filter(t => t.status === 'cancelled').length;
-    const withTime = resolved.filter(t => t.resolved_at && t.created_at);
-    const avgMins = withTime.length > 0
-      ? Math.round(withTime.reduce((sum, t) => sum + (new Date(t.resolved_at!).getTime() - new Date(t.created_at).getTime()) / 60_000, 0) / withTime.length)
-      : null;
-    const ratings = tickets.filter(t => t.rating).map(t => t.rating as number);
-    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
-    return { resolved: resolved.length, cancelled, avgMins, avgRating, ratingCount: ratings.length };
+  // ── Weekly breakdown (current year by ISO week) ────────────────────────
+  const weeklyData = useMemo(() => {
+    function isoWeek(date: Date): string {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+    }
+
+    const weekSet = new Set<string>();
+    const byPerson: Record<string, Record<string, number>> = {};
+
+    for (const t of tickets) {
+      const date = new Date(t.resolved_at ?? t.created_at);
+      const wk = isoWeek(date);
+      weekSet.add(wk);
+      const name = t.status_reason ?? 'Sem registro';
+      if (!byPerson[name]) byPerson[name] = {};
+      byPerson[name][wk] = (byPerson[name][wk] ?? 0) + 1;
+    }
+
+    const weeks = Array.from(weekSet).sort().slice(-12); // last 12 weeks
+    const people = Object.keys(byPerson).sort((a, b) => {
+      const ta = Object.values(byPerson[a]).reduce((s, v) => s + v, 0);
+      const tb = Object.values(byPerson[b]).reduce((s, v) => s + v, 0);
+      return tb - ta;
+    });
+
+    return { weeks, byPerson, people };
   }, [tickets]);
 
-  if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando desempenho...</div>;
+  const grandTotal = tickets.length;
+
+  if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando relatorio...</div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex max-w-full overflow-x-auto gap-2">
-        {(['7d', '30d', 'all'] as const).map(p => (
+      {/* Header + controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Relatorio de bonificacao</p>
+          <p className="text-lg font-black text-neutral-900">{grandTotal} resolucoes em {new Date().getFullYear()}</p>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex max-w-full overflow-x-auto gap-2">
+            {(['monthly', 'weekly'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black transition ${view === v ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
+              >
+                {v === 'monthly' ? 'Mensal' : 'Semanal'}
+              </button>
+            ))}
+          </div>
           <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black transition ${period === p ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
+            onClick={() => window.print()}
+            className="shrink-0 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500 transition"
           >
-            {p === '7d' ? 'Ultimos 7 dias' : p === '30d' ? 'Ultimos 30 dias' : 'Tudo'}
+            🖨 Imprimir
           </button>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Resolvidos</p>
-          <p className="mt-1 text-2xl sm:text-3xl font-black text-emerald-800">{totals.resolved}</p>
-        </div>
-        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Cancelados</p>
-          <p className="mt-1 text-2xl sm:text-3xl font-black text-neutral-800">{totals.cancelled}</p>
-        </div>
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Tempo medio</p>
-          <p className="mt-1 text-xl sm:text-2xl font-black text-blue-800">{totals.avgMins !== null ? fmtMins(totals.avgMins) : '—'}</p>
-        </div>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Avaliacao</p>
-          <p className="mt-1 text-xl sm:text-2xl font-black text-amber-800">
-            {totals.avgRating !== null ? `⭐ ${totals.avgRating.toFixed(1)}` : '—'}
-          </p>
-          <p className="text-[10px] text-amber-600">{totals.ratingCount} avaliacao{totals.ratingCount === 1 ? '' : 'oes'}</p>
         </div>
       </div>
 
-      {stats.length > 0 ? (
-        <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
-          <table className="min-w-[560px] w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-100">
-                <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-neutral-400">Colaborador</th>
-                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Resolvidos</th>
-                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Cancelados</th>
-                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Tempo medio</th>
-                <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">Avaliacao</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.map((p, i) => (
-                <tr key={p.name} className={i % 2 === 0 ? 'bg-neutral-50' : 'bg-white'}>
-                  <td className="px-4 py-3 font-bold text-neutral-900">{p.name}</td>
-                  <td className="px-4 py-3 text-center font-black text-emerald-700">{p.resolved}</td>
-                  <td className="px-4 py-3 text-center text-neutral-500">{p.cancelled}</td>
-                  <td className="px-4 py-3 text-center text-neutral-700">{p.avgTime !== null ? fmtMins(p.avgTime) : '—'}</td>
-                  <td className="px-4 py-3 text-center text-amber-600 font-bold">{p.avgRating !== null ? `⭐ ${p.avgRating.toFixed(1)}` : '—'}</td>
+      {/* Monthly matrix */}
+      {view === 'monthly' && (
+        monthlyData.people.length > 0 ? (
+          <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
+            <table className="min-w-[500px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-100 bg-neutral-50">
+                  <th className="sticky left-0 bg-neutral-50 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-neutral-400 min-w-[140px]">Tecnico</th>
+                  {monthlyData.monthLabels.map(m => (
+                    <th key={m} className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400 min-w-[60px]">{m}</th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600 min-w-[60px]">TOTAL</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-amber-600 min-w-[70px]">Avaliacao</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rounded-3xl border border-dashed border-neutral-200 bg-neutral-50 py-16 text-center text-sm font-bold text-neutral-400">
-          Nenhum chamado encerrado no periodo.
-        </div>
+              </thead>
+              <tbody>
+                {monthlyData.people.map((name, i) => {
+                  const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v: number) => s + v, 0);
+                  const ratings = monthlyData.ratingsByPerson[name] ?? [];
+                  const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+                  return (
+                    <tr key={name} className={i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
+                      <td className="sticky left-0 bg-inherit px-4 py-3 font-bold text-neutral-900 text-sm">{name}</td>
+                      {monthlyData.months.map(m => {
+                        const count = monthlyData.byPerson[name][m] ?? 0;
+                        return (
+                          <td key={m} className="px-3 py-3 text-center">
+                            {count > 0 ? (
+                              <span className="inline-block min-w-[28px] rounded-lg bg-emerald-100 text-emerald-800 font-black text-xs px-2 py-0.5">{count}</span>
+                            ) : (
+                              <span className="text-neutral-300 text-xs">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{total}</td>
+                      <td className="px-4 py-3 text-center font-bold text-amber-600">{avgRating ? `⭐ ${avgRating}` : '—'}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-neutral-200 bg-neutral-100 font-black">
+                  <td className="sticky left-0 bg-neutral-100 px-4 py-3 text-xs uppercase tracking-widest text-neutral-500">TOTAL</td>
+                  {monthlyData.months.map(m => {
+                    const total = monthlyData.people.reduce((s, name) => s + (monthlyData.byPerson[name][m] ?? 0), 0);
+                    return <td key={m} className="px-3 py-3 text-center font-black text-neutral-700">{total || '—'}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{grandTotal}</td>
+                  <td className="px-4 py-3" />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-neutral-200 bg-neutral-50 py-16 text-center text-sm font-bold text-neutral-400">
+            Nenhuma resolucao registrada neste ano.
+          </div>
+        )
       )}
+
+      {/* Weekly matrix */}
+      {view === 'weekly' && (
+        weeklyData.people.length > 0 ? (
+          <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
+            <table className="min-w-[500px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-100 bg-neutral-50">
+                  <th className="sticky left-0 bg-neutral-50 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-neutral-400 min-w-[140px]">Tecnico</th>
+                  {weeklyData.weeks.map(w => (
+                    <th key={w} className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400 min-w-[52px]">{w.replace(/\d{4}-/, '')}</th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600 min-w-[60px]">TOTAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyData.people.map((name, i) => {
+                  const total = weeklyData.weeks.reduce((s, w) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+                  return (
+                    <tr key={name} className={i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
+                      <td className="sticky left-0 bg-inherit px-4 py-3 font-bold text-neutral-900 text-sm">{name}</td>
+                      {weeklyData.weeks.map(w => {
+                        const count = weeklyData.byPerson[name]?.[w] ?? 0;
+                        return (
+                          <td key={w} className="px-2 py-3 text-center">
+                            {count > 0 ? (
+                              <span className="inline-block min-w-[24px] rounded-lg bg-emerald-100 text-emerald-800 font-black text-xs px-1.5 py-0.5">{count}</span>
+                            ) : (
+                              <span className="text-neutral-300 text-xs">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{total}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-neutral-200 bg-neutral-100 font-black">
+                  <td className="sticky left-0 bg-neutral-100 px-4 py-3 text-xs uppercase tracking-widest text-neutral-500">TOTAL</td>
+                  {weeklyData.weeks.map(w => {
+                    const total = weeklyData.people.reduce((s, name) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+                    return <td key={w} className="px-2 py-3 text-center font-black text-neutral-700">{total || '—'}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{weeklyData.people.reduce((s, name) => s + weeklyData.weeks.reduce((ws, w) => ws + (weeklyData.byPerson[name]?.[w] ?? 0), 0), 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-neutral-200 bg-neutral-50 py-16 text-center text-sm font-bold text-neutral-400">
+            Nenhuma resolucao nas ultimas 12 semanas.
+          </div>
+        )
+      )}
+
+      <p className="text-center text-[10px] text-neutral-400 uppercase tracking-widest">
+        Base: chamados resolvidos e aprovados na vistoria · {new Date().getFullYear()}
+      </p>
     </div>
   );
 }

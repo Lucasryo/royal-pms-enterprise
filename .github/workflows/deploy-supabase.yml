@@ -128,7 +128,7 @@ jobs:
           }
           SQLEOF
 
-      - name: Add rating column to maintenance_tickets
+      - name: Add rating and inspection columns to maintenance_tickets
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
@@ -138,45 +138,6 @@ jobs:
             -H "Content-Type: application/json" \
             -d @- <<'SQLEOF'
           {
-            "query": "alter table public.maintenance_tickets add column if not exists rating int check (rating is null or (rating >= 1 and rating <= 5));"
+            "query": "alter table public.maintenance_tickets add column if not exists rating int check (rating is null or (rating >= 1 and rating <= 5)); alter table public.maintenance_tickets add column if not exists inspection_status text check (inspection_status is null or inspection_status in ('pending','approved','rejected')); alter table public.maintenance_tickets add column if not exists inspector_id uuid references auth.users(id); alter table public.maintenance_tickets add column if not exists inspection_notes text; alter table public.maintenance_tickets add column if not exists inspected_at timestamptz;"
           }
           SQLEOF
-
-      - name: Schedule daily maintenance report (pg_cron)
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-        continue-on-error: true
-        run: |
-          python3 - <<'PYEOF'
-          import json, os, urllib.request, urllib.error
-          proj  = os.environ["PROJECT_REF"]
-          token = os.environ["SUPABASE_ACCESS_TOKEN"]
-          fn_url = f"https://{proj}.supabase.co/functions/v1/notify-maintenance-ticket"
-          query = (
-            "create extension if not exists pg_cron; "
-            "create extension if not exists pg_net; "
-            "do $do$ begin "
-            "  if exists (select 1 from cron.job where jobname = 'daily-maintenance-report') then "
-            "    perform cron.unschedule('daily-maintenance-report'); "
-            "  end if; "
-            "end $do$; "
-            "select cron.schedule('daily-maintenance-report', '0 11 * * *', "
-            f"$job$select net.http_post(url := '{fn_url}', "
-            "body := '{\"type\":\"daily_report\"}'::jsonb, "
-            "headers := '{\"Content-Type\":\"application/json\"}'::jsonb);$job$);"
-          )
-          payload = json.dumps({"query": query}).encode()
-          req = urllib.request.Request(
-            f"https://api.supabase.com/v1/projects/{proj}/database/query",
-            data=payload,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            method="POST",
-          )
-          try:
-            with urllib.request.urlopen(req) as r:
-              print(r.read().decode())
-          except urllib.error.HTTPError as e:
-            print(f"HTTP {e.code}: {e.read().decode()}")
-            raise
-          PYEOF
