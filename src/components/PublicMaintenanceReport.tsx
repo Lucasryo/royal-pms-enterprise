@@ -1,19 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { uploadImage } from '../lib/imgbb';
-import { AlertTriangle, Camera, CheckCircle2, Loader2, Mic, Send, X as CloseIcon } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle2, Loader2, LogOut, Mic, Send, X as CloseIcon } from 'lucide-react';
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
+type AuthState = 'loading' | 'login' | 'form';
+
+const ALLOWED_ROLES = ['housekeeping', 'maintenance', 'manager', 'admin', 'reception'];
 
 const PRIORITY_OPTIONS: Array<{ value: Priority; label: string; color: string; description: string }> = [
-  { value: 'low',    label: 'Baixa',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200', description: 'Pode aguardar alguns dias' },
-  { value: 'medium', label: 'Media',    color: 'bg-amber-50 text-amber-700 border-amber-200',       description: 'Resolver no proximo turno' },
-  { value: 'high',   label: 'Alta',     color: 'bg-orange-50 text-orange-700 border-orange-200',    description: 'Resolver hoje' },
-  { value: 'urgent', label: 'Urgente',  color: 'bg-red-50 text-red-700 border-red-200',             description: 'Atender agora — risco ao hospede' },
+  { value: 'low',    label: 'Baixa',   color: 'bg-emerald-50 text-emerald-700 border-emerald-200', description: 'Pode aguardar alguns dias' },
+  { value: 'medium', label: 'Media',   color: 'bg-amber-50 text-amber-700 border-amber-200',       description: 'Resolver no proximo turno' },
+  { value: 'high',   label: 'Alta',    color: 'bg-orange-50 text-orange-700 border-orange-200',    description: 'Resolver hoje' },
+  { value: 'urgent', label: 'Urgente', color: 'bg-red-50 text-red-700 border-red-200',             description: 'Atender agora — risco ao hospede' },
 ];
 
 export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: string }) {
-  const [reporterName, setReporterName] = useState('');
+  const [authState, setAuthState] = useState<AuthState>('loading');
+  const [staffName, setStaffName] = useState('');
+
+  // login fields
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // form fields
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
@@ -27,6 +39,12 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Check existing session on mount
+  useEffect(() => {
+    void checkSession();
+  }, []);
+
+  // Speech recognition setup
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
@@ -35,31 +53,66 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
     rec.interimResults = false;
     rec.lang = 'pt-BR';
     rec.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setDescription((prev) => (prev ? prev + ' ' : '') + transcript);
+      setDescription((prev) => (prev ? prev + ' ' : '') + event.results[0][0].transcript);
     };
     rec.onend = () => setRecording(false);
     rec.onerror = () => setRecording(false);
     recognitionRef.current = rec;
   }, []);
 
-  function toggleRecording() {
-    const rec = recognitionRef.current;
-    if (!rec) {
-      setError('Seu navegador nao suporta reconhecimento de voz. Digite manualmente.');
+  async function checkSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setAuthState('login'); return; }
+    await resolveProfile(session.user.id);
+  }
+
+  async function resolveProfile(userId: string) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('name, role')
+      .eq('id', userId)
+      .single();
+
+    if (!profile || !ALLOWED_ROLES.includes(profile.role)) {
+      await supabase.auth.signOut();
+      setLoginError('Seu usuario nao tem permissao para abrir chamados via QR.');
+      setAuthState('login');
       return;
     }
-    if (recording) {
-      rec.stop();
-      setRecording(false);
-    } else {
-      try {
-        rec.start();
-        setRecording(true);
-      } catch {
-        setRecording(false);
-      }
+    setStaffName(profile.name ?? '');
+    setAuthState('form');
+  }
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: loginEmail.trim(),
+      password: loginPassword,
+    });
+    setLoginLoading(false);
+    if (authError || !data.session) {
+      setLoginError('Email ou senha incorretos.');
+      return;
     }
+    await resolveProfile(data.session.user.id);
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setStaffName('');
+    setLoginEmail('');
+    setLoginPassword('');
+    setLoginError(null);
+    setAuthState('login');
+  }
+
+  function toggleRecording() {
+    const rec = recognitionRef.current;
+    if (!rec) { setError('Navegador sem suporte a voz. Digite manualmente.'); return; }
+    if (recording) { rec.stop(); setRecording(false); }
+    else { try { rec.start(); setRecording(true); } catch { setRecording(false); } }
   }
 
   async function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -88,10 +141,7 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!title.trim()) {
-      setError('Descreva brevemente o problema no titulo.');
-      return;
-    }
+    if (!title.trim()) { setError('Descreva brevemente o problema no titulo.'); return; }
     setSubmitting(true);
     setError(null);
 
@@ -101,8 +151,8 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
       description: description.trim() || null,
       priority,
       status: 'open',
+      status_reason: `Reportado por: ${staffName}`,
     };
-    if (reporterName.trim()) payload.status_reason = `Reportado por: ${reporterName.trim()}`;
     if (photoUrl) payload.resolution_notes = `Foto: ${photoUrl}`;
 
     const { error: insertError } = await supabase.from('maintenance_tickets').insert([payload]);
@@ -111,11 +161,85 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
       setSubmitting(false);
       return;
     }
-
     setSubmitted(true);
     setSubmitting(false);
   }
 
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (authState === 'loading') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+      </div>
+    );
+  }
+
+  // ── Login gate ───────────────────────────────────────────────────────────
+  if (authState === 'login') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50 flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-sm bg-white rounded-3xl border border-neutral-200 shadow-xl overflow-hidden">
+          <div className="bg-gradient-to-br from-neutral-900 to-neutral-700 text-white p-5 sm:p-7">
+            <p className="text-[10px] font-black uppercase tracking-[0.32em] text-amber-300">Royal PMS</p>
+            <h1 className="mt-2 text-xl sm:text-2xl font-black">Acesso colaborador</h1>
+            <p className="mt-1 text-xs text-neutral-400">Use seu login do PMS para reportar chamados</p>
+          </div>
+          <form onSubmit={handleLogin} className="p-5 sm:p-7 space-y-4">
+            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">UH</span>
+              <span className="text-sm font-black text-amber-800">{roomNumber}</span>
+            </div>
+
+            <Field label="Email">
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="seu@email.com"
+                required
+                autoComplete="username"
+                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </Field>
+
+            <Field label="Senha">
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                autoComplete="current-password"
+                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </Field>
+
+            {loginError && (
+              <div className="flex gap-2 items-start p-3 bg-red-50 border border-red-200 rounded-xl">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{loginError}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-xl hover:bg-neutral-800 transition disabled:bg-neutral-300 flex items-center justify-center gap-2"
+            >
+              {loginLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Entrar
+            </button>
+
+            <p className="text-center text-[10px] text-neutral-400">
+              Acesso exclusivo para colaboradores do hotel
+            </p>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Submitted ────────────────────────────────────────────────────────────
   if (submitted) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-50 flex items-center justify-center p-6">
@@ -132,7 +256,6 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
               setSubmitted(false);
               setTitle('');
               setDescription('');
-              setReporterName('');
               setPriority('medium');
               clearPhoto();
             }}
@@ -140,34 +263,45 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
           >
             Abrir outro chamado
           </button>
+          <button onClick={handleLogout} className="mt-3 w-full text-xs text-neutral-400 hover:text-neutral-600 transition py-2">
+            Sair da conta
+          </button>
         </div>
       </div>
     );
   }
 
+  // ── Form ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50 flex items-start sm:items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-lg bg-white rounded-3xl border border-neutral-200 shadow-xl overflow-hidden">
         <div className="bg-gradient-to-br from-neutral-900 to-neutral-700 text-white p-5 sm:p-7">
-          <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.32em] text-amber-300">Royal PMS</p>
-          <h1 className="mt-2 text-xl sm:text-3xl font-black">Reportar problema</h1>
-          <div className="mt-3 inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-200">UH</span>
-            <span className="text-base sm:text-lg font-black">{roomNumber}</span>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.32em] text-amber-300">Royal PMS</p>
+              <h1 className="mt-2 text-xl sm:text-3xl font-black">Reportar problema</h1>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="Sair"
+              className="mt-1 p-2 rounded-xl bg-white/10 hover:bg-white/20 transition"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-amber-200">UH</span>
+              <span className="text-base sm:text-lg font-black">{roomNumber}</span>
+            </div>
+            <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Colaborador</span>
+              <span className="text-sm font-bold">{staffName}</span>
+            </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-7 space-y-4">
-          <Field label="Seu nome (opcional)">
-            <input
-              type="text"
-              value={reporterName}
-              onChange={(e) => setReporterName(e.target.value)}
-              placeholder="Ex: Maria — Camareira"
-              className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
-          </Field>
-
           <Field label="Qual o problema?" required>
             <input
               type="text"
@@ -192,9 +326,7 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
                 <button
                   type="button"
                   onClick={toggleRecording}
-                  className={`absolute bottom-2 right-2 p-2 rounded-lg transition ${
-                    recording ? 'bg-red-500 text-white animate-pulse' : 'bg-neutral-200 text-neutral-600 hover:bg-neutral-300'
-                  }`}
+                  className={`absolute bottom-2 right-2 p-2 rounded-lg transition ${recording ? 'bg-red-500 text-white animate-pulse' : 'bg-neutral-200 text-neutral-600 hover:bg-neutral-300'}`}
                   title={recording ? 'Parar gravacao' : 'Falar em vez de digitar'}
                 >
                   <Mic className="w-4 h-4" />
@@ -217,11 +349,7 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
                   </div>
                 )}
                 {!uploadingPhoto && (
-                  <button
-                    type="button"
-                    onClick={clearPhoto}
-                    className="absolute top-2 right-2 bg-white text-neutral-700 rounded-full p-1.5 shadow-md hover:bg-neutral-100"
-                  >
+                  <button type="button" onClick={clearPhoto} className="absolute top-2 right-2 bg-white text-neutral-700 rounded-full p-1.5 shadow-md hover:bg-neutral-100">
                     <CloseIcon className="w-4 h-4" />
                   </button>
                 )}
@@ -236,14 +364,7 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
                 <span className="text-sm font-bold">Tirar foto / escolher</span>
               </button>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoChange}
-              className="hidden"
-            />
+            <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
           </Field>
 
           <Field label="Quao urgente e?" required>
@@ -253,9 +374,7 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
                   key={opt.value}
                   type="button"
                   onClick={() => setPriority(opt.value)}
-                  className={`px-3 py-2.5 rounded-xl border-2 text-xs font-black transition ${
-                    priority === opt.value ? `${opt.color} ring-2 ring-offset-1 ring-current` : 'bg-white border-neutral-200 text-neutral-500 hover:border-neutral-300'
-                  }`}
+                  className={`px-3 py-2.5 rounded-xl border-2 text-xs font-black transition ${priority === opt.value ? `${opt.color} ring-2 ring-offset-1 ring-current` : 'bg-white border-neutral-200 text-neutral-500 hover:border-neutral-300'}`}
                 >
                   {opt.label}
                 </button>
@@ -278,22 +397,8 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
             disabled={submitting || uploadingPhoto || !title.trim()}
             className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-xl hover:bg-neutral-800 transition disabled:bg-neutral-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {submitting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Enviando...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                Enviar Chamado
-              </>
-            )}
+            {submitting ? <><Loader2 className="w-4 h-4 animate-spin" />Enviando...</> : <><Send className="w-4 h-4" />Enviar Chamado</>}
           </button>
-
-          <p className="text-center text-[10px] text-neutral-400 uppercase tracking-widest pt-1">
-            Sem login. Anonimo. Em segundos.
-          </p>
         </form>
       </div>
     </div>

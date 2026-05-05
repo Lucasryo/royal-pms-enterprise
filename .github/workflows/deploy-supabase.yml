@@ -127,3 +127,17 @@ jobs:
             "query": "do $$ begin if not exists (select 1 from pg_policies where tablename='maintenance_tickets' and policyname='authenticated_can_view_all_tickets') then create policy \"authenticated_can_view_all_tickets\" on public.maintenance_tickets for select to authenticated using (true); end if; if not exists (select 1 from pg_policies where tablename='maintenance_tickets' and policyname='authenticated_can_update_tickets') then create policy \"authenticated_can_update_tickets\" on public.maintenance_tickets for update to authenticated using (true) with check (true); end if; end $$;"
           }
           SQLEOF
+
+      - name: Add rating and inspection columns to maintenance_tickets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<'SQLEOF'
+          {
+            "query": "alter table public.maintenance_tickets add column if not exists rating int check (rating is null or (rating >= 1 and rating <= 5)); alter table public.maintenance_tickets add column if not exists inspection_status text check (inspection_status is null or inspection_status in ('pending','approved','rejected')); alter table public.maintenance_tickets add column if not exists inspector_id uuid references auth.users(id); alter table public.maintenance_tickets add column if not exists inspection_notes text; alter table public.maintenance_tickets add column if not exists inspected_at timestamptz;"
+          }
+          SQLEOF

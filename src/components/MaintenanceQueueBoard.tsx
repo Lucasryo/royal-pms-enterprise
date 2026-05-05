@@ -67,7 +67,7 @@ const isSLABreached = (ticket: Ticket) => {
 export default function MaintenanceQueueBoard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [, setTick] = useState(0);
+  const [, setTick] = useState(0); // forces re-render every minute for live timer
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
@@ -214,7 +214,7 @@ function OpenTicketCard({ ticket }: { ticket: Ticket }) {
 
   async function assume() {
     const name = prompt('Seu nome (para registro):')?.trim();
-    if (name === null) return;
+    if (name === null) return; // cancelled
     const { error } = await supabase
       .from('maintenance_tickets')
       .update({
