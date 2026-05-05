@@ -643,7 +643,7 @@ function printPerformanceReport(
     }).join('');
 
     tableHTML = `
-      <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:12px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
           <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
             <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
@@ -690,7 +690,7 @@ function printPerformanceReport(
     }).join('');
 
     tableHTML = `
-      <table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif;font-size:12px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
           <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
             <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
@@ -709,55 +709,76 @@ function printPerformanceReport(
       </table>`;
   }
 
-  const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <title>Relatório de Desempenho — Manutenção ${year}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #fff; color: #0a0a0a; padding: 32px; }
-    @page { size: A4 landscape; margin: 16mm; }
+  const contentHTML = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;padding:0;margin:0">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #0a0a0a">
+        <div>
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.28em;color:#d97706;margin:0 0 4px">Royal PMS Enterprise</p>
+          <h1 style="font-size:20px;font-weight:900;color:#0a0a0a;margin:0 0 2px">Relatório de Desempenho — Manutenção</h1>
+          <p style="font-size:11px;color:#737373;margin:0">${view === 'monthly' ? `Matriz mensal · ${year}` : `Últimas 12 semanas · ${year}`}</p>
+        </div>
+        <div style="text-align:right">
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373;margin:0">Emitido em</p>
+          <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin:2px 0 0">${now}</p>
+          <p style="font-size:9px;color:#737373;margin:4px 0 0">${grandTotal} resoluções no ano</p>
+        </div>
+      </div>
+      <div style="border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+        ${tableHTML}
+      </div>
+      <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
+        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados resolvidos e aprovados na vistoria · ${year}</p>
+        <p style="font-size:9px;color:#d4d4d4;margin:0">Royal PMS Enterprise</p>
+      </div>
+    </div>`;
+
+  // Inject a hidden overlay + @media print styles directly into the current document.
+  // This is the only approach that works on iOS Safari (window.open is unreliable on mobile).
+  const OVERLAY_ID = 'royal-perf-print-overlay';
+  const STYLE_ID = 'royal-perf-print-style';
+
+  // Remove any previous leftovers
+  document.getElementById(OVERLAY_ID)?.remove();
+  document.getElementById(STYLE_ID)?.remove();
+
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    @page { size: A4 landscape; margin: 14mm; }
     @media print {
-      body { padding: 0; }
+      body * { visibility: hidden !important; }
+      #${OVERLAY_ID}, #${OVERLAY_ID} * { visibility: visible !important; }
+      #${OVERLAY_ID} {
+        position: fixed !important;
+        inset: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: #fff !important;
+        z-index: 99999 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
     }
-  </style>
-</head>
-<body>
-  <!-- Header Royal PMS -->
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #0a0a0a">
-    <div>
-      <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.28em;color:#d97706;margin-bottom:4px">Royal PMS Enterprise</p>
-      <h1 style="font-size:22px;font-weight:900;color:#0a0a0a;margin-bottom:2px">Relatório de Desempenho — Manutenção</h1>
-      <p style="font-size:11px;color:#737373">${view === 'monthly' ? `Matriz mensal · ${year}` : `Últimas 12 semanas · ${year}`}</p>
-    </div>
-    <div style="text-align:right">
-      <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373">Emitido em</p>
-      <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin-top:2px">${now}</p>
-      <p style="font-size:9px;color:#737373;margin-top:6px">${grandTotal} resoluções no ano</p>
-    </div>
-  </div>
+  `;
 
-  <!-- Tabela -->
-  <div style="overflow:auto;border-radius:12px;border:1px solid #e5e5e5">
-    ${tableHTML}
-  </div>
+  const overlay = document.createElement('div');
+  overlay.id = OVERLAY_ID;
+  overlay.style.cssText = 'display:none;position:fixed;inset:0;background:#fff;z-index:99999;padding:32px;overflow:auto';
+  overlay.innerHTML = contentHTML;
 
-  <!-- Rodapé -->
-  <div style="margin-top:24px;padding-top:12px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
-    <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3">Base: chamados resolvidos e aprovados na vistoria · ${year}</p>
-    <p style="font-size:9px;color:#d4d4d4">Royal PMS Enterprise</p>
-  </div>
+  document.head.appendChild(style);
+  document.body.appendChild(overlay);
 
-</body>
-</html>`;
+  window.print();
 
-  const win = window.open('', '_blank', 'width=1100,height=750');
-  if (!win) return;
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 600);
+  const cleanup = () => {
+    document.getElementById(OVERLAY_ID)?.remove();
+    document.getElementById(STYLE_ID)?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  // Fallback cleanup for browsers that don't fire afterprint (some iOS versions)
+  setTimeout(cleanup, 30000);
 }
 
 function MaintenancePerformanceTab() {
