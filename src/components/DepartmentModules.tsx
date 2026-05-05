@@ -732,29 +732,86 @@ function printPerformanceReport(
       </div>
     </div>`;
 
-  // Inject a hidden overlay + @media print styles directly into the current document.
-  // This is the only approach that works on iOS Safari (window.open is unreliable on mobile).
+  const fullHTML = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Relatório de Desempenho — Manutenção ${year}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { padding: 24px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0a0a0a; }
+    @page { size: A4 landscape; margin: 12mm; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>${contentHTML}</body>
+</html>`;
+
+  // Use an iframe — most reliable across desktop browsers, including Chrome/Safari.
+  // For iOS Safari (which can route iframe.print() to the parent window), we fall back
+  // to a DOM overlay technique using display:none/block (visibility-only fails on Safari).
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream;
+
+  if (!isIOS) {
+    // Desktop: hidden iframe approach
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!doc) {
+      iframe.remove();
+      toast.error('Não foi possível abrir a janela de impressão.');
+      return;
+    }
+    doc.open();
+    doc.write(fullHTML);
+    doc.close();
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.error('Print failed:', e);
+      }
+      setTimeout(() => iframe.remove(), 2000);
+    };
+
+    // Wait for iframe to render the written content before printing
+    if (iframe.contentWindow?.document.readyState === 'complete') {
+      setTimeout(triggerPrint, 200);
+    } else {
+      iframe.onload = () => setTimeout(triggerPrint, 200);
+      // Fallback in case onload never fires
+      setTimeout(triggerPrint, 800);
+    }
+    return;
+  }
+
+  // iOS Safari: DOM overlay with display:none/block (visibility approach fails on iOS)
   const OVERLAY_ID = 'royal-perf-print-overlay';
   const STYLE_ID = 'royal-perf-print-style';
-
-  // Remove any previous leftovers
   document.getElementById(OVERLAY_ID)?.remove();
   document.getElementById(STYLE_ID)?.remove();
 
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
-    @page { size: A4 landscape; margin: 14mm; }
+    #${OVERLAY_ID} { display: none; }
+    @page { size: A4 landscape; margin: 12mm; }
     @media print {
-      body * { visibility: hidden !important; }
-      #${OVERLAY_ID}, #${OVERLAY_ID} * { visibility: visible !important; }
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+      body > *:not(#${OVERLAY_ID}) { display: none !important; }
       #${OVERLAY_ID} {
-        position: fixed !important;
-        inset: 0 !important;
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
         padding: 0 !important;
         margin: 0 !important;
         background: #fff !important;
-        z-index: 99999 !important;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
@@ -763,13 +820,13 @@ function printPerformanceReport(
 
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
-  overlay.style.cssText = 'display:none;position:fixed;inset:0;background:#fff;z-index:99999;padding:32px;overflow:auto';
   overlay.innerHTML = contentHTML;
 
   document.head.appendChild(style);
   document.body.appendChild(overlay);
 
-  window.print();
+  // Give the browser a tick to apply the styles before invoking print
+  setTimeout(() => window.print(), 100);
 
   const cleanup = () => {
     document.getElementById(OVERLAY_ID)?.remove();
@@ -777,8 +834,7 @@ function printPerformanceReport(
     window.removeEventListener('afterprint', cleanup);
   };
   window.addEventListener('afterprint', cleanup);
-  // Fallback cleanup for browsers that don't fire afterprint (some iOS versions)
-  setTimeout(cleanup, 30000);
+  setTimeout(cleanup, 60000);
 }
 
 function MaintenancePerformanceTab() {
