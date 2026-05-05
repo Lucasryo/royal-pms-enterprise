@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ── env ────────────────────────────────────────────────────────────────────
+// ── env ───────────────────────────────────────────────────────────────────
 const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN")       ?? "";
 const CHAT_ID    = Deno.env.get("TELEGRAM_CHAT_ID")          ?? "";
 const SUPA_URL   = Deno.env.get("SUPABASE_URL")              ?? "";
@@ -16,7 +16,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// ── telegram helpers ───────────────────────────────────────────────────────
+// ── telegram helpers ─────────────────────────────────────────────────────────────
 async function tg(method: string, body: Record<string, unknown>) {
   const r = await fetch(`${TG}/${method}`, {
     method: "POST",
@@ -33,7 +33,7 @@ function esc(text: string | null | undefined): string {
   return String(text).replace(/[_*[\]()~`>#+=|{}.!\\-]/g, "\\$&");
 }
 
-// ── message builders ───────────────────────────────────────────────────────
+// ── message builders ──────────────────────────────────────────────────────────────
 const P_EMOJI: Record<string, string>  = { urgent:"🔴", high:"🟠", medium:"🟡", low:"🟢" };
 const P_LABEL: Record<string, string>  = { urgent:"URGENTE", high:"Alta", medium:"Media", low:"Baixa" };
 const ST_LABEL: Record<string, string> = { open:"Aberto", in_progress:"Em andamento", resolved:"Resolvido", cancelled:"Cancelado" };
@@ -62,14 +62,15 @@ function openKb(id: string) {
   ]] };
 }
 
-function inProgressKb(id: string) {
+function inProgressKb(id: string, tgUserId?: number) {
+  const suffix = tgUserId ? `:${tgUserId}` : "";
   return { inline_keyboard: [[
-    { text: "✅ Concluir",        callback_data: `resolve:${id}` },
-    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`   },
+    { text: "✅ Concluir",        callback_data: `resolve:${id}${suffix}` },
+    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}${suffix}`   },
   ]] };
 }
 
-// ── handler: supabase db webhook ───────────────────────────────────────────
+// ── handler: supabase db webhook ────────────────────────────────────────────────────
 async function handleDbWebhook(payload: Record<string, unknown>) {
   const event     = (payload.type       as string)                        ?? "INSERT";
   const record    = (payload.record     as Record<string, unknown>)       ?? payload;
@@ -113,7 +114,7 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── handler: telegram button click ────────────────────────────────────────
+// ── handler: telegram button click ──────────────────────────────────────────────────────
 async function handleCallback(query: Record<string, unknown>) {
   const cbId   = query.id as string;
   const data   = (query.data as string) ?? "";
@@ -122,13 +123,38 @@ async function handleCallback(query: Record<string, unknown>) {
   const chatId = (msg.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const msgId  = msg.message_id;
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
+  const fromId = Number(from.id);
 
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
-
+  // callback_data formats:
+  //   assume:UUID                 — anyone
+  //   parts:UUID                  — anyone (open ticket)
+  //   resolve:UUID:LOCKED_TG_ID   — only LOCKED_TG_ID
+  //   parts:UUID:LOCKED_TG_ID     — only LOCKED_TG_ID (in-progress)
   const colonIdx = data.indexOf(":");
   const action   = data.slice(0, colonIdx);
-  const ticketId = data.slice(colonIdx + 1);
-  if (!ticketId) return { ok: true };
+  const rest     = data.slice(colonIdx + 1);
+  const restParts = rest.split(":");
+  const ticketId = restParts[0];
+  const lockedTgUserId = restParts[1] ? Number(restParts[1]) : null;
+
+  if (!ticketId) {
+    await tg("answerCallbackQuery", { callback_query_id: cbId });
+    return { ok: true };
+  }
+
+  // Ownership lock: only the user who assumed can resolve/report parts
+  if (lockedTgUserId && lockedTgUserId !== fromId) {
+    const { data: tk } = await db
+      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
+    await tg("answerCallbackQuery", {
+      callback_query_id: cbId,
+      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado.`,
+      show_alert: true,
+    });
+    return { ok: true };
+  }
+
+  await tg("answerCallbackQuery", { callback_query_id: cbId });
 
   const { data: ticket } = await db
     .from("maintenance_tickets").select("*").eq("id", ticketId).single();
@@ -144,7 +170,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
     if (msgId) {
       await tg("editMessageReplyMarkup", {
-        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId),
+        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
       });
     }
     await tg("sendMessage", {
@@ -154,17 +180,20 @@ async function handleCallback(query: Record<string, unknown>) {
     });
 
   } else if (action === "resolve") {
+    // Embed ticket ID + locked tg user ID in the prompt so handleReply can verify
+    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✍️ Descreva a solução \\[${esc(ticketId)}\\]:\n_${esc(ticket.title)}_`,
+      text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
 
   } else if (action === "parts") {
+    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}\\]\n_${esc(ticket.title)}_`,
+      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
@@ -173,18 +202,32 @@ async function handleCallback(query: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── handler: telegram text reply (force_reply response) ───────────────────
+// ── handler: telegram text reply (force_reply response) ───────────────────────
 async function handleReply(message: Record<string, unknown>) {
   const replyTo   = (message.reply_to_message as Record<string, unknown>) ?? {};
   const replyText = (replyTo.text as string) ?? "";
   const userText  = (message.text as string) ?? "";
   const chatId    = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const from      = (message.from as Record<string, unknown>) ?? {};
+  const fromId    = Number(from.id);
   const name      = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
 
-  const match = replyText.match(/\[([0-9a-f-]{36})\]/i);
+  // Force-reply prompt embeds [uuid] or [uuid|lockedTgUserId]
+  const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
   if (!match) return { ok: true };
-  const ticketId = match[1];
+  const ticketId       = match[1];
+  const lockedTgUserId = match[2] ? Number(match[2]) : null;
+
+  if (lockedTgUserId && lockedTgUserId !== fromId) {
+    const { data: tk } = await db
+      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔒 Apenas *${esc(tk?.status_reason ?? "quem assumiu")}* pode finalizar este chamado\\.`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
 
   const isResolve = replyText.startsWith("✍️");
   const isParts   = replyText.startsWith("🔩");
@@ -220,7 +263,7 @@ async function handleReply(message: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── main ───────────────────────────────────────────────────────────────────
+// ── main ─────────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
