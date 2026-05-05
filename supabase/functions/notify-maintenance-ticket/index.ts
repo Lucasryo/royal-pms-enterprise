@@ -1,23 +1,14 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-/**
- * Telegram bot notifier for maintenance tickets.
- *
- * Trigger: Supabase Database Webhook on INSERT/UPDATE to maintenance_tickets
- *
- * Setup:
- * 1. Talk to @BotFather on Telegram → /newbot → save the token
- * 2. Add the bot to a group (or DM it) → call /start
- * 3. Use @getidsbot to get the chat_id
- * 4. Set Edge Function secrets:
- *    supabase secrets set TELEGRAM_BOT_TOKEN=xxxx TELEGRAM_CHAT_ID=yyyy
- * 5. Create a Database Webhook in Supabase Dashboard:
- *    Table: maintenance_tickets, Events: Insert + Update,
- *    URL: https://<project-ref>.supabase.co/functions/v1/notify-maintenance-ticket
- */
+// ── env ────────────────────────────────────────────────────────────────────
+const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN")       ?? "";
+const CHAT_ID    = Deno.env.get("TELEGRAM_CHAT_ID")          ?? "";
+const SUPA_URL   = Deno.env.get("SUPABASE_URL")              ?? "";
+const SUPA_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_CHAT_ID") ?? "";
+const db = createClient(SUPA_URL, SUPA_KEY);
+const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,160 +16,244 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const PRIORITY_EMOJI: Record<string, string> = {
-  urgent: "🔴",
-  high: "🟠",
-  medium: "🟡",
-  low: "🟢",
-};
+// ── telegram helpers ───────────────────────────────────────────────────────
+async function tg(method: string, body: Record<string, unknown>) {
+  const r = await fetch(`${TG}/${method}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!data.ok) console.error(`[tg] ${method}:`, JSON.stringify(data));
+  return data;
+}
 
-const STATUS_EMOJI: Record<string, string> = {
-  open: "📥",
-  in_progress: "🔧",
-  resolved: "✅",
-  cancelled: "❌",
-};
-
-const PRIORITY_LABEL: Record<string, string> = {
-  urgent: "URGENTE",
-  high: "Alta",
-  medium: "Media",
-  low: "Baixa",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  open: "Aberto",
-  in_progress: "Em andamento",
-  resolved: "Resolvido",
-  cancelled: "Cancelado",
-};
-
-function escapeMd(text: string | null | undefined): string {
+function esc(text: string | null | undefined): string {
   if (!text) return "";
   return String(text).replace(/[_*[\]()~`>#+=|{}.!\\-]/g, "\\$&");
 }
 
-function buildMessage(record: any, eventType: string): string {
-  const priority = record.priority ?? "medium";
-  const status = record.status ?? "open";
-  const lines: string[] = [];
+// ── message builders ───────────────────────────────────────────────────────
+const P_EMOJI: Record<string, string>  = { urgent:"🔴", high:"🟠", medium:"🟡", low:"🟢" };
+const P_LABEL: Record<string, string>  = { urgent:"URGENTE", high:"Alta", medium:"Media", low:"Baixa" };
+const ST_LABEL: Record<string, string> = { open:"Aberto", in_progress:"Em andamento", resolved:"Resolvido", cancelled:"Cancelado" };
 
-  if (eventType === "INSERT") {
-    lines.push(`${PRIORITY_EMOJI[priority] ?? ""} *Novo chamado de manutencao*`);
-  } else if (record.status === "in_progress") {
-    lines.push(`${STATUS_EMOJI.in_progress} *Chamado assumido*`);
-  } else if (record.status === "resolved") {
-    lines.push(`${STATUS_EMOJI.resolved} *Chamado resolvido*`);
-  } else {
-    lines.push(`${STATUS_EMOJI[status] ?? ""} *Chamado atualizado*`);
-  }
-
-  lines.push("");
-  lines.push(`*${escapeMd(record.title)}*`);
-
-  if (record.room_number) {
-    lines.push(`🚪 UH *${escapeMd(record.room_number)}*`);
-  }
-
-  lines.push(`Prioridade: *${PRIORITY_LABEL[priority] ?? priority}*`);
-  lines.push(`Status: *${STATUS_LABEL[status] ?? status}*`);
-
-  if (record.description) {
-    lines.push("");
-    lines.push(`_${escapeMd(record.description)}_`);
-  }
-
-  if (record.status_reason) {
-    lines.push("");
-    lines.push(`👤 ${escapeMd(record.status_reason)}`);
-  }
-
+function buildText(record: Record<string, unknown>, heading: string): string {
+  const priority = (record.priority as string) ?? "medium";
+  const status   = (record.status   as string) ?? "open";
+  const lines: string[] = [heading, ""];
+  lines.push(`*${esc(record.title as string)}*`);
+  if (record.room_number)    lines.push(`🚪 UH *${esc(record.room_number as string)}*`);
+  lines.push(`Prioridade: *${P_LABEL[priority] ?? priority}*`);
+  lines.push(`Status: *${ST_LABEL[status]      ?? status}*`);
+  if (record.description)    lines.push("", `_${esc(record.description as string)}_`);
+  if (record.status_reason)  lines.push("", `👷 *${esc(record.status_reason as string)}*`);
   if (record.resolution_notes) {
-    const photoMatch = String(record.resolution_notes).match(/Foto:\s*(\S+)/);
-    if (photoMatch) {
-      lines.push("");
-      lines.push(`📸 [Ver foto](${photoMatch[1]})`);
-    } else if (record.status === "resolved") {
-      lines.push("");
-      lines.push(`📝 ${escapeMd(record.resolution_notes)}`);
-    }
+    const url = String(record.resolution_notes).match(/Foto:\s*(\S+)/)?.[1];
+    lines.push("", url ? `📸 [Ver foto](${url})` : `📝 ${esc(record.resolution_notes as string)}`);
   }
-
   return lines.join("\n");
 }
 
-async function sendTelegramMessage(text: string): Promise<void> {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn("[notify-maintenance-ticket] Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
-    return;
-  }
-
-  const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: "MarkdownV2",
-        disable_web_page_preview: false,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    console.error("[notify-maintenance-ticket] Telegram error:", response.status, errBody);
-  }
+function openKb(id: string) {
+  return { inline_keyboard: [[
+    { text: "✅ Assumir",         callback_data: `assume:${id}` },
+    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`  },
+  ]] };
 }
 
+function inProgressKb(id: string) {
+  return { inline_keyboard: [[
+    { text: "✅ Concluir",        callback_data: `resolve:${id}` },
+    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`   },
+  ]] };
+}
+
+// ── handler: supabase db webhook ───────────────────────────────────────────
+async function handleDbWebhook(payload: Record<string, unknown>) {
+  const event     = (payload.type       as string)                        ?? "INSERT";
+  const record    = (payload.record     as Record<string, unknown>)       ?? payload;
+  const oldRecord = (payload.old_record as Record<string, unknown>)       ?? {};
+
+  if (event === "UPDATE") {
+    const statusChanged   = oldRecord.status   !== record.status;
+    const priorityChanged = oldRecord.priority !== record.priority;
+    if (!statusChanged && !priorityChanged)  return { ok: true, skipped: "no-change" };
+    if (record.status === "cancelled")       return { ok: true, skipped: "cancelled" };
+  }
+
+  const priority = (record.priority as string) ?? "medium";
+  const status   = (record.status   as string) ?? "open";
+  const id       = record.id as string;
+
+  let heading: string;
+  let kb: Record<string, unknown> | undefined;
+
+  if (event === "INSERT") {
+    heading = `${P_EMOJI[priority] ?? ""} *Novo chamado de manutencao*`;
+    kb = openKb(id);
+  } else if (status === "in_progress") {
+    heading = `🔧 *Chamado assumido*`;
+    kb = inProgressKb(id);
+  } else if (status === "resolved") {
+    heading = `✅ *Chamado resolvido*`;
+  } else {
+    heading = `📋 *Chamado atualizado*`;
+    kb = openKb(id);
+  }
+
+  await tg("sendMessage", {
+    chat_id: CHAT_ID,
+    text: buildText(record, heading),
+    parse_mode: "MarkdownV2",
+    disable_web_page_preview: false,
+    ...(kb ? { reply_markup: kb } : {}),
+  });
+
+  return { ok: true };
+}
+
+// ── handler: telegram button click ────────────────────────────────────────
+async function handleCallback(query: Record<string, unknown>) {
+  const cbId   = query.id as string;
+  const data   = (query.data as string) ?? "";
+  const from   = (query.from    as Record<string, unknown>) ?? {};
+  const msg    = (query.message as Record<string, unknown>) ?? {};
+  const chatId = (msg.chat as Record<string, unknown>)?.id ?? CHAT_ID;
+  const msgId  = msg.message_id;
+  const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
+
+  await tg("answerCallbackQuery", { callback_query_id: cbId });
+
+  const colonIdx = data.indexOf(":");
+  const action   = data.slice(0, colonIdx);
+  const ticketId = data.slice(colonIdx + 1);
+  if (!ticketId) return { ok: true };
+
+  const { data: ticket } = await db
+    .from("maintenance_tickets").select("*").eq("id", ticketId).single();
+  if (!ticket) return { ok: true };
+
+  if (action === "assume") {
+    await db.from("maintenance_tickets").update({
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status_reason: name,
+    }).eq("id", ticketId);
+
+    if (msgId) {
+      await tg("editMessageReplyMarkup", {
+        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId),
+      });
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}* \\(UH ${esc(ticket.room_number)}\\)`,
+      parse_mode: "MarkdownV2",
+    });
+
+  } else if (action === "resolve") {
+    // Ask for resolution note; ticket ID embedded in text so the reply handler can parse it
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `✍️ Descreva a solução \\[${esc(ticketId)}\\]:\n_${esc(ticket.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+
+  } else if (action === "parts") {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}\\]\n_${esc(ticket.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+  }
+
+  return { ok: true };
+}
+
+// ── handler: telegram text reply (force_reply response) ───────────────────
+async function handleReply(message: Record<string, unknown>) {
+  const replyTo   = (message.reply_to_message as Record<string, unknown>) ?? {};
+  const replyText = (replyTo.text as string) ?? "";
+  const userText  = (message.text as string) ?? "";
+  const chatId    = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
+  const from      = (message.from as Record<string, unknown>) ?? {};
+  const name      = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
+
+  // Ticket ID is embedded as [uuid] inside the force_reply prompt text
+  const match = replyText.match(/\[([0-9a-f-]{36})\]/i);
+  if (!match) return { ok: true };
+  const ticketId = match[1];
+
+  const isResolve = replyText.startsWith("✍️");
+  const isParts   = replyText.startsWith("🔩");
+
+  if (isResolve) {
+    await db.from("maintenance_tickets").update({
+      status: "resolved",
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      resolution_notes: userText,
+      status_reason: name,
+    }).eq("id", ticketId);
+
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `✅ Resolvido por *${esc(name)}*\\!\n📝 ${esc(userText)}`,
+      parse_mode: "MarkdownV2",
+    });
+
+  } else if (isParts) {
+    await db.from("maintenance_tickets").update({
+      updated_at: new Date().toISOString(),
+      resolution_notes: `⚠️ Aguardando peças: ${userText} (${name})`,
+    }).eq("id", ticketId);
+
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `⚠️ Peças registradas por *${esc(name)}*:\n${esc(userText)}`,
+      parse_mode: "MarkdownV2",
+    });
+  }
+
+  return { ok: true };
+}
+
+// ── main ───────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   try {
-    const payload = await req.json();
-    const eventType = payload?.type ?? "INSERT";
-    const record = payload?.record ?? payload;
+    const body = await req.json();
+    let result: Record<string, unknown>;
 
-    // Skip if no meaningful change
-    if (eventType === "UPDATE") {
-      const oldRecord = payload?.old_record ?? {};
-      if (oldRecord.status === record.status && oldRecord.priority === record.priority) {
-        return new Response(JSON.stringify({ ok: true, skipped: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      // Skip notifying on cancellations
-      if (record.status === "cancelled") {
-        return new Response(JSON.stringify({ ok: true, skipped: true }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    if (body.callback_query) {
+      result = await handleCallback(body.callback_query);
+    } else if (body.message?.reply_to_message) {
+      result = await handleReply(body.message);
+    } else if (body.type) {
+      result = await handleDbWebhook(body);
+    } else {
+      result = { ok: true, skipped: "unknown-event" };
     }
 
-    const message = buildMessage(record, eventType);
-    await sendTelegramMessage(message);
-
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify(result), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("[notify-maintenance-ticket] Error:", err);
+    console.error("[notify] Error:", err);
     return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

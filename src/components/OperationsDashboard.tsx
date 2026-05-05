@@ -428,12 +428,31 @@ function MaintenanceList({
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
             <span>{new Date(ticket.created_at).toLocaleString('pt-BR')}</span>
             {ticket.due_at && <span>Prazo: {new Date(ticket.due_at).toLocaleString('pt-BR')}</span>}
-            {ticket.assigned_to && <span>Responsavel atribuido</span>}
           </div>
-          {ticket.status_reason && (
-            <div className="mt-4 rounded-2xl bg-neutral-50 p-3 text-xs leading-6 text-neutral-600">
-              <span className="font-black uppercase tracking-widest text-neutral-400">Ultima justificativa: </span>
+          {ticket.status === 'in_progress' && ticket.status_reason && (
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2">
+              <span className="text-base">👷</span>
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-blue-400">Assumido por</p>
+                <p className="text-xs font-bold text-blue-800">{ticket.status_reason}</p>
+              </div>
+              {ticket.started_at && (
+                <span className="ml-auto text-[10px] text-blue-400">
+                  {Math.floor((Date.now() - new Date(ticket.started_at).getTime()) / 60000)} min
+                </span>
+              )}
+            </div>
+          )}
+          {ticket.status !== 'in_progress' && ticket.status_reason && (
+            <div className="mt-3 rounded-xl bg-neutral-50 p-3 text-xs leading-6 text-neutral-600">
+              <span className="font-black uppercase tracking-widest text-neutral-400">Nota: </span>
               {ticket.status_reason}
+            </div>
+          )}
+          {ticket.resolution_notes && (
+            <div className="mt-2 rounded-xl bg-emerald-50 p-3 text-xs leading-6 text-emerald-800">
+              <span className="font-black uppercase tracking-widest text-emerald-500">Resolucao: </span>
+              {ticket.resolution_notes}
             </div>
           )}
           {canManage && ticket.status !== 'resolved' && (
