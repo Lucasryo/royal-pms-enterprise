@@ -333,7 +333,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error('Sessao invalida.'); return; }
       const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const res = await fetch(`${supaUrl}/functions/v1/maintenance-phone-notify`, {
+
+      // Notifica via phone webhook
+      const phoneRes = await fetch(`${supaUrl}/functions/v1/maintenance-phone-notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({
@@ -347,7 +349,20 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           reason: `Reenvio manual por ${profile.name}`,
         }),
       });
-      if (res.ok) toast.success('Notificacao reenviada.');
+
+      // Notifica o bot Telegram com contexto de reenvio manual
+      // Se reaberto → bot direciona para alguém assumir; se em andamento → lembrete para o técnico
+      const tgRes = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          type: 'manual_resend',
+          ticket_id: ticket.id,
+          actor_name: profile.name,
+        }),
+      });
+
+      if (phoneRes.ok || tgRes.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
       else toast.error('Falha ao reenviar notificacao.');
     } catch { toast.error('Erro ao reenviar notificacao.'); }
     finally { setResendingId(null); }

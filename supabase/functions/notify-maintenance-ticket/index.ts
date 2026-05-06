@@ -200,10 +200,76 @@ async function sendDailyReport() {
   return { ok: true };
 }
 
+// ── handler: manual resend from PMS ───────────────────────────────────────
+async function handleManualResend(payload: Record<string, unknown>) {
+  const ticketId  = payload.ticket_id as string;
+  const actorName = (payload.actor_name as string) ?? "Operador";
+  if (!ticketId) return { ok: false, error: "missing ticket_id" };
+
+  const { data: ticket } = await db
+    .from("maintenance_tickets").select("*").eq("id", ticketId).single();
+  if (!ticket) return { ok: false, error: "ticket not found" };
+
+  const isReopened = typeof ticket.resolution_notes === "string" &&
+    ticket.resolution_notes.startsWith("Reaberto:");
+
+  const priority = ticket.priority ?? "medium";
+  const status   = ticket.status   ?? "open";
+  const id       = ticket.id as string;
+
+  let heading: string;
+  let kb: Record<string, unknown> | undefined;
+  let extraLine = "";
+
+  if (isReopened && ticket.status === "open") {
+    // Ticket was reopened — call group for someone to assume again
+    const lastTech = extractLastTech(ticket.resolution_notes as string);
+    heading = `🔄 *Chamado reaberto — aguarda novo atendimento*`;
+    kb = openKb(id);
+    if (lastTech) {
+      extraLine = `\n👷 Último atendente\\: *${esc(lastTech)}*`;
+    }
+    extraLine += `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
+  } else if (status === "in_progress" && ticket.status_reason) {
+    // In progress — remind the assigned tech
+    heading = `⏰ *Lembrete\\: chamado em andamento*`;
+    kb = inProgressKb(id);
+    extraLine = `\n👷 Responsável\\: *${esc(ticket.status_reason)}*\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
+  } else {
+    // Open, not yet assumed — nudge group
+    heading = `📢 *Chamado aguardando atendimento*`;
+    kb = openKb(id);
+    extraLine = `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
+  }
+
+  const baseText = buildText(ticket, heading);
+  const fullText = baseText + extraLine;
+
+  await tg("sendMessage", {
+    chat_id: CHAT_ID,
+    text: fullText,
+    parse_mode: "MarkdownV2",
+    disable_web_page_preview: true,
+    ...(kb ? { reply_markup: kb } : {}),
+  });
+
+  return { ok: true };
+}
+
+function extractLastTech(resolutionNotes: string): string | null {
+  // "Reaberto: <reason> (<name>)" → extract <name>
+  const m = resolutionNotes.match(/\(([^)]+)\)\s*$/);
+  return m ? m[1] : null;
+}
+
 // ── handler: supabase db webhook ───────────────────────────────────────────
 async function handleDbWebhook(payload: Record<string, unknown>) {
   if ((payload.type as string) === "daily_report") {
     return await sendDailyReport();
+  }
+
+  if ((payload.type as string) === "manual_resend") {
+    return await handleManualResend(payload);
   }
 
   const event     = (payload.type       as string)                        ?? "INSERT";
@@ -496,16 +562,17 @@ async function handleMessage(message: Record<string, unknown>) {
   const chatId = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const from   = (message.from as Record<string, unknown>) ?? {};
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
+  const cmd    = text.trim().toLowerCase().split(/\s+/)[0];
 
-  // Feature 3: /urgente UUID — directly mark as urgent
-  if (text.trim().toLowerCase().startsWith("/urgente")) {
+  // /urgente UUID — directly mark as urgent
+  if (cmd === "/urgente") {
     const uuidMatch = text.match(
       /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
     );
     if (!uuidMatch) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `❓ Responda a mensagem de um chamado com /urgente para marca\-lo como urgente\\.`,
+        text: `❓ Responda a mensagem de um chamado com /urgente para marcá\\-lo como urgente\\.`,
         parse_mode: "MarkdownV2",
       });
       return { ok: true };
@@ -524,6 +591,116 @@ async function handleMessage(message: Record<string, unknown>) {
         parse_mode: "MarkdownV2",
       });
     }
+    return { ok: true };
+  }
+
+  // /status — snapshot rápido dos chamados abertos/em andamento
+  if (cmd === "/status") {
+    const { data: open } = await db
+      .from("maintenance_tickets")
+      .select("id,priority,room_number,title,created_at")
+      .eq("status", "open");
+    const { data: inProg } = await db
+      .from("maintenance_tickets")
+      .select("id,priority,room_number,title,status_reason,started_at")
+      .eq("status", "in_progress");
+
+    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
+    const breached = (open ?? []).filter(t => {
+      const limit = SLA_LIMITS[t.priority] ?? 240;
+      return (Date.now() - new Date(t.created_at).getTime()) / 60000 > limit;
+    });
+
+    const lines = [
+      `📊 *Status atual da Manutenção*`, "",
+      `📋 Abertos: *${(open ?? []).length}*`,
+      `🔧 Em andamento: *${(inProg ?? []).length}*`,
+    ];
+    if (breached.length > 0) {
+      lines.push(`⚠️ SLA estourado: *${breached.length}*`);
+    } else {
+      lines.push(`✔️ Nenhum SLA estourado`);
+    }
+    if ((open ?? []).length === 0 && (inProg ?? []).length === 0) {
+      lines.push("", `🎉 Nenhum chamado pendente\\!`);
+    }
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
+  // /listar — lista os chamados abertos (até 10)
+  if (cmd === "/listar") {
+    const { data: open } = await db
+      .from("maintenance_tickets")
+      .select("id,priority,room_number,title,created_at")
+      .in("status", ["open", "in_progress"])
+      .order("created_at", { ascending: true })
+      .limit(10);
+
+    if (!open || open.length === 0) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Nenhum chamado aberto no momento\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
+    const lines = [`📋 *Chamados em aberto \\(${open.length}\\)*`, ""];
+    for (const t of open) {
+      const mins = Math.round((Date.now() - new Date(t.created_at).getTime()) / 60000);
+      const uhPart = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}`);
+      lines.push(`  ⏱ ${esc(formatDuration(mins))} atrás  \\|  \`${t.id}\``);
+    }
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
+  // /meus — chamados que o técnico está atendendo (por nome)
+  if (cmd === "/meus") {
+    const { data: mine } = await db
+      .from("maintenance_tickets")
+      .select("id,priority,room_number,title,started_at")
+      .eq("status", "in_progress")
+      .ilike("status_reason", name);
+
+    if (!mine || mine.length === 0) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `ℹ️ Nenhum chamado em andamento para *${esc(name)}*\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
+    const lines = [`🔧 *Seus chamados em andamento \\(${mine.length}\\)*`, ""];
+    for (const t of mine) {
+      const mins = t.started_at
+        ? Math.round((Date.now() - new Date(t.started_at).getTime()) / 60000)
+        : null;
+      const uhPart = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
+      const timePart = mins !== null ? `  ⏱ ${esc(formatDuration(mins))}` : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}${timePart}`);
+      lines.push(`  \`${t.id}\``);
+    }
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
+  // /ajuda — lista os comandos disponíveis
+  if (cmd === "/ajuda" || cmd === "/help" || cmd === "/start") {
+    const help = [
+      `🤖 *Royal PMS — Bot de Manutenção*`, "",
+      `Comandos disponíveis\\:`, "",
+      `/status — Resumo dos chamados abertos`,
+      `/listar — Lista chamados abertos \\(até 10\\)`,
+      `/meus — Seus chamados em andamento`,
+      `/urgente — Responda uma msg de chamado para marcar como urgente`,
+      "", `_Você também pode usar os botões nas mensagens de chamado para Assumir, Concluir ou reportar Falta de Peças\\._`,
+    ];
+    await tg("sendMessage", { chat_id: chatId, text: help.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
   }
 
   return { ok: true };
