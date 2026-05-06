@@ -151,6 +151,14 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [inspectorTarget, setInspectorTarget] = useState<string>('');
   const [, setTick] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterPriority, setFilterPriority] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterTech, setFilterTech] = useState('');
+  const [filterUH, setFilterUH] = useState('');
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [notifExpandedId, setNotifExpandedId] = useState<string | null>(null);
+  const [notifLogs, setNotifLogs] = useState<Record<string, { id: string; recipient_name: string; sent_at: string; event: string }[]>>({});
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -306,20 +314,94 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); }
   }
 
-  const open = useMemo(() => tickets.filter(t => t.status === 'open').sort((a, b) => {
+  async function toggleNotifLogs(ticketId: string) {
+    if (notifExpandedId === ticketId) { setNotifExpandedId(null); return; }
+    setNotifExpandedId(ticketId);
+    if (notifLogs[ticketId]) return;
+    const { data } = await supabase
+      .from('maintenance_notification_logs')
+      .select('id,recipient_name,sent_at,event')
+      .eq('ticket_id', ticketId)
+      .order('sent_at', { ascending: false })
+      .limit(20);
+    setNotifLogs(prev => ({ ...prev, [ticketId]: data ?? [] }));
+  }
+
+  async function resendNotification(ticket: MaintTicket) {
+    setResendingId(ticket.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error('Sessao invalida.'); return; }
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${supaUrl}/functions/v1/maintenance-phone-notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          event: 'status_changed',
+          ticket_id: ticket.id,
+          title: ticket.title,
+          room_number: ticket.room_number,
+          priority: ticket.priority,
+          status: ticket.status,
+          actor_name: profile.name,
+          reason: `Reenvio manual por ${profile.name}`,
+        }),
+      });
+      if (res.ok) toast.success('Notificacao reenviada.');
+      else toast.error('Falha ao reenviar notificacao.');
+    } catch { toast.error('Erro ao reenviar notificacao.'); }
+    finally { setResendingId(null); }
+  }
+
+  // Reincidência: UHs com 2+ chamados (não cancelados) nos últimos 30 dias
+  const reincidentUHs = useMemo(() => {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const counts: Record<string, number> = {};
+    for (const t of tickets) {
+      if (!t.room_number || t.status === 'cancelled') continue;
+      if (new Date(t.created_at).getTime() < cutoff) continue;
+      counts[t.room_number] = (counts[t.room_number] ?? 0) + 1;
+    }
+    return new Set(Object.entries(counts).filter(([, c]) => c >= 2).map(([uh]) => uh));
+  }, [tickets]);
+
+  // Listas derivadas de técnicos e UHs únicas para o filtro
+  const uniqueTechs = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tickets) { if (t.status_reason) s.add(t.status_reason); }
+    return Array.from(s).sort();
+  }, [tickets]);
+  const uniqueUHs = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tickets) { if (t.room_number) s.add(t.room_number); }
+    return Array.from(s).sort((a, b) => Number(a) - Number(b));
+  }, [tickets]);
+
+  const activeFilterCount = [filterPriority, filterStatus, filterTech, filterUH].filter(Boolean).length;
+
+  const filtered = useMemo(() => {
+    let t = tickets;
+    if (filterPriority) t = t.filter(x => x.priority === filterPriority);
+    if (filterStatus)   t = t.filter(x => x.status === filterStatus);
+    if (filterTech)     t = t.filter(x => x.status_reason === filterTech);
+    if (filterUH)       t = t.filter(x => x.room_number === filterUH);
+    return t;
+  }, [tickets, filterPriority, filterStatus, filterTech, filterUH]);
+
+  const open = useMemo(() => filtered.filter(t => t.status === 'open').sort((a, b) => {
     const pp = ['urgent','high','medium','low'];
     const pd = pp.indexOf(a.priority) - pp.indexOf(b.priority);
     return pd !== 0 ? pd : a.created_at.localeCompare(b.created_at);
-  }), [tickets]);
-  const inProgress = useMemo(() => tickets.filter(t => t.status === 'in_progress'), [tickets]);
+  }), [filtered]);
+  const inProgress = useMemo(() => filtered.filter(t => t.status === 'in_progress'), [filtered]);
   const pendingInspection = useMemo(() =>
-    tickets.filter(t => t.status === 'resolved' && t.inspection_status === 'pending'),
-  [tickets]);
+    filtered.filter(t => t.status === 'resolved' && t.inspection_status === 'pending'),
+  [filtered]);
   const closed = useMemo(() =>
-    tickets
+    filtered
       .filter(t => (t.status === 'resolved' && t.inspection_status !== 'pending') || t.status === 'cancelled')
       .slice(0, 15),
-  [tickets]);
+  [filtered]);
 
   const canInspect = (t: MaintTicket) =>
     t.inspector_id === profile.id || profile.role === 'admin' || profile.role === 'manager';
@@ -345,6 +427,52 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
         </div>
       </div>
 
+      {/* Filtros */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFilters(f => !f)}
+            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition ${activeFilterCount > 0 ? 'bg-amber-600 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}
+          >
+            🔍 Filtros{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </button>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => { setFilterPriority(''); setFilterStatus(''); setFilterTech(''); setFilterUH(''); }}
+              className="rounded-xl px-3 py-2 text-xs font-black text-neutral-500 hover:text-red-600 transition"
+            >
+              ✕ Limpar
+            </button>
+          )}
+        </div>
+        {showFilters && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+            <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-bold">
+              <option value="">Prioridade</option>
+              <option value="urgent">Urgente</option>
+              <option value="high">Alta</option>
+              <option value="medium">Media</option>
+              <option value="low">Baixa</option>
+            </select>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-bold">
+              <option value="">Status</option>
+              <option value="open">Aberto</option>
+              <option value="in_progress">Em andamento</option>
+              <option value="resolved">Resolvido</option>
+              <option value="cancelled">Cancelado</option>
+            </select>
+            <select value={filterTech} onChange={e => setFilterTech(e.target.value)} className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-bold">
+              <option value="">Tecnico</option>
+              {uniqueTechs.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={filterUH} onChange={e => setFilterUH(e.target.value)} className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-bold">
+              <option value="">UH</option>
+              {uniqueUHs.map(uh => <option key={uh} value={uh}>UH {uh}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
       {open.length > 0 && (
         <section>
           <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-amber-600">Aguardando atendimento</h3>
@@ -359,6 +487,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
                         {breached && <span className="flex items-center gap-1 text-[10px] font-bold text-orange-600"><AlertCircle className="w-3 h-3" />SLA</span>}
+                        {ticket.room_number && reincidentUHs.has(ticket.room_number) && (
+                          <span className="rounded-full bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase">🔁 Reincidente</span>
+                        )}
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                       {ticket.description && <p className="mt-1 text-xs text-neutral-500 line-clamp-2">{ticket.description}</p>}
@@ -378,6 +509,14 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       )}
                       <button onClick={() => cancel(ticket)} className="flex-1 rounded-xl bg-neutral-200 px-4 py-2 text-xs font-black text-neutral-700 hover:bg-neutral-300 transition">
                         Cancelar
+                      </button>
+                      <button
+                        onClick={() => resendNotification(ticket)}
+                        disabled={resendingId === ticket.id}
+                        className="flex-1 rounded-xl bg-blue-100 px-4 py-2 text-xs font-black text-blue-700 hover:bg-blue-200 transition disabled:opacity-50"
+                        title="Reenviar notificacao"
+                      >
+                        {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                       </button>
                     </div>
                   </div>
@@ -432,6 +571,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     </button>
                     <button onClick={() => cancel(ticket)} className="flex-1 rounded-xl bg-neutral-200 px-4 py-2 text-xs font-black text-neutral-700 hover:bg-neutral-300 transition">
                       Cancelar
+                    </button>
+                    <button
+                      onClick={() => resendNotification(ticket)}
+                      disabled={resendingId === ticket.id}
+                      className="flex-1 rounded-xl bg-blue-100 px-4 py-2 text-xs font-black text-blue-700 hover:bg-blue-200 transition disabled:opacity-50"
+                    >
+                      {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                     </button>
                   </div>
                 </div>
@@ -557,13 +703,39 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       {ticket.status_reason && <p className="text-[11px] text-neutral-500">👷 {ticket.status_reason}</p>}
                       {ticket.resolution_notes && <p className="text-[11px] text-neutral-500">{isCancelled ? '🚫' : '📝'} {ticket.resolution_notes}</p>}
                     </div>
-                    <button
-                      onClick={() => reopen(ticket)}
-                      className="shrink-0 rounded-xl bg-neutral-200 px-3 py-1.5 text-[11px] font-black text-neutral-700 hover:bg-amber-200 hover:text-amber-800 transition"
-                    >
-                      🔄 Reabrir
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => reopen(ticket)}
+                        className="rounded-xl bg-neutral-200 px-3 py-1.5 text-[11px] font-black text-neutral-700 hover:bg-amber-200 hover:text-amber-800 transition"
+                      >
+                        🔄 Reabrir
+                      </button>
+                      <button
+                        onClick={() => toggleNotifLogs(ticket.id)}
+                        className="rounded-xl bg-neutral-100 px-3 py-1.5 text-[11px] font-black text-neutral-500 hover:bg-blue-100 hover:text-blue-700 transition"
+                      >
+                        {notifExpandedId === ticket.id ? '▲ Notif.' : '📋 Notif.'}
+                      </button>
+                    </div>
                   </div>
+                  {notifExpandedId === ticket.id && (
+                    <div className="mt-3 rounded-xl border border-neutral-200 bg-white p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2">Historico de notificacoes</p>
+                      {(notifLogs[ticket.id] ?? []).length === 0 ? (
+                        <p className="text-xs text-neutral-400">Nenhuma notificacao registrada.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {notifLogs[ticket.id].map(log => (
+                            <div key={log.id} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-bold text-neutral-700">{log.recipient_name}</span>
+                              <span className="text-neutral-400">{log.event}</span>
+                              <span className="text-neutral-400 shrink-0">{new Date(log.sent_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -601,6 +773,7 @@ function printPerformanceReport(
     byPerson: Record<string, Record<string, number>>;
     people: string[];
     ratingsByPerson: Record<string, number[]>;
+    tmrByPerson: Record<string, number | null>;
   },
   weeklyData: {
     weeks: string[];
@@ -629,10 +802,13 @@ function printPerformanceReport(
           ? `<td style="padding:8px 10px;text-align:center"><span style="display:inline-block;min-width:24px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 6px">${count}</span></td>`
           : `<td style="padding:8px 10px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
       }).join('');
+      const tmr = monthlyData.tmrByPerson[name];
+      const tmrLabel = tmr !== null ? fmtMins(tmr) : '—';
       return `<tr style="background:${bg}">
         <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
         ${dataCols}
         <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+        <td style="padding:8px 10px;text-align:center;font-weight:700;color:#2563eb;font-size:11px">${tmrLabel}</td>
         <td style="padding:8px 10px;text-align:center;font-weight:700;color:#d97706">${avgRating ? `★ ${avgRating}` : '—'}</td>
       </tr>`;
     }).join('');
@@ -649,6 +825,7 @@ function printPerformanceReport(
             <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Técnico</th>
             ${headerCols}
             <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#2563eb;min-width:72px">TMR</th>
             <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d97706;min-width:64px">Avaliação</th>
           </tr>
         </thead>
@@ -658,6 +835,7 @@ function printPerformanceReport(
             <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
             ${totalRow}
             <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${grandTotal}</td>
+            <td style="padding:8px 10px"></td>
             <td style="padding:8px 10px"></td>
           </tr>
         </tbody>
@@ -891,7 +1069,15 @@ function MaintenancePerformanceTab() {
       return tb - ta;
     });
 
-    return { months, monthLabels, byPerson, people, ratingsByPerson };
+    // TMR (tempo médio de resolução) por pessoa
+    const tmrByPerson: Record<string, number | null> = {};
+    for (const name of people) {
+      const pts = tickets.filter(t => (t.status_reason ?? 'Sem registro') === name && t.resolved_at);
+      const mins = pts.map(t => Math.round((new Date(t.resolved_at!).getTime() - new Date(t.created_at).getTime()) / 60_000));
+      tmrByPerson[name] = mins.length > 0 ? Math.round(mins.reduce((a, b) => a + b, 0) / mins.length) : null;
+    }
+
+    return { months, monthLabels, byPerson, people, ratingsByPerson, tmrByPerson };
   }, [tickets]);
 
   // ── Weekly breakdown (current year by ISO week) ────────────────────────
@@ -971,6 +1157,7 @@ function MaintenancePerformanceTab() {
                     <th key={m} className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400 min-w-[60px]">{m}</th>
                   ))}
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600 min-w-[60px]">TOTAL</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-blue-600 min-w-[80px]">TMR</th>
                   <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-amber-600 min-w-[70px]">Avaliacao</th>
                 </tr>
               </thead>
@@ -979,6 +1166,7 @@ function MaintenancePerformanceTab() {
                   const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v: number) => s + v, 0);
                   const ratings = monthlyData.ratingsByPerson[name] ?? [];
                   const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+                  const tmr = monthlyData.tmrByPerson[name];
                   return (
                     <tr key={name} className={i % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
                       <td className="sticky left-0 bg-inherit px-4 py-3 font-bold text-neutral-900 text-sm">{name}</td>
@@ -995,6 +1183,7 @@ function MaintenancePerformanceTab() {
                         );
                       })}
                       <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{total}</td>
+                      <td className="px-4 py-3 text-center font-bold text-blue-600 text-xs">{tmr !== null ? fmtMins(tmr) : '—'}</td>
                       <td className="px-4 py-3 text-center font-bold text-amber-600">{avgRating ? `⭐ ${avgRating}` : '—'}</td>
                     </tr>
                   );
@@ -1006,6 +1195,7 @@ function MaintenancePerformanceTab() {
                     return <td key={m} className="px-3 py-3 text-center font-black text-neutral-700">{total || '—'}</td>;
                   })}
                   <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{grandTotal}</td>
+                  <td className="px-4 py-3" />
                   <td className="px-4 py-3" />
                 </tr>
               </tbody>
