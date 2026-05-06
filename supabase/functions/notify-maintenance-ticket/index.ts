@@ -231,10 +231,13 @@ async function handleManualResend(payload: Record<string, unknown>) {
     }
     extraLine += `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   } else if (status === "in_progress" && ticket.status_reason) {
-    // In progress — remind the assigned tech
+    // In progress — remind the assigned tech (inline mention if TG user ID available)
     heading = `⏰ *Lembrete\\: chamado em andamento*`;
     kb = inProgressKb(id);
-    extraLine = `\n👷 Responsável\\: *${esc(ticket.status_reason)}*\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
+    const techMention = ticket.telegram_user_id
+      ? `[${ticket.status_reason}](tg://user?id=${ticket.telegram_user_id})`
+      : `*${esc(ticket.status_reason)}*`;
+    extraLine = `\n👷 ${techMention}\\, por favor verifique este chamado\\!\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   } else {
     // Open, not yet assumed — nudge group
     heading = `📢 *Chamado aguardando atendimento*`;
@@ -420,6 +423,7 @@ async function handleCallback(query: Record<string, unknown>) {
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       status_reason: name,
+      telegram_user_id: fromId,
     }).eq("id", ticketId);
 
     if (msgId) {
@@ -523,6 +527,7 @@ async function handleReply(message: Record<string, unknown>) {
       updated_at: new Date().toISOString(),
       resolution_notes: userText,
       status_reason: name,
+      awaiting_parts: false,
     }).eq("id", ticketId);
 
     const durationPart = mins !== null ? ` em *${esc(formatDuration(mins))}*` : "";
@@ -543,12 +548,13 @@ async function handleReply(message: Record<string, unknown>) {
   } else if (isParts) {
     await db.from("maintenance_tickets").update({
       updated_at: new Date().toISOString(),
+      awaiting_parts: true,
       resolution_notes: `⚠️ Aguardando pecas: ${userText} (${name})`,
     }).eq("id", ticketId);
 
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `⚠️ Pecas registradas por *${esc(name)}*:\n${esc(userText)}`,
+      text: `🔩 *Falta de peças registrada* por *${esc(name)}*\n\n📦 ${esc(userText)}\n\n_O chamado foi sinalizado no PMS como aguardando material\\._`,
       parse_mode: "MarkdownV2",
     });
   }

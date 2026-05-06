@@ -108,6 +108,8 @@ type MaintTicket = {
   inspector_id: string | null;
   inspection_notes: string | null;
   inspected_at: string | null;
+  awaiting_parts: boolean | null;
+  telegram_user_id: number | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -190,7 +192,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -577,7 +579,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
                     </div>
                     <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
+                    {ticket.awaiting_parts && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-orange-100 border border-orange-300 px-2 py-0.5 text-[10px] font-black text-orange-700 uppercase tracking-wider">
+                        🔩 Aguardando Peças
+                      </span>
+                    )}
                     {ticket.status_reason && <p className="mt-1 text-xs font-bold text-blue-700">👷 {ticket.status_reason}</p>}
+                    {ticket.awaiting_parts && ticket.resolution_notes && (
+                      <p className="mt-1 text-[11px] text-orange-600 font-medium">{ticket.resolution_notes.replace(/^⚠️ Aguardando pecas: /, '')}</p>
+                    )}
                     <p className="mt-1 text-[11px] text-blue-500">em andamento ha {elapsed(ticket.started_at ?? ticket.created_at)}</p>
                   </div>
                   <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[140px]">
