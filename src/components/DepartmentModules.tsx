@@ -296,8 +296,22 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
-    if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Vistoria aprovada.'); fetchTickets(); }
+    if (error) { toast.error('Erro: ' + error.message); return; }
+
+    // Pede avaliação pelo Telegram apenas após aprovação da vistoria
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ type: 'request_rating', ticket_id: ticket.id }),
+        });
+      }
+    } catch { /* silent — não bloqueia o fluxo principal */ }
+
+    toast.success('Vistoria aprovada.'); fetchTickets();
   }
 
   async function rejectInspection(ticket: MaintTicket) {

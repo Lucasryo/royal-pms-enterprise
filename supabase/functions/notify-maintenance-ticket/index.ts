@@ -275,6 +275,20 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
     return await handleManualResend(payload);
   }
 
+  if ((payload.type as string) === "request_rating") {
+    const ticketId = payload.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const { data: tk } = await db
+      .from("maintenance_tickets").select("title").eq("id", ticketId).single();
+    await tg("sendMessage", {
+      chat_id: CHAT_ID,
+      text: `⭐ Vistoria aprovada\\! Como foi o atendimento de *${esc(tk?.title ?? "")}*\\? Avalie o chamado\\:`,
+      parse_mode: "MarkdownV2",
+      reply_markup: ratingKb(ticketId),
+    });
+    return { ok: true };
+  }
+
   const event     = (payload.type       as string)                        ?? "INSERT";
   const record    = (payload.record     as Record<string, unknown>)       ?? payload;
   const oldRecord = (payload.old_record as Record<string, unknown>)       ?? {};
@@ -328,15 +342,6 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
   });
 
   // Feature 7: send rating request after resolution
-  if (status === "resolved") {
-    await tg("sendMessage", {
-      chat_id: CHAT_ID,
-      text: `⭐ Como foi o atendimento de *${esc(record.title as string)}*\\? Avalie o chamado\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: ratingKb(id),
-    });
-  }
-
   return { ok: true };
 }
 
@@ -533,16 +538,8 @@ async function handleReply(message: Record<string, unknown>) {
     const durationPart = mins !== null ? ` em *${esc(formatDuration(mins))}*` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✅ Resolvido${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}`,
+      text: `✅ Resolvido${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}\n\n_Aguardando vistoria para avaliação do atendimento\\._`,
       parse_mode: "MarkdownV2",
-    });
-
-    // Feature 7: rating request
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `⭐ Como foi o atendimento de *${esc(ticket?.title ?? "")}*\\? Avalie o chamado\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: ratingKb(ticketId),
     });
 
   } else if (isParts) {
