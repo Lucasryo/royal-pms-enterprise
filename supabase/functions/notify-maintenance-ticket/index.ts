@@ -92,22 +92,26 @@ function ratingKb(id: string) {
 
 // ── daily report ───────────────────────────────────────────────────────────
 async function sendDailyReport() {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since24h  = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-  const { data: todayTickets } = await db
-    .from("maintenance_tickets")
-    .select("id,status,priority,created_at,resolved_at")
-    .gte("created_at", since.toISOString());
+  const [{ data: todayTickets }, { data: openTickets }, { data: monthTickets }] = await Promise.all([
+    db.from("maintenance_tickets")
+      .select("id,status,priority,created_at,resolved_at,room_number,status_reason,title")
+      .gte("created_at", since24h.toISOString()),
+    db.from("maintenance_tickets")
+      .select("id,priority,created_at,room_number,title")
+      .in("status", ["open", "in_progress"]),
+    db.from("maintenance_tickets")
+      .select("id,room_number,status_reason,status")
+      .gte("created_at", monthStart.toISOString())
+      .neq("status", "cancelled"),
+  ]);
 
-  const { data: openTickets } = await db
-    .from("maintenance_tickets")
-    .select("id,priority,created_at")
-    .in("status", ["open", "in_progress"]);
-
-  const total      = todayTickets?.length ?? 0;
-  const resolved   = todayTickets?.filter(t => t.status === "resolved").length ?? 0;
-  const cancelled  = todayTickets?.filter(t => t.status === "cancelled").length ?? 0;
-  const abertos    = openTickets?.length ?? 0;
+  const total     = todayTickets?.length ?? 0;
+  const resolved  = todayTickets?.filter(t => t.status === "resolved").length ?? 0;
+  const cancelled = todayTickets?.filter(t => t.status === "cancelled").length ?? 0;
+  const abertos   = openTickets?.length ?? 0;
 
   const resolvedWithTime = todayTickets?.filter(
     t => t.status === "resolved" && t.resolved_at && t.created_at
@@ -122,7 +126,27 @@ async function sendDailyReport() {
   const slaBreached = openTickets?.filter(t => {
     const limit = SLA_LIMITS[t.priority] ?? 240;
     return (Date.now() - new Date(t.created_at).getTime()) / 60000 > limit;
-  }).length ?? 0;
+  }) ?? [];
+
+  // Top técnico do dia (mais resoluções)
+  const techCount: Record<string, number> = {};
+  for (const t of todayTickets?.filter(t => t.status === "resolved" && t.status_reason) ?? []) {
+    techCount[t.status_reason] = (techCount[t.status_reason] ?? 0) + 1;
+  }
+  const topTechEntry = Object.entries(techCount).sort((a, b) => b[1] - a[1])[0];
+
+  // Top 3 UHs do mês com mais chamados
+  const uhCount: Record<string, number> = {};
+  for (const t of monthTickets ?? []) {
+    if (!t.room_number) continue;
+    uhCount[t.room_number] = (uhCount[t.room_number] ?? 0) + 1;
+  }
+  const top3UHs = Object.entries(uhCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  // Chamados abertos há mais de 24h
+  const over24h = openTickets?.filter(
+    t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > 1440
+  ) ?? [];
 
   const dateStr = new Date().toLocaleDateString("pt-BR", {
     timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric",
@@ -138,11 +162,33 @@ async function sendDailyReport() {
   if (avgMins !== null) {
     lines.push(`⏱ Tempo medio de resolucao: *${esc(formatDuration(avgMins))}*`);
   }
+  if (topTechEntry) {
+    lines.push(`🏆 Tecnico destaque do dia: *${esc(topTechEntry[0])}* \\(${topTechEntry[1]} resolucoes\\)`);
+  }
   lines.push("");
-  if (slaBreached > 0) {
-    lines.push(`⚠️ *${slaBreached} chamado${slaBreached > 1 ? "s" : ""} com SLA estourado\\!*`);
+  if (slaBreached.length > 0) {
+    lines.push(`⚠️ *${slaBreached.length} chamado${slaBreached.length > 1 ? "s" : ""} com SLA estourado\\!*`);
   } else {
     lines.push(`✔️ Nenhum chamado com SLA estourado\\.`);
+  }
+
+  // Top 3 UHs do mês
+  if (top3UHs.length > 0) {
+    lines.push("", `🏨 *Top UHs do mes:*`);
+    top3UHs.forEach(([uh, count], i) => {
+      lines.push(`${i + 1}\\. UH ${esc(uh)} — *${count}* chamados`);
+    });
+  }
+
+  // Chamados abertos há mais de 24h
+  if (over24h.length > 0) {
+    lines.push("", `🕐 *Chamados sem atendimento ha mais de 24h:*`);
+    over24h.slice(0, 5).forEach(t => {
+      const hrs = Math.floor((Date.now() - new Date(t.created_at).getTime()) / 3600000);
+      const uhPart = t.room_number ? ` \\(UH ${esc(t.room_number)}\\)` : "";
+      lines.push(`• ${esc(t.title)}${uhPart} — *${hrs}h*`);
+    });
+    if (over24h.length > 5) lines.push(`_\\.\\.\\. e mais ${over24h.length - 5} outros_`);
   }
 
   await tg("sendMessage", {
