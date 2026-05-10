@@ -39,24 +39,28 @@ export default function MaintenanceQRPrint() {
       return;
     }
 
-    const baseUrl = window.location.origin;
-    const withQRs: RoomQR[] = await Promise.all(
-      ((data ?? []) as Room[]).map(async (room) => {
-        const token = await generateQRToken(room.room_number);
-        const url = `${baseUrl}/report/${encodeURIComponent(room.room_number)}?k=${token}`;
-        return {
-          ...room,
-          qrDataUrl: await QRCode.toDataURL(url, {
-            margin: 1,
-            width: 360,
-            color: { dark: '#0a0a0a', light: '#ffffff' },
-          }),
-        };
-      }),
-    );
-
-    setRooms(withQRs);
-    setLoading(false);
+    try {
+      const baseUrl = window.location.origin;
+      const withQRs: RoomQR[] = await Promise.all(
+        ((data ?? []) as Room[]).map(async (room) => {
+          const token = await generateQRToken(room.room_number);
+          const url = `${baseUrl}/report/${encodeURIComponent(room.room_number)}?k=${token}`;
+          return {
+            ...room,
+            qrDataUrl: await QRCode.toDataURL(url, {
+              margin: 1,
+              width: 360,
+              color: { dark: '#0a0a0a', light: '#ffffff' },
+            }),
+          };
+        }),
+      );
+      setRooms(withQRs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao gerar QR codes');
+    } finally {
+      setLoading(false);
+    }
   }
 
   function printAll() {
@@ -83,14 +87,31 @@ export default function MaintenanceQRPrint() {
     <div className="space-y-6">
       <style>{`
         @media print {
-          body { background: white !important; }
-          .no-print { display: none !important; }
-          .qr-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 0 !important; }
-          .qr-card { break-inside: avoid; page-break-inside: avoid; border: 2px dashed #d4d4d4 !important; box-shadow: none !important; margin: 0 !important; padding: 1.25rem !important; }
+          body * { visibility: hidden !important; }
+          .qr-grid, .qr-grid * { visibility: visible !important; }
+          .qr-grid {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 0 !important;
+            background: white !important;
+          }
+          .qr-card {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            border: 2px dashed #d4d4d4 !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 1.25rem !important;
+            background: white !important;
+          }
         }
       `}</style>
 
-      <header className="no-print rounded-3xl border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm">
+      <header className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-amber-600">QR Codes — UHs</p>
@@ -101,7 +122,7 @@ export default function MaintenanceQRPrint() {
           </div>
           <div className="flex gap-2 flex-wrap">
             <button
-              onClick={load}
+              onClick={() => void load()}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-100 text-neutral-700 hover:bg-neutral-200 text-sm font-bold"
             >
               <RefreshCw className="w-4 h-4" />
