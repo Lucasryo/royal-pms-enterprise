@@ -2,10 +2,10 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── env ────────────────────────────────────────────────────────────────────
-const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN")       ?? "";
-const CHAT_ID    = Deno.env.get("TELEGRAM_CHAT_ID")          ?? "";
-const SUPA_URL   = Deno.env.get("SUPABASE_URL")              ?? "";
-const SUPA_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")       ?? "";
+const CHAT_ID   = Deno.env.get("TELEGRAM_CHAT_ID")          ?? "";
+const SUPA_URL  = Deno.env.get("SUPABASE_URL")              ?? "";
+const SUPA_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const db = createClient(SUPA_URL, SUPA_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -16,7 +16,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// ── telegram helpers ───────────────────────────────────────────────────────
+// ── telegram helpers ────────────────────────────────────────────────────────
 async function tg(method: string, body: Record<string, unknown>) {
   const r = await fetch(`${TG}/${method}`, {
     method: "POST",
@@ -26,6 +26,11 @@ async function tg(method: string, body: Record<string, unknown>) {
   const data = await r.json();
   if (!data.ok) console.error(`[tg] ${method}:`, JSON.stringify(data));
   return data;
+}
+
+async function isModerator(chatId: unknown, userId: number): Promise<boolean> {
+  const res = await tg("getChatMember", { chat_id: chatId, user_id: userId });
+  return res.ok && ["administrator", "creator"].includes(res.result?.status);
 }
 
 function esc(text: string | null | undefined): string {
@@ -41,7 +46,7 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
-// ── message builders ───────────────────────────────────────────────────────
+// ── message builders ────────────────────────────────────────────────────────
 const P_EMOJI: Record<string, string>  = { urgent:"🔴", high:"🟠", medium:"🟡", low:"🟢" };
 const P_LABEL: Record<string, string>  = { urgent:"URGENTE", high:"Alta", medium:"Media", low:"Baixa" };
 const ST_LABEL: Record<string, string> = { open:"Aberto", in_progress:"Em andamento", resolved:"Resolvido", cancelled:"Cancelado" };
@@ -51,20 +56,20 @@ function buildText(record: Record<string, unknown>, heading: string): string {
   const status   = (record.status   as string) ?? "open";
   const lines: string[] = [heading, ""];
   lines.push(`*${esc(record.title as string)}*`);
-  if (record.room_number)    lines.push(`🚪 UH *${esc(record.room_number as string)}*`);
+  if (record.room_number)   lines.push(`🚪 UH *${esc(record.room_number as string)}*`);
   lines.push(`Prioridade: *${P_LABEL[priority] ?? priority}*`);
   lines.push(`Status: *${ST_LABEL[status]      ?? status}*`);
-  if (record.description)    lines.push("", `_${esc(record.description as string)}_`);
-  if (record.status_reason)  lines.push("", `👷 *${esc(record.status_reason as string)}*`);
+  if (record.description)   lines.push("", `_${esc(record.description as string)}_`);
+  if (record.status_reason) lines.push("", `👷 *${esc(record.status_reason as string)}*`);
   if (record.resolution_notes) {
     const url = String(record.resolution_notes).match(/Foto:\s*(\S+)/)?.[1];
     lines.push("", url ? `📸 [Ver foto](${url})` : `📝 ${esc(record.resolution_notes as string)}`);
   }
-  // Embed UUID for /urgente command — UUID chars don't need escaping
   lines.push("", `🔖 \`${record.id as string}\``);
   return lines.join("\n");
 }
 
+// ── keyboards ───────────────────────────────────────────────────────────────
 function openKb(id: string) {
   return { inline_keyboard: [[
     { text: "✅ Assumir",         callback_data: `assume:${id}` },
@@ -80,6 +85,21 @@ function inProgressKb(id: string, tgUserId?: number) {
   ]] };
 }
 
+// Vistoria — somente moderadores podem assumir
+function inspectionKb(id: string) {
+  return { inline_keyboard: [[
+    { text: "🔍 Assumir Vistoria", callback_data: `insp_assume:${id}` },
+  ]] };
+}
+
+// Após moderador assumir vistoria — apenas ele pode aprovar/reprovar
+function inspectorActionsKb(id: string, inspectorTgId: number) {
+  return { inline_keyboard: [[
+    { text: "✅ Aprovar",   callback_data: `insp_ok:${id}:${inspectorTgId}`  },
+    { text: "❌ Reprovar", callback_data: `insp_nok:${id}:${inspectorTgId}` },
+  ]] };
+}
+
 function ratingKb(id: string) {
   return { inline_keyboard: [[
     { text: "⭐ 1", callback_data: `rate:${id}:1` },
@@ -90,9 +110,34 @@ function ratingKb(id: string) {
   ]] };
 }
 
-// ── daily report ───────────────────────────────────────────────────────────
+// ── inspection trigger (shared) ─────────────────────────────────────────────
+async function sendInspectionRequest(
+  chatId: unknown,
+  ticketId: string,
+  techName: string,
+  ticketTitle: string,
+  roomNumber: string | null,
+  durationPart: string,
+) {
+  const uhPart = roomNumber ? ` \\(UH ${esc(roomNumber)}\\)` : "";
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: [
+      `🔍 *Vistoria necessária*`, "",
+      `*${esc(ticketTitle)}*${uhPart}`,
+      `👷 Concluído por *${esc(techName)}*${durationPart}`,
+      "",
+      `_Somente moderadores do grupo podem assumir a vistoria\\._`,
+      "", `🔖 \`${ticketId}\``,
+    ].join("\n"),
+    parse_mode: "MarkdownV2",
+    reply_markup: inspectionKb(ticketId),
+  });
+}
+
+// ── daily report ────────────────────────────────────────────────────────────
 async function sendDailyReport() {
-  const since24h  = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since24h   = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   const [{ data: todayTickets }, { data: openTickets }, { data: monthTickets }] = await Promise.all([
@@ -100,7 +145,7 @@ async function sendDailyReport() {
       .select("id,status,priority,created_at,resolved_at,room_number,status_reason,title")
       .gte("created_at", since24h.toISOString()),
     db.from("maintenance_tickets")
-      .select("id,priority,created_at,room_number,title")
+      .select("id,priority,created_at,room_number,title,awaiting_parts")
       .in("status", ["open", "in_progress"]),
     db.from("maintenance_tickets")
       .select("id,room_number,status_reason,status")
@@ -108,10 +153,11 @@ async function sendDailyReport() {
       .neq("status", "cancelled"),
   ]);
 
-  const total     = todayTickets?.length ?? 0;
-  const resolved  = todayTickets?.filter(t => t.status === "resolved").length ?? 0;
-  const cancelled = todayTickets?.filter(t => t.status === "cancelled").length ?? 0;
-  const abertos   = openTickets?.length ?? 0;
+  const total         = todayTickets?.length ?? 0;
+  const resolved      = todayTickets?.filter(t => t.status === "resolved").length ?? 0;
+  const cancelled     = todayTickets?.filter(t => t.status === "cancelled").length ?? 0;
+  const abertos       = openTickets?.length ?? 0;
+  const awaitingParts = openTickets?.filter(t => t.awaiting_parts).length ?? 0;
 
   const resolvedWithTime = todayTickets?.filter(
     t => t.status === "resolved" && t.resolved_at && t.created_at
@@ -128,14 +174,12 @@ async function sendDailyReport() {
     return (Date.now() - new Date(t.created_at).getTime()) / 60000 > limit;
   }) ?? [];
 
-  // Top técnico do dia (mais resoluções)
   const techCount: Record<string, number> = {};
   for (const t of todayTickets?.filter(t => t.status === "resolved" && t.status_reason) ?? []) {
     techCount[t.status_reason] = (techCount[t.status_reason] ?? 0) + 1;
   }
   const topTechEntry = Object.entries(techCount).sort((a, b) => b[1] - a[1])[0];
 
-  // Top 3 UHs do mês com mais chamados
   const uhCount: Record<string, number> = {};
   for (const t of monthTickets ?? []) {
     if (!t.room_number) continue;
@@ -143,7 +187,6 @@ async function sendDailyReport() {
   }
   const top3UHs = Object.entries(uhCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  // Chamados abertos há mais de 24h
   const over24h = openTickets?.filter(
     t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > 1440
   ) ?? [];
@@ -159,28 +202,17 @@ async function sendDailyReport() {
     `🚫 Cancelados: *${cancelled}*`,
     `⏳ Ainda em aberto: *${abertos}*`,
   ];
-  if (avgMins !== null) {
-    lines.push(`⏱ Tempo medio de resolucao: *${esc(formatDuration(avgMins))}*`);
-  }
-  if (topTechEntry) {
-    lines.push(`🏆 Tecnico destaque do dia: *${esc(topTechEntry[0])}* \\(${topTechEntry[1]} resolucoes\\)`);
-  }
+  if (awaitingParts > 0) lines.push(`🔩 Aguardando peças: *${awaitingParts}*`);
+  if (avgMins !== null) lines.push(`⏱ Tempo medio de resolucao: *${esc(formatDuration(avgMins))}*`);
+  if (topTechEntry) lines.push(`🏆 Tecnico destaque: *${esc(topTechEntry[0])}* \\(${topTechEntry[1]} resolucoes\\)`);
   lines.push("");
-  if (slaBreached.length > 0) {
-    lines.push(`⚠️ *${slaBreached.length} chamado${slaBreached.length > 1 ? "s" : ""} com SLA estourado\\!*`);
-  } else {
-    lines.push(`✔️ Nenhum chamado com SLA estourado\\.`);
-  }
-
-  // Top 3 UHs do mês
+  lines.push(slaBreached.length > 0
+    ? `⚠️ *${slaBreached.length} chamado${slaBreached.length > 1 ? "s" : ""} com SLA estourado\\!*`
+    : `✔️ Nenhum chamado com SLA estourado\\.`);
   if (top3UHs.length > 0) {
     lines.push("", `🏨 *Top UHs do mes:*`);
-    top3UHs.forEach(([uh, count], i) => {
-      lines.push(`${i + 1}\\. UH ${esc(uh)} — *${count}* chamados`);
-    });
+    top3UHs.forEach(([uh, count], i) => lines.push(`${i + 1}\\. UH ${esc(uh)} — *${count}* chamados`));
   }
-
-  // Chamados abertos há mais de 24h
   if (over24h.length > 0) {
     lines.push("", `🕐 *Chamados sem atendimento ha mais de 24h:*`);
     over24h.slice(0, 5).forEach(t => {
@@ -191,16 +223,11 @@ async function sendDailyReport() {
     if (over24h.length > 5) lines.push(`_\\.\\.\\. e mais ${over24h.length - 5} outros_`);
   }
 
-  await tg("sendMessage", {
-    chat_id: CHAT_ID,
-    text: lines.join("\n"),
-    parse_mode: "MarkdownV2",
-  });
-
+  await tg("sendMessage", { chat_id: CHAT_ID, text: lines.join("\n"), parse_mode: "MarkdownV2" });
   return { ok: true };
 }
 
-// ── handler: manual resend from PMS ───────────────────────────────────────
+// ── manual resend ───────────────────────────────────────────────────────────
 async function handleManualResend(payload: Record<string, unknown>) {
   const ticketId  = payload.ticket_id as string;
   const actorName = (payload.actor_name as string) ?? "Operador";
@@ -212,26 +239,20 @@ async function handleManualResend(payload: Record<string, unknown>) {
 
   const isReopened = typeof ticket.resolution_notes === "string" &&
     ticket.resolution_notes.startsWith("Reaberto:");
-
-  const priority = ticket.priority ?? "medium";
-  const status   = ticket.status   ?? "open";
-  const id       = ticket.id as string;
+  const status = ticket.status ?? "open";
+  const id     = ticket.id as string;
 
   let heading: string;
   let kb: Record<string, unknown> | undefined;
   let extraLine = "";
 
   if (isReopened && ticket.status === "open") {
-    // Ticket was reopened — call group for someone to assume again
     const lastTech = extractLastTech(ticket.resolution_notes as string);
     heading = `🔄 *Chamado reaberto — aguarda novo atendimento*`;
     kb = openKb(id);
-    if (lastTech) {
-      extraLine = `\n👷 Último atendente\\: *${esc(lastTech)}*`;
-    }
+    if (lastTech) extraLine = `\n👷 Último atendente\\: *${esc(lastTech)}*`;
     extraLine += `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   } else if (status === "in_progress" && ticket.status_reason) {
-    // In progress — remind the assigned tech (inline mention if TG user ID available)
     heading = `⏰ *Lembrete\\: chamado em andamento*`;
     kb = inProgressKb(id);
     const techMention = ticket.telegram_user_id
@@ -239,42 +260,32 @@ async function handleManualResend(payload: Record<string, unknown>) {
       : `*${esc(ticket.status_reason)}*`;
     extraLine = `\n👷 ${techMention}\\, por favor verifique este chamado\\!\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   } else {
-    // Open, not yet assumed — nudge group
     heading = `📢 *Chamado aguardando atendimento*`;
     kb = openKb(id);
     extraLine = `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   }
 
-  const baseText = buildText(ticket, heading);
-  const fullText = baseText + extraLine;
-
   await tg("sendMessage", {
     chat_id: CHAT_ID,
-    text: fullText,
+    text: buildText(ticket, heading) + extraLine,
     parse_mode: "MarkdownV2",
     disable_web_page_preview: true,
     ...(kb ? { reply_markup: kb } : {}),
   });
-
   return { ok: true };
 }
 
 function extractLastTech(resolutionNotes: string): string | null {
-  // "Reaberto: <reason> (<name>)" → extract <name>
   const m = resolutionNotes.match(/\(([^)]+)\)\s*$/);
   return m ? m[1] : null;
 }
 
-// ── handler: supabase db webhook ───────────────────────────────────────────
+// ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(payload: Record<string, unknown>) {
-  if ((payload.type as string) === "daily_report") {
-    return await sendDailyReport();
-  }
+  if ((payload.type as string) === "daily_report")   return await sendDailyReport();
+  if ((payload.type as string) === "manual_resend")  return await handleManualResend(payload);
 
-  if ((payload.type as string) === "manual_resend") {
-    return await handleManualResend(payload);
-  }
-
+  // Rating request triggered by PMS after inspector approves
   if ((payload.type as string) === "request_rating") {
     const ticketId = payload.ticket_id as string;
     if (!ticketId) return { ok: false, error: "missing ticket_id" };
@@ -282,22 +293,22 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
       .from("maintenance_tickets").select("title").eq("id", ticketId).single();
     await tg("sendMessage", {
       chat_id: CHAT_ID,
-      text: `⭐ Vistoria aprovada\\! Como foi o atendimento de *${esc(tk?.title ?? "")}*\\? Avalie o chamado\\:`,
+      text: `⭐ *Vistoria aprovada\\!* Como foi o atendimento de *${esc(tk?.title ?? "")}*\\? Avalie o chamado\\:`,
       parse_mode: "MarkdownV2",
       reply_markup: ratingKb(ticketId),
     });
     return { ok: true };
   }
 
-  const event     = (payload.type       as string)                        ?? "INSERT";
-  const record    = (payload.record     as Record<string, unknown>)       ?? payload;
-  const oldRecord = (payload.old_record as Record<string, unknown>)       ?? {};
+  const event     = (payload.type       as string)                  ?? "INSERT";
+  const record    = (payload.record     as Record<string, unknown>) ?? payload;
+  const oldRecord = (payload.old_record as Record<string, unknown>) ?? {};
 
   if (event === "UPDATE") {
     const statusChanged   = oldRecord.status   !== record.status;
     const priorityChanged = oldRecord.priority !== record.priority;
-    if (!statusChanged && !priorityChanged)  return { ok: true, skipped: "no-change" };
-    if (record.status === "cancelled")       return { ok: true, skipped: "cancelled" };
+    if (!statusChanged && !priorityChanged) return { ok: true, skipped: "no-change" };
+    if (record.status === "cancelled")      return { ok: true, skipped: "cancelled" };
   }
 
   const priority = (record.priority as string) ?? "medium";
@@ -311,21 +322,30 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
     heading = `${P_EMOJI[priority] ?? ""} *Novo chamado de manutencao*`;
     kb = openKb(id);
   } else if (status === "in_progress") {
-    // Differentiate PMS-directed (assigned_to set) from Telegram-assumed
     const isDirected = record.assigned_to && oldRecord.status !== "in_progress";
     heading = isDirected ? `📌 *Chamado direcionado*` : `🔧 *Chamado assumido*`;
     kb = inProgressKb(id);
   } else if (status === "resolved") {
     const resolvedAt = record.resolved_at ? new Date(record.resolved_at as string) : new Date();
     const createdAt  = record.created_at  ? new Date(record.created_at  as string) : null;
-    const mins = createdAt
-      ? Math.round((resolvedAt.getTime() - createdAt.getTime()) / 60000)
-      : null;
-    heading = mins !== null
-      ? `✅ *Resolvido em ${esc(formatDuration(mins))}*`
-      : `✅ *Chamado resolvido*`;
+    const mins = createdAt ? Math.round((resolvedAt.getTime() - createdAt.getTime()) / 60000) : null;
+    heading = mins !== null ? `✅ *Resolvido em ${esc(formatDuration(mins))}*` : `✅ *Chamado resolvido*`;
+    // For PMS-resolved tickets, also trigger inspection
+    await tg("sendMessage", {
+      chat_id: CHAT_ID,
+      text: buildText(record, heading),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: false,
+    });
+    await sendInspectionRequest(
+      CHAT_ID, id,
+      (record.status_reason as string) ?? "Técnico",
+      (record.title as string) ?? "",
+      record.room_number as string | null,
+      mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
+    );
+    return { ok: true };
   } else if (status === "open" && event === "UPDATE") {
-    // Reopened from PMS or mobile
     heading = `🔄 *Chamado reaberto*`;
     kb = openKb(id);
   } else {
@@ -340,12 +360,10 @@ async function handleDbWebhook(payload: Record<string, unknown>) {
     disable_web_page_preview: false,
     ...(kb ? { reply_markup: kb } : {}),
   });
-
-  // Feature 7: send rating request after resolution
   return { ok: true };
 }
 
-// ── handler: telegram button click ────────────────────────────────────────
+// ── callback handler ────────────────────────────────────────────────────────
 async function handleCallback(query: Record<string, unknown>) {
   const cbId   = query.id as string;
   const data   = (query.data as string) ?? "";
@@ -360,7 +378,7 @@ async function handleCallback(query: Record<string, unknown>) {
   const action   = data.slice(0, colonIdx);
   const rest     = data.slice(colonIdx + 1);
 
-  // Feature 7: rating handler — rate:UUID:N
+  // ── Rating ──────────────────────────────────────────────────────────────
   if (action === "rate") {
     const parts    = rest.split(":");
     const ticketId = parts[0];
@@ -377,11 +395,7 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `⭐ Avaliacao ${rating}/5 registrada! Obrigado.`,
       show_alert: false,
     });
-    if (msgId) {
-      await tg("editMessageReplyMarkup", {
-        chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] },
-      });
-    }
+    if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
     await tg("sendMessage", {
       chat_id: chatId,
       text: `⭐ Atendimento avaliado em *${rating}/5* por *${esc(name)}*`,
@@ -390,11 +404,122 @@ async function handleCallback(query: Record<string, unknown>) {
     return { ok: true };
   }
 
-  // callback_data formats:
-  //   assume:UUID                 — anyone
-  //   parts:UUID                  — anyone (open ticket)
-  //   resolve:UUID:LOCKED_TG_ID   — only LOCKED_TG_ID
-  //   parts:UUID:LOCKED_TG_ID     — only LOCKED_TG_ID (in-progress)
+  // ── Inspection: assume vistoria (somente moderadores) ───────────────────
+  if (action === "insp_assume") {
+    const ticketId = rest;
+    if (!await isModerator(chatId, fromId)) {
+      await tg("answerCallbackQuery", {
+        callback_query_id: cbId,
+        text: "🔒 Apenas moderadores do grupo podem assumir a vistoria.",
+        show_alert: true,
+      });
+      return { ok: true };
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cbId });
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets").select("title,room_number").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+
+    await db.from("maintenance_tickets").update({
+      inspection_status: "pending",
+      updated_at: new Date().toISOString(),
+    }).eq("id", ticketId);
+
+    // Atualiza botões da mensagem de vistoria
+    if (msgId) {
+      await tg("editMessageReplyMarkup", {
+        chat_id: chatId, message_id: msgId,
+        reply_markup: inspectorActionsKb(ticketId, fromId),
+      });
+    }
+
+    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔍 *${esc(name)}* assumiu a vistoria de *${esc(ticket.title)}*${uhPart}`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
+
+  // ── Inspection: approve ─────────────────────────────────────────────────
+  if (action === "insp_ok") {
+    const parts          = rest.split(":");
+    const ticketId       = parts[0];
+    const lockedInspId   = parts[1] ? Number(parts[1]) : null;
+
+    if (lockedInspId && lockedInspId !== fromId) {
+      await tg("answerCallbackQuery", {
+        callback_query_id: cbId,
+        text: "🔒 Apenas o vistoriador que assumiu pode aprovar.",
+        show_alert: true,
+      });
+      return { ok: true };
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cbId });
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets").select("title,room_number,status_reason").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+
+    await db.from("maintenance_tickets").update({
+      inspection_status: "approved",
+      inspector_id: null,
+      inspected_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", ticketId);
+
+    if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
+
+    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `✅ *${esc(name)}* aprovou a vistoria de *${esc(ticket.title)}*${uhPart}`,
+      parse_mode: "MarkdownV2",
+    });
+
+    // Pede avaliação ao grupo
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `⭐ Como foi o atendimento de *${esc(ticket.title)}*${uhPart}\\?\nAtendido por *${esc(ticket.status_reason ?? "Técnico")}*\\. Avalie\\:`,
+      parse_mode: "MarkdownV2",
+      reply_markup: ratingKb(ticketId),
+    });
+    return { ok: true };
+  }
+
+  // ── Inspection: reject ──────────────────────────────────────────────────
+  if (action === "insp_nok") {
+    const parts        = rest.split(":");
+    const ticketId     = parts[0];
+    const lockedInspId = parts[1] ? Number(parts[1]) : null;
+
+    if (lockedInspId && lockedInspId !== fromId) {
+      await tg("answerCallbackQuery", {
+        callback_query_id: cbId,
+        text: "🔒 Apenas o vistoriador que assumiu pode reprovar.",
+        show_alert: true,
+      });
+      return { ok: true };
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cbId });
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets").select("title").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+
+    // Solicita motivo via force_reply
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+    return { ok: true };
+  }
+
+  // ── Ticket actions ──────────────────────────────────────────────────────
   const restParts      = rest.split(":");
   const ticketId       = restParts[0];
   const lockedTgUserId = restParts[1] ? Number(restParts[1]) : null;
@@ -404,13 +529,12 @@ async function handleCallback(query: Record<string, unknown>) {
     return { ok: true };
   }
 
-  // Ownership lock: only the user who assumed can resolve/report parts
   if (lockedTgUserId && lockedTgUserId !== fromId) {
     const { data: tk } = await db
       .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
     await tg("answerCallbackQuery", {
       callback_query_id: cbId,
-      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar pecas deste chamado.`,
+      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado.`,
       show_alert: true,
     });
     return { ok: true };
@@ -430,12 +554,9 @@ async function handleCallback(query: Record<string, unknown>) {
       status_reason: name,
       telegram_user_id: fromId,
     }).eq("id", ticketId);
-
-    if (msgId) {
-      await tg("editMessageReplyMarkup", {
-        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
-      });
-    }
+    if (msgId) await tg("editMessageReplyMarkup", {
+      chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
+    });
     await tg("sendMessage", {
       chat_id: chatId,
       text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}* \\(UH ${esc(ticket.room_number)}\\)`,
@@ -446,7 +567,7 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✍️ Descreva a solucao \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
+      text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
@@ -455,7 +576,7 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 Quais pecas sao necessarias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
+      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
@@ -464,7 +585,7 @@ async function handleCallback(query: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── handler: telegram text reply (force_reply response or /urgente) ────────
+// ── reply handler ────────────────────────────────────────────────────────────
 async function handleReply(message: Record<string, unknown>) {
   const replyTo   = (message.reply_to_message as Record<string, unknown>) ?? {};
   const replyText = (replyTo.text as string) ?? "";
@@ -474,20 +595,15 @@ async function handleReply(message: Record<string, unknown>) {
   const fromId    = Number(from.id);
   const name      = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
 
-  // Feature 3: /urgente command — reply to any ticket notification
+  // /urgente via reply
   if (userText.trim().toLowerCase().startsWith("/urgente")) {
-    const uuidMatch = replyText.match(
-      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
-    );
+    const uuidMatch = replyText.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (uuidMatch) {
       const ticketId = uuidMatch[1];
       const { data: tk } = await db
         .from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
       if (tk && tk.status !== "resolved" && tk.status !== "cancelled") {
-        await db.from("maintenance_tickets").update({
-          priority: "urgent",
-          updated_at: new Date().toISOString(),
-        }).eq("id", ticketId);
+        await db.from("maintenance_tickets").update({ priority: "urgent", updated_at: new Date().toISOString() }).eq("id", ticketId);
         await tg("sendMessage", {
           chat_id: chatId,
           text: `🔴 *${esc(name)}* marcou como URGENTE:\n*${esc(tk.title)}*`,
@@ -498,7 +614,61 @@ async function handleReply(message: Record<string, unknown>) {
     return { ok: true };
   }
 
-  // Force-reply prompt embeds [uuid] or [uuid|lockedTgUserId]
+  // ── Inspection rejection reason ──────────────────────────────────────────
+  // Prompt format: "❌ Descreva o problema encontrado [insp_reject:UUID|TG_ID]:"
+  const inspRejectMatch = replyText.match(/\[insp_reject:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (inspRejectMatch) {
+    const ticketId       = inspRejectMatch[1];
+    const lockedInspId   = Number(inspRejectMatch[2]);
+
+    if (lockedInspId && lockedInspId !== fromId) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Apenas o vistoriador que assumiu pode reprovar este chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets").select("title,room_number,status_reason").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+
+    await db.from("maintenance_tickets").update({
+      status: "in_progress",
+      inspection_status: "rejected",
+      inspection_notes: userText,
+      inspected_at: new Date().toISOString(),
+      resolved_at: null,
+      awaiting_parts: false,
+      updated_at: new Date().toISOString(),
+    }).eq("id", ticketId);
+
+    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+    // Notifica o técnico com inline mention se tivermos o ID
+    const { data: fullTicket } = await db
+      .from("maintenance_tickets").select("telegram_user_id").eq("id", ticketId).single();
+    const techMention = fullTicket?.telegram_user_id
+      ? `[${ticket.status_reason ?? "Técnico"}](tg://user?id=${fullTicket.telegram_user_id})`
+      : `*${esc(ticket.status_reason ?? "Técnico")}*`;
+
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: [
+        `❌ *Vistoria reprovada* por *${esc(name)}*`,
+        `📋 ${esc(ticket.title)}${uhPart}`,
+        ``,
+        `📝 Motivo: _${esc(userText)}_`,
+        ``,
+        `👷 ${techMention}\\, o chamado voltou para em andamento\\. Por favor corrija e conclua novamente\\.`,
+      ].join("\n"),
+      parse_mode: "MarkdownV2",
+      reply_markup: inProgressKb(ticketId, fullTicket?.telegram_user_id ?? undefined),
+    });
+    return { ok: true };
+  }
+
+  // ── Ticket force-reply responses [UUID] or [UUID|LOCKED_TG_ID] ───────────
   const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
   if (!match) return { ok: true };
   const ticketId       = match[1];
@@ -519,9 +689,8 @@ async function handleReply(message: Record<string, unknown>) {
   const isParts   = replyText.startsWith("🔩");
 
   if (isResolve) {
-    // Feature 4: calculate resolution time
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("created_at,title").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("created_at,title,room_number").eq("id", ticketId).single();
     const mins = ticket?.created_at
       ? Math.round((Date.now() - new Date(ticket.created_at).getTime()) / 60000)
       : null;
@@ -536,11 +705,21 @@ async function handleReply(message: Record<string, unknown>) {
     }).eq("id", ticketId);
 
     const durationPart = mins !== null ? ` em *${esc(formatDuration(mins))}*` : "";
+
+    // Confirmação da conclusão
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✅ Resolvido${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}\n\n_Aguardando vistoria para avaliação do atendimento\\._`,
+      text: `✅ Concluído${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}`,
       parse_mode: "MarkdownV2",
     });
+
+    // Dispara pedido de vistoria para o grupo
+    await sendInspectionRequest(
+      chatId, ticketId, name,
+      ticket?.title ?? "",
+      ticket?.room_number ?? null,
+      durationPart,
+    );
 
   } else if (isParts) {
     await db.from("maintenance_tickets").update({
@@ -548,7 +727,6 @@ async function handleReply(message: Record<string, unknown>) {
       awaiting_parts: true,
       resolution_notes: `⚠️ Aguardando pecas: ${userText} (${name})`,
     }).eq("id", ticketId);
-
     await tg("sendMessage", {
       chat_id: chatId,
       text: `🔩 *Falta de peças registrada* por *${esc(name)}*\n\n📦 ${esc(userText)}\n\n_O chamado foi sinalizado no PMS como aguardando material\\._`,
@@ -559,7 +737,7 @@ async function handleReply(message: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── handler: non-reply messages ────────────────────────────────────────────
+// ── message handler ─────────────────────────────────────────────────────────
 async function handleMessage(message: Record<string, unknown>) {
   const text   = (message.text as string) ?? "";
   const chatId = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
@@ -567,131 +745,80 @@ async function handleMessage(message: Record<string, unknown>) {
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
   const cmd    = text.trim().toLowerCase().split(/\s+/)[0];
 
-  // /urgente UUID — directly mark as urgent
   if (cmd === "/urgente") {
-    const uuidMatch = text.match(
-      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
-    );
+    const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (!uuidMatch) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `❓ Responda a mensagem de um chamado com /urgente para marcá\\-lo como urgente\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await tg("sendMessage", { chat_id: chatId, text: `❓ Responda a mensagem de um chamado com /urgente para marcá\\-lo como urgente\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
     const ticketId = uuidMatch[1];
-    const { data: tk } = await db
-      .from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    const { data: tk } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
     if (tk && tk.status !== "resolved" && tk.status !== "cancelled") {
-      await db.from("maintenance_tickets").update({
-        priority: "urgent",
-        updated_at: new Date().toISOString(),
-      }).eq("id", ticketId);
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔴 *${esc(name)}* marcou como URGENTE:\n*${esc(tk.title)}*`,
-        parse_mode: "MarkdownV2",
-      });
+      await db.from("maintenance_tickets").update({ priority: "urgent", updated_at: new Date().toISOString() }).eq("id", ticketId);
+      await tg("sendMessage", { chat_id: chatId, text: `🔴 *${esc(name)}* marcou como URGENTE:\n*${esc(tk.title)}*`, parse_mode: "MarkdownV2" });
     }
     return { ok: true };
   }
 
-  // /status — snapshot rápido dos chamados abertos/em andamento
   if (cmd === "/status") {
-    const { data: open } = await db
-      .from("maintenance_tickets")
-      .select("id,priority,room_number,title,created_at")
-      .eq("status", "open");
-    const { data: inProg } = await db
-      .from("maintenance_tickets")
-      .select("id,priority,room_number,title,status_reason,started_at")
-      .eq("status", "in_progress");
-
+    const { data: open }   = await db.from("maintenance_tickets").select("id,priority,created_at,awaiting_parts").in("status", ["open", "in_progress"]);
+    const { data: inProg } = await db.from("maintenance_tickets").select("id").eq("status", "in_progress");
     const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
-    const breached = (open ?? []).filter(t => {
-      const limit = SLA_LIMITS[t.priority] ?? 240;
-      return (Date.now() - new Date(t.created_at).getTime()) / 60000 > limit;
-    });
-
+    const breached      = (open ?? []).filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 240));
+    const awaitingParts = (open ?? []).filter(t => t.awaiting_parts).length;
     const lines = [
       `📊 *Status atual da Manutenção*`, "",
-      `📋 Abertos: *${(open ?? []).length}*`,
+      `📋 Abertos/em andamento: *${(open ?? []).length}*`,
       `🔧 Em andamento: *${(inProg ?? []).length}*`,
     ];
-    if (breached.length > 0) {
-      lines.push(`⚠️ SLA estourado: *${breached.length}*`);
-    } else {
-      lines.push(`✔️ Nenhum SLA estourado`);
-    }
-    if ((open ?? []).length === 0 && (inProg ?? []).length === 0) {
-      lines.push("", `🎉 Nenhum chamado pendente\\!`);
-    }
+    if (awaitingParts > 0) lines.push(`🔩 Aguardando peças: *${awaitingParts}*`);
+    lines.push(breached.length > 0 ? `⚠️ SLA estourado: *${breached.length}*` : `✔️ Nenhum SLA estourado`);
+    if ((open ?? []).length === 0) lines.push("", `🎉 Nenhum chamado pendente\\!`);
     await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
     return { ok: true };
   }
 
-  // /listar — lista os chamados abertos (até 10)
   if (cmd === "/listar") {
-    const { data: open } = await db
-      .from("maintenance_tickets")
-      .select("id,priority,room_number,title,created_at")
-      .in("status", ["open", "in_progress"])
-      .order("created_at", { ascending: true })
-      .limit(10);
-
+    const { data: open } = await db.from("maintenance_tickets")
+      .select("id,priority,room_number,title,created_at,awaiting_parts")
+      .in("status", ["open", "in_progress"]).order("created_at", { ascending: true }).limit(10);
     if (!open || open.length === 0) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `✅ Nenhum chamado aberto no momento\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await tg("sendMessage", { chat_id: chatId, text: `✅ Nenhum chamado aberto no momento\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
-
     const lines = [`📋 *Chamados em aberto \\(${open.length}\\)*`, ""];
     for (const t of open) {
       const mins = Math.round((Date.now() - new Date(t.created_at).getTime()) / 60000);
       const uhPart = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
-      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}`);
+      const partsBadge = t.awaiting_parts ? " 🔩" : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}${partsBadge}`);
       lines.push(`  ⏱ ${esc(formatDuration(mins))} atrás  \\|  \`${t.id}\``);
     }
     await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
     return { ok: true };
   }
 
-  // /meus — chamados que o técnico está atendendo (por nome)
   if (cmd === "/meus") {
-    const { data: mine } = await db
-      .from("maintenance_tickets")
-      .select("id,priority,room_number,title,started_at")
-      .eq("status", "in_progress")
-      .ilike("status_reason", name);
-
+    const { data: mine } = await db.from("maintenance_tickets")
+      .select("id,priority,room_number,title,started_at,awaiting_parts")
+      .eq("status", "in_progress").ilike("status_reason", name);
     if (!mine || mine.length === 0) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `ℹ️ Nenhum chamado em andamento para *${esc(name)}*\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Nenhum chamado em andamento para *${esc(name)}*\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
-
     const lines = [`🔧 *Seus chamados em andamento \\(${mine.length}\\)*`, ""];
     for (const t of mine) {
-      const mins = t.started_at
-        ? Math.round((Date.now() - new Date(t.started_at).getTime()) / 60000)
-        : null;
+      const mins = t.started_at ? Math.round((Date.now() - new Date(t.started_at).getTime()) / 60000) : null;
       const uhPart = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
       const timePart = mins !== null ? `  ⏱ ${esc(formatDuration(mins))}` : "";
-      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}${timePart}`);
+      const partsBadge = t.awaiting_parts ? " 🔩 _aguardando peças_" : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}${timePart}${partsBadge}`);
       lines.push(`  \`${t.id}\``);
     }
     await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
     return { ok: true };
   }
 
-  // /ajuda — lista os comandos disponíveis
   if (cmd === "/ajuda" || cmd === "/help" || cmd === "/start") {
     const help = [
       `🤖 *Royal PMS — Bot de Manutenção*`, "",
@@ -700,7 +827,11 @@ async function handleMessage(message: Record<string, unknown>) {
       `/listar — Lista chamados abertos \\(até 10\\)`,
       `/meus — Seus chamados em andamento`,
       `/urgente — Responda uma msg de chamado para marcar como urgente`,
-      "", `_Você também pode usar os botões nas mensagens de chamado para Assumir, Concluir ou reportar Falta de Peças\\._`,
+      "", `*Fluxo de atendimento\\:*`,
+      `1\\. Novo chamado → clique ✅ Assumir`,
+      `2\\. Conclua → clique ✅ Concluir e descreva a solução`,
+      `3\\. Moderador faz a vistoria → ✅ Aprovar ou ❌ Reprovar`,
+      `4\\. Aprovado → grupo avalia com ⭐ estrelas`,
     ];
     await tg("sendMessage", { chat_id: chatId, text: help.join("\n"), parse_mode: "MarkdownV2" });
     return { ok: true };
@@ -709,17 +840,14 @@ async function handleMessage(message: Record<string, unknown>) {
   return { ok: true };
 }
 
-// ── main ───────────────────────────────────────────────────────────────────
+// ── main ────────────────────────────────────────────────────────────────────
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-
   try {
     const body = await req.json();
     let result: Record<string, unknown>;
