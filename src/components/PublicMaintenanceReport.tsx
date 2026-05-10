@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { uploadImage } from '../lib/imgbb';
+import { validateQRToken } from '../lib/qrToken';
 import { AlertTriangle, Camera, CheckCircle2, Loader2, LogOut, Mic, Send, X as CloseIcon } from 'lucide-react';
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
@@ -15,8 +16,9 @@ const PRIORITY_OPTIONS: Array<{ value: Priority; label: string; color: string; d
   { value: 'urgent', label: 'Urgente', color: 'bg-red-50 text-red-700 border-red-200',             description: 'Atender agora — risco ao hospede' },
 ];
 
-export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: string }) {
+export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { roomNumber: string; qrToken?: string }) {
   const [authState, setAuthState] = useState<AuthState>('loading');
+  const [tokenValid, setTokenValid] = useState<boolean | null>(null);
   const [staffName, setStaffName] = useState('');
 
   // login fields
@@ -39,9 +41,12 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check existing session on mount
+  // 1C: Validate QR token on mount before showing anything
   useEffect(() => {
-    void checkSession();
+    validateQRToken(qrToken, roomNumber).then((valid) => {
+      setTokenValid(valid);
+      if (valid) void checkSession();
+    });
   }, []);
 
   // Speech recognition setup
@@ -165,11 +170,26 @@ export default function PublicMaintenanceReport({ roomNumber }: { roomNumber: st
     setSubmitting(false);
   }
 
-  // ── Loading ──────────────────────────────────────────────────────────────
-  if (authState === 'loading') {
+  // ── Loading / token validation ───────────────────────────────────────────
+  if (tokenValid === null || authState === 'loading') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+      </div>
+    );
+  }
+
+  // 1C: QR token invalid — block access
+  if (!tokenValid) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-amber-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white rounded-3xl border border-red-200 shadow-xl p-8 text-center">
+          <AlertTriangle className="w-12 h-12 text-red-400 mx-auto" />
+          <h1 className="mt-4 text-xl font-black text-neutral-900">QR Code inválido</h1>
+          <p className="mt-2 text-sm text-neutral-500">
+            Este QR Code não é válido ou está desatualizado. Solicite um novo adesivo à recepção.
+          </p>
+        </div>
       </div>
     );
   }

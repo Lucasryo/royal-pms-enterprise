@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { supabase } from '../supabase';
+import { generateQRToken } from '../lib/qrToken';
 import { Loader2, Printer, RefreshCw } from 'lucide-react';
 
 type Room = {
@@ -40,14 +41,18 @@ export default function MaintenanceQRPrint() {
 
     const baseUrl = window.location.origin;
     const withQRs: RoomQR[] = await Promise.all(
-      ((data ?? []) as Room[]).map(async (room) => ({
-        ...room,
-        qrDataUrl: await QRCode.toDataURL(`${baseUrl}/report/${encodeURIComponent(room.room_number)}`, {
-          margin: 1,
-          width: 360,
-          color: { dark: '#0a0a0a', light: '#ffffff' },
-        }),
-      })),
+      ((data ?? []) as Room[]).map(async (room) => {
+        const token = await generateQRToken(room.room_number);
+        const url = `${baseUrl}/report/${encodeURIComponent(room.room_number)}?k=${token}`;
+        return {
+          ...room,
+          qrDataUrl: await QRCode.toDataURL(url, {
+            margin: 1,
+            width: 360,
+            color: { dark: '#0a0a0a', light: '#ffffff' },
+          }),
+        };
+      }),
     );
 
     setRooms(withQRs);
