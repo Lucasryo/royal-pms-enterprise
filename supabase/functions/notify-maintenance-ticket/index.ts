@@ -900,6 +900,120 @@ async function handleReply(message: Record<string, unknown>) {
     return { ok: true };
   }
 
+  // ── Moderator action: cancel ─────────────────────────────────────────────
+  const cancelMatch = replyText.match(/\[cancel:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (cancelMatch) {
+    const ticketId    = cancelMatch[1];
+    const lockedModId = Number(cancelMatch[2]);
+    if (lockedModId !== fromId) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou o cancelamento pode confirmar\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const { data: ticket } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!ticket || ticket.status === "cancelled") return { ok: true };
+    const now = new Date().toISOString();
+    await db.from("maintenance_tickets").update({
+      status: "cancelled",
+      status_reason: name,
+      resolution_notes: `Cancelado: ${userText}`,
+      updated_at: now,
+    }).eq("id", ticketId);
+    await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
+      event: "cancelled_by_moderator", prevStatus: ticket.status, newStatus: "cancelled", notes: userText.slice(0, 500) });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `❌ *${esc(name)}* cancelou: *${esc(ticket.title)}*\n_${esc(userText)}_`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
+
+  // ── Moderator action: reopen ──────────────────────────────────────────────
+  const reopenMatch = replyText.match(/\[reopen:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (reopenMatch) {
+    const ticketId    = reopenMatch[1];
+    const lockedModId = Number(reopenMatch[2]);
+    if (lockedModId !== fromId) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou a reabertura pode confirmar\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const { data: ticket } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+    if (ticket.status !== "resolved" && ticket.status !== "cancelled") {
+      await tg("sendMessage", { chat_id: chatId, text: `⚠️ Este chamado não pode ser reaberto \\(status: ${esc(ST_LABEL[ticket.status] ?? ticket.status)}\\)\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const now = new Date().toISOString();
+    await db.from("maintenance_tickets").update({
+      status: "open",
+      resolution_notes: `Reaberto: ${userText} (${name})`,
+      inspection_status: null,
+      inspector_tg_id: null,
+      resolved_at: null,
+      started_at: null,
+      telegram_user_id: null,
+      awaiting_parts: false,
+      updated_at: now,
+    }).eq("id", ticketId);
+    await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
+      event: "reopened_by_moderator", prevStatus: ticket.status, newStatus: "open", notes: userText.slice(0, 500) });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔄 *${esc(name)}* reabriu: *${esc(ticket.title)}*\n_${esc(userText)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: openKb(ticketId),
+    });
+    return { ok: true };
+  }
+
+  // ── Moderator action: direct to tech ─────────────────────────────────────
+  const directMatch = replyText.match(/\[direct:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (directMatch) {
+    const ticketId    = directMatch[1];
+    const lockedModId = Number(directMatch[2]);
+    if (lockedModId !== fromId) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou o direcionamento pode confirmar\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const techQuery = userText.trim();
+    if (!techQuery) return { ok: true };
+    const { data: ticket } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!ticket) return { ok: true };
+    const { data: profiles } = await db.from("profiles")
+      .select("id,name,role")
+      .ilike("name", `%${techQuery}%`)
+      .eq("role", "maintenance");
+    if (!profiles || profiles.length === 0) {
+      await tg("sendMessage", { chat_id: chatId, text: `❌ Técnico não encontrado: _${esc(techQuery)}_\\.\nVerifique o nome e tente novamente\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (profiles.length > 1) {
+      const lines = [`🔍 *Mais de um técnico encontrado — seja mais específico\\:*`, ""];
+      for (const p of profiles) lines.push(`• *${esc(p.name)}*`);
+      await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const tech = profiles[0];
+    const now  = new Date().toISOString();
+    await db.from("maintenance_tickets").update({
+      status: "in_progress",
+      assigned_to: tech.id,
+      status_reason: tech.name,
+      started_at: now,
+      updated_at: now,
+      // telegram_user_id não é definido — qualquer técnico pode concluir
+    }).eq("id", ticketId);
+    await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
+      event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
+      parse_mode: "MarkdownV2",
+      reply_markup: inProgressKb(ticketId),
+    });
+    return { ok: true };
+  }
+
   // ── Ticket force-reply responses [UUID] or [UUID|LOCKED_TG_ID] ───────────
   const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
   if (!match) return { ok: true };
@@ -1080,6 +1194,108 @@ async function handleMessage(message: Record<string, unknown>) {
     return { ok: true };
   }
 
+  if (cmd === "/buscar") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const arg = text.trim().split(/\s+/)[1] ?? "";
+    if (!arg) {
+      await tg("sendMessage", { chat_id: chatId, text: `❓ Uso: /buscar \\[UUID ou número da UH\\]\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (arg.includes("-")) {
+      const { data: ticket } = await db.from("maintenance_tickets").select("*").eq("id", arg).single();
+      if (!ticket) {
+        await tg("sendMessage", { chat_id: chatId, text: `❌ Chamado não encontrado: \`${esc(arg)}\`\\.`, parse_mode: "MarkdownV2" });
+        return { ok: true };
+      }
+      const status = ticket.status as string;
+      const mins = Math.round((Date.now() - new Date(ticket.created_at as string).getTime()) / 60000);
+      const heading = `🔍 *Chamado — ${esc(ST_LABEL[status] ?? status)} — ⏱ ${esc(formatDuration(mins))}*`;
+      await tg("sendMessage", { chat_id: chatId, text: buildText(ticket, heading), parse_mode: "MarkdownV2", disable_web_page_preview: true });
+    } else {
+      const { data: tickets } = await db.from("maintenance_tickets")
+        .select("id,priority,title,status,created_at,awaiting_parts")
+        .eq("room_number", arg)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (!tickets || tickets.length === 0) {
+        await tg("sendMessage", { chat_id: chatId, text: `❌ Nenhum chamado encontrado para UH *${esc(arg)}*\\.`, parse_mode: "MarkdownV2" });
+        return { ok: true };
+      }
+      const lines = [`🔍 *Últimos chamados — UH ${esc(arg)} \\(${tickets.length}\\)*`, ""];
+      for (const t of tickets) {
+        const mins = Math.round((Date.now() - new Date(t.created_at).getTime()) / 60000);
+        const partsBadge = t.awaiting_parts ? " 🔩" : "";
+        lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${partsBadge} — _${esc(ST_LABEL[t.status] ?? t.status)}_`);
+        lines.push(`  ⏱ ${esc(formatDuration(mins))} atrás  \\|  \`${t.id}\``);
+      }
+      await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    }
+    return { ok: true };
+  }
+
+  if (cmd === "/peças" || cmd === "/pecas") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const { data: waiting } = await db.from("maintenance_tickets")
+      .select("id,priority,title,room_number,created_at")
+      .eq("awaiting_parts", true)
+      .in("status", ["open", "in_progress"])
+      .order("created_at", { ascending: true });
+    if (!waiting || waiting.length === 0) {
+      await tg("sendMessage", { chat_id: chatId, text: `✅ Nenhum chamado aguardando peças\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const lines = [`🔩 *Chamados aguardando peças \\(${waiting.length}\\)*`, ""];
+    for (const t of waiting) {
+      const mins = Math.round((Date.now() - new Date(t.created_at).getTime()) / 60000);
+      const uhPart = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart} — ⏱ ${esc(formatDuration(mins))}`);
+      lines.push(`  \`${t.id}\``);
+    }
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
+  if (cmd === "/sla") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
+    const now = Date.now();
+    const { data: open } = await db.from("maintenance_tickets")
+      .select("id,title,room_number,priority,created_at")
+      .in("status", ["open", "in_progress"])
+      .limit(500);
+    const breached = (open ?? [])
+      .filter(t => (now - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 240))
+      .sort((a, b) => {
+        const overA = (now - new Date(a.created_at).getTime()) / 60000 - (SLA_LIMITS[a.priority] ?? 240);
+        const overB = (now - new Date(b.created_at).getTime()) / 60000 - (SLA_LIMITS[b.priority] ?? 240);
+        return overB - overA;
+      });
+    if (breached.length === 0) {
+      await tg("sendMessage", { chat_id: chatId, text: `✔️ Nenhum chamado com SLA estourado\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const lines = [`⚠️ *${breached.length} chamado${breached.length > 1 ? "s" : ""} com SLA estourado\\!*`, ""];
+    for (const t of breached.slice(0, 15)) {
+      const elapsedMins = Math.round((now - new Date(t.created_at).getTime()) / 60000);
+      const overMins    = elapsedMins - (SLA_LIMITS[t.priority] ?? 240);
+      const uhPart      = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
+      lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}`);
+      lines.push(`  ⏱ ${esc(formatDuration(overMins))} além do SLA  \\|  \`${t.id}\``);
+    }
+    if (breached.length > 15) lines.push(`_\\.\\.\\. e mais ${breached.length - 15} outros_`);
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
   if (cmd === "/meus") {
     if (!isGroupChat) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
@@ -1179,16 +1395,192 @@ async function handleMessage(message: Record<string, unknown>) {
     return { ok: true };
   }
 
+  if (cmd === "/cancelar") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas moderadores podem cancelar chamados\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!uuidMatch) {
+      await tg("sendMessage", { chat_id: chatId, text: `❓ Uso: /cancelar \\[UUID do chamado\\]\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const ticketId = uuidMatch[1];
+    const { data: tk } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!tk) {
+      await tg("sendMessage", { chat_id: chatId, text: `❌ Chamado não encontrado\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (tk.status === "cancelled") {
+      await tg("sendMessage", { chat_id: chatId, text: `⚠️ Este chamado já está cancelado\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `❌ Informe o motivo do cancelamento \\[cancel:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+    return { ok: true };
+  }
+
+  if (cmd === "/reabrir") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas moderadores podem reabrir chamados\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!uuidMatch) {
+      await tg("sendMessage", { chat_id: chatId, text: `❓ Uso: /reabrir \\[UUID do chamado\\]\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const ticketId = uuidMatch[1];
+    const { data: tk } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!tk) {
+      await tg("sendMessage", { chat_id: chatId, text: `❌ Chamado não encontrado\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (tk.status !== "resolved" && tk.status !== "cancelled") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Apenas chamados *resolvidos* ou *cancelados* podem ser reabertos \\(status atual: ${esc(ST_LABEL[tk.status] ?? tk.status)}\\)\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔄 Informe o motivo da reabertura \\[reopen:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+    return { ok: true };
+  }
+
+  if (cmd === "/direcionar") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas moderadores podem direcionar chamados\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!uuidMatch) {
+      await tg("sendMessage", { chat_id: chatId, text: `❓ Uso: /direcionar \\[UUID do chamado\\]\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const ticketId = uuidMatch[1];
+    const { data: tk } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
+    if (!tk) {
+      await tg("sendMessage", { chat_id: chatId, text: `❌ Chamado não encontrado\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (tk.status !== "open" && tk.status !== "in_progress") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Somente chamados abertos ou em andamento podem ser direcionados \\(status: ${esc(ST_LABEL[tk.status] ?? tk.status)}\\)\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `📌 Nome do técnico para direcionar \\[direct:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+    return { ok: true };
+  }
+
+  if (cmd === "/performance") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas moderadores podem ver o relatório de performance\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const since7d    = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+    const [resolvedRes, openRes, resolvedTodayRes] = await Promise.all([
+      db.from("maintenance_tickets").select("id,status_reason,rating,created_at,resolved_at").eq("status", "resolved").gte("resolved_at", since7d),
+      db.from("maintenance_tickets").select("id").in("status", ["open", "in_progress"]),
+      db.from("maintenance_tickets").select("id,created_at,resolved_at").eq("status", "resolved").gte("resolved_at", todayStart.toISOString()),
+    ]);
+
+    const resolved      = resolvedRes.data ?? [];
+    const openCount     = (openRes.data ?? []).length;
+    const resolvedToday = resolvedTodayRes.data ?? [];
+
+    const techMap: Record<string, { count: number; ratingSum: number; ratingCount: number }> = {};
+    for (const t of resolved) {
+      const tech = (t.status_reason as string) ?? "Desconhecido";
+      if (!techMap[tech]) techMap[tech] = { count: 0, ratingSum: 0, ratingCount: 0 };
+      techMap[tech].count++;
+      if (t.rating) { techMap[tech].ratingSum += Number(t.rating); techMap[tech].ratingCount++; }
+    }
+    const ranked = Object.entries(techMap).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+
+    const resolvedTodayTimed = resolvedToday.filter((t: Record<string, unknown>) => t.resolved_at && t.created_at);
+    const avgTmrMins = resolvedTodayTimed.length > 0
+      ? Math.round(resolvedTodayTimed.reduce((sum: number, t: Record<string, unknown>) =>
+          sum + (new Date(t.resolved_at as string).getTime() - new Date(t.created_at as string).getTime()) / 60000, 0
+        ) / resolvedTodayTimed.length)
+      : null;
+
+    const medals = ["🥇", "🥈", "🥉"];
+    const lines  = [`🏆 *Performance — últimos 7 dias*`, ""];
+    lines.push(`✅ Total resolvidos: *${resolved.length}*`);
+    lines.push(`📋 Em aberto agora: *${openCount}*`);
+    if (avgTmrMins !== null) lines.push(`⏱ TMR hoje: *${esc(formatDuration(avgTmrMins))}*`);
+    lines.push("");
+    if (ranked.length === 0) {
+      lines.push(`_Nenhuma resolução registrada neste período\\._`);
+    } else {
+      lines.push(`*Ranking de técnicos\\:*`, "");
+      for (let i = 0; i < ranked.length; i++) {
+        const [tech, stats] = ranked[i];
+        const medal    = medals[i] ?? `${i + 1}\\.`;
+        const avgRating = stats.ratingCount > 0
+          ? ` — ⭐ ${esc((stats.ratingSum / stats.ratingCount).toFixed(1))}`
+          : "";
+        lines.push(`${medal} *${esc(tech)}* — ${stats.count} resolução${stats.count === 1 ? "" : "s"}${avgRating}`);
+      }
+    }
+    await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
   if (cmd === "/ajuda" || cmd === "/help" || cmd === "/start") {
     const help = [
       `🤖 *Royal PMS — Bot de Manutenção*`, "",
-      `Comandos disponíveis\\:`, "",
+      `*Todos os membros\\:*`,
       `/status — Resumo dos chamados abertos`,
       `/listar — Lista chamados abertos \\(até 10\\)`,
       `/meus — Seus chamados em andamento`,
       `/urgente — Responda uma msg de chamado para marcar como urgente`,
-      `/liberar \\[UUID\\] — Libera chamado travado \\(moderadores\\)`,
-      `/reenviar \\[UUID\\] — Reenvia notificação de chamado \\(moderadores\\)`,
+      `/buscar \\[UUID ou UH\\] — Detalhes de um chamado`,
+      `/peças — Chamados aguardando material`,
+      `/sla — Chamados com SLA estourado \\(detalhado\\)`,
+      "", `*Moderadores\\:*`,
+      `/liberar \\[UUID\\] — Libera chamado travado`,
+      `/reenviar \\[UUID\\] — Reenvia notificação de chamado`,
+      `/cancelar \\[UUID\\] — Cancelar chamado com justificativa`,
+      `/reabrir \\[UUID\\] — Reabrir chamado encerrado`,
+      `/direcionar \\[UUID\\] — Direcionar a técnico específico`,
+      `/performance — Ranking de desempenho da semana`,
       "", `*Fluxo de atendimento\\:*`,
       `1\\. Novo chamado → clique ✅ Assumir`,
       `2\\. Conclua → clique ✅ Concluir e descreva a solução`,
