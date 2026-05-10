@@ -88,18 +88,28 @@ function buildText(record: Record<string, unknown>, heading: string): string {
 
 // ── keyboards ───────────────────────────────────────────────────────────────
 function openKb(id: string) {
-  return { inline_keyboard: [[
-    { text: "✅ Assumir",         callback_data: `assume:${id}` },
-    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`  },
-  ]] };
+  return { inline_keyboard: [
+    [
+      { text: "✅ Assumir",         callback_data: `assume:${id}` },
+      { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`  },
+    ],
+    [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
+  ]};
 }
 
 function inProgressKb(id: string, tgUserId?: number) {
   const suffix = tgUserId ? `:${tgUserId}` : "";
-  return { inline_keyboard: [[
-    { text: "✅ Concluir",        callback_data: `resolve:${id}${suffix}` },
-    { text: "⚠️ Falta de Peças", callback_data: `parts:${id}${suffix}`   },
-  ]] };
+  return { inline_keyboard: [
+    [
+      { text: "✅ Concluir",        callback_data: `resolve:${id}${suffix}` },
+      { text: "⚠️ Falta de Peças", callback_data: `parts:${id}${suffix}`   },
+    ],
+    [
+      { text: "📝 Adicionar nota",  callback_data: `note:${id}${suffix}` },
+      { text: "🔄 Transferir",      callback_data: `transfer:${id}${suffix}` },
+    ],
+    [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
+  ]};
 }
 
 // Após registrar falta de peças — permite marcar como recebido sem concluir
@@ -821,6 +831,79 @@ async function handleCallback(query: Record<string, unknown>) {
       parse_mode: "MarkdownV2",
       reply_markup: { force_reply: true, selective: false },
     });
+
+  } else if (action === "details") {
+    const elapsed = formatDuration(Math.floor((Date.now() - new Date(ticket.created_at as string).getTime()) / 60000));
+    const lines = [
+      `*Chamado \\#${esc((ticket.id as string).slice(0, 8))}*`,
+      `🏠 UH: ${esc(ticket.room_number as string)}`,
+      `📌 Título: ${esc(ticket.title as string)}`,
+      ticket.description ? `📝 Descrição: ${esc(ticket.description as string)}` : null,
+      `🔥 Prioridade: ${esc(P_LABEL[(ticket.priority as string)] ?? (ticket.priority as string))}`,
+      `📊 Status: ${esc(ST_LABEL[(ticket.status as string)] ?? (ticket.status as string))}`,
+      `⏱ Aberto há: ${esc(elapsed)}`,
+      ticket.resolution_notes ? `🗒 Notas: ${esc((ticket.resolution_notes as string).slice(0, 300))}` : null,
+    ].filter(Boolean).join("\n");
+    await tg("sendMessage", { chat_id: chatId, text: lines, parse_mode: "MarkdownV2" });
+
+  } else if (action === "note") {
+    if (ticket.status === "resolved" || ticket.status === "cancelled") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Este chamado já está encerrado e não aceita novas notas\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `📝 Digite sua nota de andamento \\[note:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
+      parse_mode: "MarkdownV2",
+      reply_markup: { force_reply: true, selective: false },
+    });
+
+  } else if (action === "transfer") {
+    if (!lockedTgUserId || lockedTgUserId !== fromId) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Apenas o técnico responsável pode transferir este chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    if (ticket.status !== "in_progress") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Este chamado não está em andamento e não pode ser transferido\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    const { count: transferCount } = await db.from("maintenance_tickets")
+      .update({ status: "open", telegram_user_id: null, assigned_to: null, status_reason: null, updated_at: new Date().toISOString() })
+      .eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .select("id", { count: "exact", head: true });
+    if (!transferCount || transferCount === 0) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Chamado já foi alterado por outra ação\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+    await logEvent({
+      ticketId, actorType: "telegram_user",
+      actorId: String(fromId), actorName: name,
+      event: "transferred", prevStatus: "in_progress", newStatus: "open",
+      notes: "técnico liberou chamado de volta para a fila",
+    });
+    const uhPart = ticket.room_number ? ` — UH ${esc(ticket.room_number as string)}` : "";
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔄 *${esc(name)}* transferiu chamado de volta para a fila\\.\n📌 *${esc(ticket.title as string)}*${uhPart}\n\nOutro técnico pode assumir\\:`,
+      parse_mode: "MarkdownV2",
+      reply_markup: openKb(ticketId),
+    });
   }
 
   return { ok: true };
@@ -1025,6 +1108,34 @@ async function handleReply(message: Record<string, unknown>) {
       text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
       parse_mode: "MarkdownV2",
       reply_markup: inProgressKb(ticketId),
+    });
+    return { ok: true };
+  }
+
+  // ── Note addition reply [note:UUID|USER_ID] ─────────────────────────────
+  const noteMatch = replyText.match(/\[note:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (noteMatch) {
+    const tId     = noteMatch[1];
+    const ownerId = Number(noteMatch[2]);
+    if (ownerId !== fromId) return { ok: true };
+    const noteText = userText.trim();
+    if (!noteText) return { ok: true };
+    const { data: tk } = await db.from("maintenance_tickets")
+      .select("resolution_notes,status,room_number,title").eq("id", tId).single();
+    if (!tk || tk.status === "resolved" || tk.status === "cancelled") return { ok: true };
+    const stamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const newNotes = [tk.resolution_notes, `[${stamp}] ${noteText}`].filter(Boolean).join("\n");
+    await db.from("maintenance_tickets").update({ resolution_notes: newNotes, updated_at: new Date().toISOString() }).eq("id", tId);
+    await logEvent({
+      ticketId: tId, actorType: "telegram_user",
+      actorId: String(fromId), actorName: name,
+      event: "note_added", notes: noteText.slice(0, 500),
+    });
+    const uhPart = tk.room_number ? ` — UH ${esc(tk.room_number)}` : "";
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `📝 *Nota de andamento* por *${esc(name)}*\n📌 *${esc(tk.title)}*${uhPart}\n\n_${esc(noteText)}_`,
+      parse_mode: "MarkdownV2",
     });
     return { ok: true };
   }
