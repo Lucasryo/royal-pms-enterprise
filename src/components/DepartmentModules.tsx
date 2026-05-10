@@ -434,8 +434,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       .slice(0, 15),
   [filtered]);
 
-  const canInspect = (t: MaintTicket) =>
-    t.inspector_id === profile.id || profile.role === 'admin' || profile.role === 'manager';
+  // 1E: apenas admin/manager podem aprovar/reprovar vistorias
+  const canInspect = () => profile.role === 'admin' || profile.role === 'manager';
 
   if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando chamados...</div>;
 
@@ -457,6 +457,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           </p>
         </div>
       </div>
+
+      {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
+      {tickets.length >= 100 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
+          ⚠️ Exibindo os 100 chamados mais recentes. Use os filtros para localizar chamados mais antigos.
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-col gap-2">
@@ -684,7 +691,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           <div className="space-y-3">
             {pendingInspection.map(ticket => {
               const inspector = collaborators.find(c => c.id === ticket.inspector_id);
-              const canAct = canInspect(ticket);
+              const canAct = canInspect();
               return (
                 <div key={ticket.id} className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
