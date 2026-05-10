@@ -238,6 +238,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     setDirectingId(null);
     setDirectTarget('');
     fetchTickets();
+    void notifyBot('manual_resend', ticket.id);
   }
 
   async function cancel(ticket: MaintTicket) {
@@ -251,7 +252,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       status_reason: profile.name,
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); }
+    else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function reopen(ticket: MaintTicket) {
@@ -273,7 +274,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado reaberto.'); fetchTickets(); }
+    else { toast.success('Chamado reaberto.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function requestInspection(ticket: MaintTicket, inspectorId: string) {
@@ -341,6 +342,20 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       .order('sent_at', { ascending: false })
       .limit(20);
     setNotifLogs(prev => ({ ...prev, [ticketId]: data ?? [] }));
+  }
+
+  // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
+  async function notifyBot(type: string, ticketId: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
+      });
+    } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
   }
 
   async function resendNotification(ticket: MaintTicket) {

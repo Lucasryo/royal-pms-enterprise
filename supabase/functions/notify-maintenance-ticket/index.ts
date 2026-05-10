@@ -29,10 +29,18 @@ async function tg(method: string, body: Record<string, unknown>) {
   return data;
 }
 
+// 3B: cache com TTL de 5 min para evitar rate limit do Telegram
+const modCache = new Map<string, { result: boolean; expiresAt: number }>();
+
 async function isModerator(chatId: unknown, userId: number): Promise<boolean> {
+  const key = `${chatId}:${userId}`;
+  const cached = modCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
   try {
     const res = await tg("getChatMember", { chat_id: chatId, user_id: userId });
-    return res.ok && ["administrator", "creator"].includes(res.result?.status);
+    const result = res.ok && ["administrator", "creator"].includes(res.result?.status);
+    modCache.set(key, { result, expiresAt: Date.now() + 5 * 60 * 1000 });
+    return result;
   } catch {
     return false;
   }
@@ -43,12 +51,16 @@ function esc(text: string | null | undefined): string {
   return String(text).replace(/[_*[\]()~`>#+=|{}.!\\-]/g, "\\$&");
 }
 
+// 3A: suporte a dias para tickets abertos há mais de 24h
 function formatDuration(minutes: number): string {
   if (minutes < 1) return "menos de 1 min";
   if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  if (minutes < 1440) {
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  }
+  const d = Math.floor(minutes / 1440), h = Math.floor((minutes % 1440) / 60);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
 // ── message builders ────────────────────────────────────────────────────────
@@ -711,8 +723,11 @@ async function handleCallback(query: Record<string, unknown>) {
 
   await tg("answerCallbackQuery", { callback_query_id: cbId });
 
+  // 3C: select específico — evita carregar campos desnecessários
   const { data: ticket } = await db
-    .from("maintenance_tickets").select("*").eq("id", ticketId).single();
+    .from("maintenance_tickets")
+    .select("id,status,room_number,title,created_at,status_reason,telegram_user_id,awaiting_parts,resolution_notes,inspection_status,description,assigned_to,priority,resolved_at,inspection_notes,inspected_at,rating")
+    .eq("id", ticketId).single();
   if (!ticket) return { ok: true };
 
   if (action === "assume") {
@@ -1053,19 +1068,27 @@ async function handleReply(message: Record<string, unknown>) {
       : null;
 
     const now = new Date().toISOString();
-    await db.from("maintenance_tickets").update({
+    // 1B: update atômico — só resolve se ainda estiver in_progress (guard contra race condition)
+    const { count: resolvedCount } = await db.from("maintenance_tickets").update({
       status: "resolved",
       resolved_at: now,
       updated_at: now,
       resolution_notes: userText,
       status_reason: name,
       awaiting_parts: false,
-      // 2C: resetar inspection para nova vistoria após reprovação
       inspection_status: null,
       inspector_tg_id: null,
-      // 2B: marcar que vistoria foi solicitada (evita limbo se bot cair)
       inspection_requested_at: now,
-    }).eq("id", ticketId);
+    }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
+
+    if (!resolvedCount || resolvedCount === 0) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Chamado já foi alterado por outra ação e não pôde ser concluído\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
 
     // 3C: audit trail
     await logEvent({
@@ -1127,6 +1150,9 @@ async function handleMessage(message: Record<string, unknown>) {
   const from   = (message.from as Record<string, unknown>) ?? {};
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
   const fromId = Number(from.id);
+  // 3F: guard para mensagem vazia ou só espaços
+  if (!text.trim()) return { ok: true };
+
   const cmd    = text.trim().toLowerCase().split(/\s+/)[0];
 
   // Fix H: restrict data commands to the configured group only
@@ -1152,16 +1178,17 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
-    // 3D: limitar query para evitar timeout com muitos tickets
-    const { data: open }   = await db.from("maintenance_tickets").select("id,priority,created_at,awaiting_parts").in("status", ["open", "in_progress"]).limit(500);
-    const { data: inProg } = await db.from("maintenance_tickets").select("id").eq("status", "in_progress").limit(500);
+    // 3E: uma única query — inProg é subconjunto de open
+    const { data: open } = await db.from("maintenance_tickets")
+      .select("id,priority,status,created_at,awaiting_parts").in("status", ["open", "in_progress"]).limit(500);
     const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
     const breached      = (open ?? []).filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 240));
     const awaitingParts = (open ?? []).filter(t => t.awaiting_parts).length;
+    const inProgCount   = (open ?? []).filter(t => t.status === "in_progress").length;
     const lines = [
       `📊 *Status atual da Manutenção*`, "",
       `📋 Abertos/em andamento: *${(open ?? []).length}*`,
-      `🔧 Em andamento: *${(inProg ?? []).length}*`,
+      `🔧 Em andamento: *${inProgCount}*`,
     ];
     if (awaitingParts > 0) lines.push(`🔩 Aguardando peças: *${awaitingParts}*`);
     lines.push(breached.length > 0 ? `⚠️ SLA estourado: *${breached.length}*` : `✔️ Nenhum SLA estourado`);
@@ -1215,9 +1242,10 @@ async function handleMessage(message: Record<string, unknown>) {
       const heading = `🔍 *Chamado — ${esc(ST_LABEL[status] ?? status)} — ⏱ ${esc(formatDuration(mins))}*`;
       await tg("sendMessage", { chat_id: chatId, text: buildText(ticket, heading), parse_mode: "MarkdownV2", disable_web_page_preview: true });
     } else {
+      // 3D: ilike para busca case-insensitive de número de UH
       const { data: tickets } = await db.from("maintenance_tickets")
         .select("id,priority,title,status,created_at,awaiting_parts")
-        .eq("room_number", arg)
+        .ilike("room_number", arg)
         .order("created_at", { ascending: false })
         .limit(5);
       if (!tickets || tickets.length === 0) {
@@ -1611,7 +1639,8 @@ serve(async (req) => {
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
     const isInternal   = !!body.type && !!authHeader?.startsWith("Bearer ");
     if (isFromTg) {
-      if (WEBHOOK_SECRET && tgSecret !== WEBHOOK_SECRET) {
+      // 1A: secret sempre obrigatório — rejeita se não configurado ou se não bater
+      if (!WEBHOOK_SECRET || tgSecret !== WEBHOOK_SECRET) {
         return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
     } else if (!isInternal) {
