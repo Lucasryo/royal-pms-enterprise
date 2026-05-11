@@ -286,7 +286,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success(`Vistoria solicitada para ${inspector.name}.`); fetchTickets(); }
+    else { toast.success(`Vistoria solicitada para ${inspector.name}.`); fetchTickets(); void notifyBot('request_inspection', ticket.id); }
   }
 
   async function approveInspection(ticket: MaintTicket) {
@@ -328,7 +328,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); }
+    else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function toggleNotifLogs(ticketId: string) {
