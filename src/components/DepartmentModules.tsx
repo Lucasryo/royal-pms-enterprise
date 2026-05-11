@@ -108,6 +108,8 @@ type MaintTicket = {
   inspector_id: string | null;
   inspection_notes: string | null;
   inspected_at: string | null;
+  awaiting_parts: boolean | null;
+  telegram_user_id: number | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -190,7 +192,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -236,6 +238,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     setDirectingId(null);
     setDirectTarget('');
     fetchTickets();
+    void notifyBot('manual_resend', ticket.id);
   }
 
   async function cancel(ticket: MaintTicket) {
@@ -249,7 +252,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       status_reason: profile.name,
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); }
+    else { toast.success('Chamado cancelado. SLA nao sera afetado.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function reopen(ticket: MaintTicket) {
@@ -271,7 +274,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado reaberto.'); fetchTickets(); }
+    else { toast.success('Chamado reaberto.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function requestInspection(ticket: MaintTicket, inspectorId: string) {
@@ -294,8 +297,22 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
-    if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Vistoria aprovada.'); fetchTickets(); }
+    if (error) { toast.error('Erro: ' + error.message); return; }
+
+    // Pede avaliação pelo Telegram apenas após aprovação da vistoria
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ type: 'request_rating', ticket_id: ticket.id }),
+        });
+      }
+    } catch { /* silent — não bloqueia o fluxo principal */ }
+
+    toast.success('Vistoria aprovada.'); fetchTickets();
   }
 
   async function rejectInspection(ticket: MaintTicket) {
@@ -327,13 +344,29 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     setNotifLogs(prev => ({ ...prev, [ticketId]: data ?? [] }));
   }
 
+  // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
+  async function notifyBot(type: string, ticketId: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
+      });
+    } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
+  }
+
   async function resendNotification(ticket: MaintTicket) {
     setResendingId(ticket.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error('Sessao invalida.'); return; }
       const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const res = await fetch(`${supaUrl}/functions/v1/maintenance-phone-notify`, {
+
+      // Notifica via phone webhook
+      const phoneRes = await fetch(`${supaUrl}/functions/v1/maintenance-phone-notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({
@@ -347,7 +380,20 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           reason: `Reenvio manual por ${profile.name}`,
         }),
       });
-      if (res.ok) toast.success('Notificacao reenviada.');
+
+      // Notifica o bot Telegram com contexto de reenvio manual
+      // Se reaberto → bot direciona para alguém assumir; se em andamento → lembrete para o técnico
+      const tgRes = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          type: 'manual_resend',
+          ticket_id: ticket.id,
+          actor_name: profile.name,
+        }),
+      });
+
+      if (phoneRes.ok || tgRes.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
       else toast.error('Falha ao reenviar notificacao.');
     } catch { toast.error('Erro ao reenviar notificacao.'); }
     finally { setResendingId(null); }
@@ -403,8 +449,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       .slice(0, 15),
   [filtered]);
 
-  const canInspect = (t: MaintTicket) =>
-    t.inspector_id === profile.id || profile.role === 'admin' || profile.role === 'manager';
+  // 1E: apenas admin/manager podem aprovar/reprovar vistorias
+  const canInspect = () => profile.role === 'admin' || profile.role === 'manager';
 
   if (loading) return <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-400">Carregando chamados...</div>;
 
@@ -426,6 +472,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           </p>
         </div>
       </div>
+
+      {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
+      {tickets.length >= 100 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
+          ⚠️ Exibindo os 100 chamados mais recentes. Use os filtros para localizar chamados mais antigos.
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-col gap-2">
@@ -562,7 +615,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
                     </div>
                     <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
+                    {ticket.awaiting_parts && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-orange-100 border border-orange-300 px-2 py-0.5 text-[10px] font-black text-orange-700 uppercase tracking-wider">
+                        🔩 Aguardando Peças
+                      </span>
+                    )}
                     {ticket.status_reason && <p className="mt-1 text-xs font-bold text-blue-700">👷 {ticket.status_reason}</p>}
+                    {ticket.awaiting_parts && ticket.resolution_notes && (
+                      <p className="mt-1 text-[11px] text-orange-600 font-medium">{ticket.resolution_notes.replace(/^⚠️ Aguardando pecas: /, '')}</p>
+                    )}
                     <p className="mt-1 text-[11px] text-blue-500">em andamento ha {elapsed(ticket.started_at ?? ticket.created_at)}</p>
                   </div>
                   <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[140px]">
@@ -645,7 +706,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           <div className="space-y-3">
             {pendingInspection.map(ticket => {
               const inspector = collaborators.find(c => c.id === ticket.inspector_id);
-              const canAct = canInspect(ticket);
+              const canAct = canInspect();
               return (
                 <div key={ticket.id} className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">

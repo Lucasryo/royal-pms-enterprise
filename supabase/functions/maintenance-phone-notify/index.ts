@@ -79,15 +79,15 @@ serve(async (req) => {
       reason,
     });
 
+    // 1F: não salvar telefone em plaintext — apenas mascarado para auditoria
     const logRows = validRecipients.map((recipient) => ({
       ticket_id: ticketId,
       recipient_user_id: recipient.id,
       recipient_name: recipient.name,
-      recipient_phone: recipient.phone,
       channel: "phone_webhook",
       event_type: event,
       status: MAINTENANCE_NOTIFY_WEBHOOK_URL ? "queued" : "not_configured",
-      payload: { title, roomNumber, priority, status, actorName, reason, message },
+      payload: { title, roomNumber, priority, status, actorName },
     }));
 
     if (logRows.length) {
@@ -98,10 +98,18 @@ serve(async (req) => {
       return json({ delivered: false, configured: false, recipients: validRecipients.length });
     }
 
+    // 4B: validar HTTPS e aplicar timeout de 5s no webhook externo
+    if (!MAINTENANCE_NOTIFY_WEBHOOK_URL.startsWith("https://")) {
+      return json({ error: "Webhook URL must use HTTPS." }, 400);
+    }
+
     const responses = await Promise.allSettled(
-      validRecipients.map((recipient) =>
-        fetch(MAINTENANCE_NOTIFY_WEBHOOK_URL, {
+      validRecipients.map((recipient) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        return fetch(MAINTENANCE_NOTIFY_WEBHOOK_URL, {
           method: "POST",
+          signal: controller.signal,
           headers: {
             "Content-Type": "application/json",
             ...(MAINTENANCE_NOTIFY_WEBHOOK_TOKEN ? { Authorization: `Bearer ${MAINTENANCE_NOTIFY_WEBHOOK_TOKEN}` } : {}),
@@ -115,8 +123,8 @@ serve(async (req) => {
             ticket_id: ticketId,
             ticket: { title, room_number: roomNumber, priority, status, actor_name: actorName, reason },
           }),
-        })
-      )
+        }).finally(() => clearTimeout(timeoutId));
+      })
     );
 
     return json({

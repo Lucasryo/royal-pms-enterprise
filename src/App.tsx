@@ -351,7 +351,10 @@ export default function App() {
   // Public routes — bypass auth gate
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const reportMatch = path.match(/^\/report\/([^/?#]+)\/?$/);
-  if (reportMatch) return <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} />;
+  if (reportMatch) {
+    const qrToken = new URLSearchParams(window.location.search).get('k') ?? '';
+    return <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} qrToken={qrToken} />;
+  }
   if (path === '/board/maintenance') return <MaintenanceQueueBoard />;
 
   if (loading) {
