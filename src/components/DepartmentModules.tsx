@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, QrCode, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -18,6 +18,7 @@ import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQu
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
 import OccupancyChart from './OccupancyChart';
+import MaintenanceQueueBoard from './MaintenanceQueueBoard';
 
 type ModuleTab<T extends string> = {
   id: T;
@@ -78,6 +79,7 @@ export function MaintenanceModuleDashboard({ profile, canManage }: { profile: Us
       tabs={[
         { id: 'tickets', label: 'Chamados internos', icon: Wrench, render: () => <OperationalWorkQueue profile={profile} department="maintenance" /> },
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
+        { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
         {
@@ -143,6 +145,38 @@ function resolutionMins(t: { created_at: string; resolved_at: string | null }): 
 }
 
 type Collaborator = { id: string; name: string; role: string };
+
+function BoardTab() {
+  function openFullscreen() {
+    const el = document.getElementById('maint-board-embed');
+    if (!el) return;
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if ((el as unknown as { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen)
+      (el as unknown as { webkitRequestFullscreen: () => void }).webkitRequestFullscreen();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-neutral-500">Atualização em tempo real — ideal para TV da manutenção ou gerência.</p>
+        <button
+          onClick={openFullscreen}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 text-xs font-black transition"
+        >
+          <Maximize2 className="w-4 h-4" />
+          Tela cheia
+        </button>
+      </div>
+      <div
+        id="maint-board-embed"
+        className="rounded-3xl overflow-hidden border border-neutral-200 shadow-sm"
+        style={{ minHeight: '80vh' }}
+      >
+        <MaintenanceQueueBoard />
+      </div>
+    </div>
+  );
+}
 
 function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [tickets, setTickets] = useState<MaintTicket[]>([]);
