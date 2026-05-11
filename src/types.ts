@@ -21,7 +21,8 @@ export type ViewType =
   | 'profile'
   | 'prio-billing'
   | 'reports'
-  | 'maintenance-qr';
+  | 'maintenance-qr'
+  | 'marketing';
 
 export interface EventItem {
   id: string;
@@ -94,7 +95,8 @@ export type UserRole =
   | 'restaurant'
   | 'housekeeping'
   | 'maintenance'
-  | 'manager';
+  | 'manager'
+  | 'marketing';
 
 export interface Tariff {
   id: string;

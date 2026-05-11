@@ -27,6 +27,7 @@ export const APP_VIEW_LABELS: Record<AppView, string> = {
   profile: 'Perfil',
   'prio-billing': 'Faturamento Prio',
   reports: 'Relatorios',
+  marketing: 'Marketing',
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -40,6 +41,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   housekeeping: 'Governanca',
   maintenance: 'Manutencao',
   manager: 'Gerente',
+  marketing: 'Marketing',
   client: 'Cliente',
   external_client: 'Cliente Externo',
 };
@@ -55,6 +57,7 @@ export const ROLE_HOME_VIEW: Record<UserRole, AppView> = {
   housekeeping: 'reception',
   maintenance: 'maintenance',
   manager: 'dashboard',
+  marketing: 'marketing',
   client: 'dashboard',
   external_client: 'reservations',
 };

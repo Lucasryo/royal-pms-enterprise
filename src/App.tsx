@@ -38,11 +38,12 @@ import {
   ReservationsModuleDashboard,
   RestaurantModuleDashboard,
 } from './components/DepartmentModules';
+import MarketingModuleDashboard from './components/MarketingModule';
 import {
   Loader2, User as UserIcon, LogOut, Search, X as CloseIcon,
   Building2, FileText, Users, Sparkles, LayoutDashboard,
   CalendarDays, UserCircle, Settings, Menu, Bell, Search as SearchIcon,
-  ChevronRight, Hotel, Globe, ShieldCheck, UserPlus, DollarSign, KeyRound, BedDouble, ClipboardList, Utensils, BarChart3, Wrench, Receipt
+  ChevronRight, Hotel, Globe, ShieldCheck, UserPlus, DollarSign, KeyRound, BedDouble, ClipboardList, Utensils, BarChart3, Wrench, Receipt, Megaphone
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { tryFocusElement, consumeFocusTarget } from './lib/focusTarget';
@@ -332,6 +333,7 @@ export default function App() {
       { id: 'admin-control' as ViewType, label: 'Admin', icon: ShieldCheck },
       { id: 'reports' as ViewType, label: 'Relatórios', icon: BarChart3 },
       { id: 'maintenance-qr' as ViewType, label: 'QR Manutenção', icon: Wrench },
+      { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
     const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'professional', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
@@ -405,6 +407,7 @@ export default function App() {
       case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;
       case 'audit': return <AuditDashboard profile={profile} />;
       case 'maintenance-qr': return <MaintenanceQRPrint />;
+      case 'marketing': return <MarketingModuleDashboard profile={profile} />;
       case 'dashboard':
       default:
         return (profile.role === 'client' || profile.role === 'external_client')
