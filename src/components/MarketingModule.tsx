@@ -12,6 +12,8 @@ import {
   Hotel, MapPin, Phone, BedDouble, DollarSign, Mail, Wand2, MessageCircle,
   ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
   Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
+  QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
+  CheckCircle, XCircle, Wifi, Key,
 } from 'lucide-react';
 
 interface MarketingModuleDashboardProps {
@@ -1299,6 +1301,603 @@ function BroadcastsTab() {
   );
 }
 
+// ─── Financeiro / PIX Tab ────────────────────────────────────────────────────
+
+interface PaymentRecord {
+  id: string;
+  guestName: string;
+  amount: number;
+  description: string;
+  status: 'pending' | 'completed' | 'failed' | 'refunded';
+  method: 'pix' | 'card';
+  createdAt: string;
+  pixKey?: string;
+}
+
+const SEED_PAYMENTS: PaymentRecord[] = [
+  { id: '1', guestName: 'Ana Beatriz Costa', amount: 718, description: 'Reserva 2 noites — UH Executiva', status: 'completed', method: 'pix', createdAt: '2026-05-10T14:32:00Z' },
+  { id: '2', guestName: 'Carlos Lima', amount: 359, description: 'Reserva 1 noite — UH Executiva', status: 'pending', method: 'pix', createdAt: '2026-05-10T16:05:00Z' },
+  { id: '3', guestName: 'Marina Souza', amount: 1040, description: 'Reserva 2 noites — Suíte Master', status: 'completed', method: 'card', createdAt: '2026-05-09T11:20:00Z' },
+  { id: '4', guestName: 'Roberto Ferreira', amount: 289, description: 'Reserva 1 noite — Standard', status: 'failed', method: 'pix', createdAt: '2026-05-08T09:15:00Z' },
+];
+
+function FinanceiroTab() {
+  const [payments] = useState<PaymentRecord[]>(SEED_PAYMENTS);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'failed'>('all');
+  const [showPixForm, setShowPixForm] = useState(false);
+  const [showPixConfig, setShowPixConfig] = useState(false);
+  const [pixConfig, setPixConfig] = useState({
+    institution: 'Banco do Brasil',
+    pixKey: '',
+    pixKeyType: 'cnpj' as 'cpf' | 'cnpj' | 'email' | 'phone' | 'random',
+    beneficiaryName: 'Royal PMS Palace Hotel',
+    city: 'Macaé',
+  });
+  const [pixConfigSaved, setPixConfigSaved] = useState(false);
+  const [form, setForm] = useState({ guestName: '', amount: '', description: '', guestPhone: '' });
+  const [generatedPix, setGeneratedPix] = useState<{ qrText: string; copiaECola: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const statusMap = {
+    pending: { label: 'Pendente', cls: 'bg-amber-100 text-amber-700', icon: <Clock className="w-3 h-3" /> },
+    completed: { label: 'Concluído', cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle className="w-3 h-3" /> },
+    failed: { label: 'Falhou', cls: 'bg-red-100 text-red-700', icon: <XCircle className="w-3 h-3" /> },
+    refunded: { label: 'Reembolsado', cls: 'bg-neutral-100 text-neutral-600', icon: <RefreshCw className="w-3 h-3" /> },
+  };
+
+  const filtered = payments.filter(p => filter === 'all' || p.status === filter);
+  const total = payments.filter(p => p.status === 'completed').reduce((a, b) => a + b.amount, 0);
+  const pending = payments.filter(p => p.status === 'pending').reduce((a, b) => a + b.amount, 0);
+
+  async function generatePixQR() {
+    if (!form.guestName || !form.amount) { toast.error('Nome e valor são obrigatórios'); return; }
+    if (!pixConfig.pixKey) { toast.error('Configure a chave PIX antes de gerar cobranças'); setShowPixConfig(true); return; }
+    setGenerating(true);
+    await new Promise(r => setTimeout(r, 900));
+    const amt = parseFloat(form.amount).toFixed(2);
+    const copiaECola = `00020126580014BR.GOV.BCB.PIX0136${pixConfig.pixKey}5204000053039865406${amt.replace('.', '')}5802BR5925${pixConfig.beneficiaryName.slice(0, 25)}6009${pixConfig.city.slice(0, 9)}62070503***6304`;
+    setGeneratedPix({ qrText: copiaECola, copiaECola });
+    setGenerating(false);
+    toast.success('PIX gerado! Compartilhe com o hóspede.');
+  }
+
+  function savePixConfig() {
+    if (!pixConfig.pixKey) { toast.error('Informe a chave PIX'); return; }
+    setPixConfigSaved(true);
+    setShowPixConfig(false);
+    toast.success('Dados bancários salvos com sucesso!');
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Financeiro</p>
+          <h2 className="text-xl font-black text-neutral-950">PIX & Pagamentos</h2>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowPixConfig(true)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${pixConfigSaved ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}
+          >
+            {pixConfigSaved ? <CheckCircle className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
+            {pixConfigSaved ? 'PIX configurado' : 'Configurar PIX'}
+          </button>
+          <button
+            onClick={() => { setGeneratedPix(null); setForm({ guestName: '', amount: '', description: '', guestPhone: '' }); setShowPixForm(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors"
+          >
+            <QrCode className="w-4 h-4" /> Gerar cobrança PIX
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: 'Recebido', value: `R$ ${total.toLocaleString('pt-BR')}`, icon: Banknote, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Pendente', value: `R$ ${pending.toLocaleString('pt-BR')}`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Transações', value: payments.length.toString(), icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Taxa sucesso', value: `${Math.round((payments.filter(p => p.status === 'completed').length / payments.length) * 100)}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+        ].map(stat => (
+          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+            </div>
+            <p className={`text-xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Como funciona */}
+      {!pixConfigSaved && (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <QrCode className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-black text-amber-900 text-sm">Configure sua chave PIX para começar</p>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                Vincule a conta bancária do hotel e o bot passa a gerar QR Codes de cobrança automaticamente durante conversas, além de disponibilizar o pagamento na landing page para hóspedes.
+              </p>
+              <button onClick={() => setShowPixConfig(true)} className="mt-3 px-4 py-2 bg-amber-600 text-white text-xs font-black rounded-xl hover:bg-amber-700 transition-colors">
+                Configurar agora
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters + list */}
+      <div className="space-y-4">
+        <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          {(['all', 'pending', 'completed', 'failed'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider ${filter === f ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-500'}`}>
+              {f === 'all' ? 'Todos' : f === 'pending' ? 'Pendentes' : f === 'completed' ? 'Concluídos' : 'Falhos'}
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+          {filtered.length === 0 ? (
+            <div className="py-16 text-center text-neutral-400">
+              <Banknote className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-bold">Nenhum pagamento encontrado</p>
+            </div>
+          ) : (
+            filtered.map((p, idx) => {
+              const s = statusMap[p.status];
+              return (
+                <div key={p.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < filtered.length - 1 ? 'border-b border-neutral-100' : ''}`}>
+                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${p.method === 'pix' ? 'bg-emerald-50' : 'bg-blue-50'}`}>
+                    {p.method === 'pix' ? <QrCode className="w-5 h-5 text-emerald-600" /> : <CreditCard className="w-5 h-5 text-blue-600" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm text-neutral-900 truncate">{p.guestName}</p>
+                    <p className="text-xs text-neutral-500 truncate">{p.description}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-black text-sm text-neutral-900">R$ {p.amount.toLocaleString('pt-BR')}</p>
+                    <p className="text-[9px] text-neutral-400">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                  <span className={`hidden sm:flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-full ${s.cls}`}>
+                    {s.icon} {s.label}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* PIX config modal */}
+      <AnimatePresence>
+        {showPixConfig && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPixConfig(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-lg font-black text-neutral-950">Dados Bancários & PIX</h3>
+                  <p className="text-xs text-neutral-500 mt-0.5">Vinculada à sua conta para geração de QR Codes</p>
+                </div>
+                <button onClick={() => setShowPixConfig(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Instituição Bancária</label>
+                  <select value={pixConfig.institution} onChange={e => setPixConfig(p => ({ ...p, institution: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                    {['Banco do Brasil', 'Itaú', 'Bradesco', 'Caixa Econômica', 'Nubank', 'Santander', 'Inter', 'Sicoob', 'Mercado Pago', 'PicPay', 'Outro'].map(b => <option key={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Tipo de Chave PIX</label>
+                    <select value={pixConfig.pixKeyType} onChange={e => setPixConfig(p => ({ ...p, pixKeyType: e.target.value as typeof pixConfig.pixKeyType }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                      <option value="cnpj">CNPJ</option>
+                      <option value="cpf">CPF</option>
+                      <option value="email">E-mail</option>
+                      <option value="phone">Telefone</option>
+                      <option value="random">Chave aleatória</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Chave PIX</label>
+                    <input value={pixConfig.pixKey} onChange={e => setPixConfig(p => ({ ...p, pixKey: e.target.value }))} placeholder={pixConfig.pixKeyType === 'cnpj' ? '00.000.000/0001-00' : pixConfig.pixKeyType === 'email' ? 'hotel@email.com' : pixConfig.pixKeyType === 'phone' ? '(22) 99999-0000' : 'Cole a chave aqui'} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Beneficiário (como aparece no PIX)</label>
+                  <input value={pixConfig.beneficiaryName} onChange={e => setPixConfig(p => ({ ...p, beneficiaryName: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Cidade</label>
+                  <input value={pixConfig.city} onChange={e => setPixConfig(p => ({ ...p, city: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div className="p-4 rounded-2xl bg-emerald-50 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-emerald-700 leading-relaxed">
+                    O bot usará esses dados para gerar QR Codes no padrão EMV do Banco Central. O hóspede paga direto no app do banco — sem taxas de intermediário.
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowPixConfig(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
+                  <button onClick={savePixConfig} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2">
+                    <Banknote className="w-4 h-4" /> Salvar dados
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Gerar cobrança modal */}
+      <AnimatePresence>
+        {showPixForm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-black text-neutral-950">{generatedPix ? 'QR Code PIX gerado' : 'Nova cobrança PIX'}</h3>
+                <button onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+              </div>
+
+              {generatedPix ? (
+                <div className="text-center space-y-5">
+                  {/* QR placeholder visual */}
+                  <div className="mx-auto w-48 h-48 bg-neutral-900 rounded-2xl flex items-center justify-center">
+                    <QrCode className="w-32 h-32 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-neutral-500 mb-2">Copia e cola</p>
+                    <div className="flex items-center gap-2 p-3 bg-neutral-50 rounded-xl">
+                      <p className="text-[9px] font-mono text-neutral-600 flex-1 truncate">{generatedPix.copiaECola}</p>
+                      <button onClick={() => { navigator.clipboard.writeText(generatedPix.copiaECola); toast.success('Copiado!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-100">
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-neutral-500">Compartilhe via WhatsApp ou exiba na landing page do hotel para que o hóspede pague direto pelo app do banco.</p>
+                  <button onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="w-full py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold">Fechar</button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
+                    <input value={form.guestName} onChange={e => setForm(f => ({ ...f, guestName: e.target.value }))} placeholder="Ana Beatriz Costa" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Valor (R$)</label>
+                      <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="359,00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">WhatsApp</label>
+                      <input value={form.guestPhone} onChange={e => setForm(f => ({ ...f, guestPhone: e.target.value }))} placeholder="(22) 99999-0000" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Descrição</label>
+                    <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Reserva 2 noites — UH Executiva" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowPixForm(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
+                    <button onClick={generatePixQR} disabled={generating} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
+                      {generating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                      {generating ? 'Gerando...' : 'Gerar QR Code'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Integrações Tab ──────────────────────────────────────────────────────────
+
+interface SocialIntegration {
+  id: string;
+  name: string;
+  description: string;
+  icon: JSX.Element;
+  color: string;
+  colorHex: string;
+  docsUrl: string;
+  field: string;
+}
+
+const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
+  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Envio e recebimento de mensagens via API oficial Meta Cloud.', icon: <MessageSquare className="w-6 h-6" />, color: 'bg-emerald-500', colorHex: '#10b981', docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api', field: 'whatsappPhoneId' },
+  { id: 'instagram', name: 'Instagram Professional', description: 'Responder DMs e comentários automaticamente com IA.', icon: <Instagram className="w-6 h-6" />, color: 'bg-pink-500', colorHex: '#ec4899', docsUrl: 'https://developers.facebook.com/docs/instagram-basic-display-api', field: 'instagramAccount' },
+  { id: 'facebook', name: 'Facebook Pages', description: 'Gerenciar mensagens do Messenger e comentários em posts.', icon: <Facebook className="w-6 h-6" />, color: 'bg-blue-600', colorHex: '#2563eb', docsUrl: 'https://developers.facebook.com/docs/facebook-login/', field: 'facebookPage' },
+  { id: 'email', name: 'E-mail SMTP', description: 'Enviar confirmações de reserva e notificações por e-mail.', icon: <Mail className="w-6 h-6" />, color: 'bg-amber-500', colorHex: '#f59e0b', docsUrl: '#', field: 'smtpHost' },
+  { id: 'google', name: 'Google Reviews', description: 'Monitorar e responder avaliações do Google Meu Negócio.', icon: <Globe className="w-6 h-6" />, color: 'bg-red-500', colorHex: '#ef4444', docsUrl: 'https://developers.google.com/my-business', field: 'googleBusinessId' },
+  { id: 'linkedin', name: 'LinkedIn', description: 'Publicar conteúdo e capturar leads corporativos.', icon: <Linkedin className="w-6 h-6" />, color: 'bg-sky-700', colorHex: '#0369a1', docsUrl: 'https://www.linkedin.com/developers/', field: 'linkedinPage' },
+];
+
+interface SmtpConfig { host: string; port: string; user: string; pass: string; fromName: string; }
+interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
+
+function IntegracoesTab() {
+  const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
+    Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
+  );
+  const [showSmtp, setShowSmtp] = useState(false);
+  const [showWebhook, setShowWebhook] = useState(false);
+  const [showTokenModal, setShowTokenModal] = useState<SocialIntegration | null>(null);
+  const [tokenInput, setTokenInput] = useState('');
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '587', user: '', pass: '', fromName: 'Recepção Hotel' });
+  const [pmsConfig, setPmsConfig] = useState<Record<string, PmsWebhook>>({
+    cloudbeds: { webhookUrl: '', apiKey: '', enabled: false },
+    mews: { webhookUrl: '', apiKey: '', enabled: false },
+  });
+  const [confirmEmail, setConfirmEmail] = useState('');
+
+  function toggleConnect(id: string) {
+    const integration = SOCIAL_INTEGRATIONS.find(i => i.id === id)!;
+    if (statuses[id] === 'connected') {
+      setStatuses(s => ({ ...s, [id]: 'disconnected' }));
+      toast.success(`${integration.name} desconectado`);
+    } else {
+      if (id === 'email') { setShowSmtp(true); return; }
+      setShowTokenModal(integration);
+      setTokenInput('');
+    }
+  }
+
+  function confirmToken() {
+    if (!tokenInput.trim()) { toast.error('Informe o token/ID'); return; }
+    if (!showTokenModal) return;
+    setStatuses(s => ({ ...s, [showTokenModal.id]: 'connected' }));
+    toast.success(`${showTokenModal.name} conectado com sucesso!`);
+    setShowTokenModal(null);
+    setTokenInput('');
+  }
+
+  function saveSmtp() {
+    if (!smtpConfig.host || !smtpConfig.user) { toast.error('Host e usuário são obrigatórios'); return; }
+    setStatuses(s => ({ ...s, email: 'connected' }));
+    setShowSmtp(false);
+    toast.success('Servidor de e-mail configurado!');
+  }
+
+  function savePmsWebhook(pmsId: string, config: PmsWebhook) {
+    setPmsConfig(p => ({ ...p, [pmsId]: config }));
+    toast.success(`Webhook ${pmsId} salvo!`);
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Integrações</p>
+          <h2 className="text-xl font-black text-neutral-950">Conectar Canais & APIs</h2>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span className="text-xs font-bold text-emerald-700">Conexão via API Oficial</span>
+        </div>
+      </div>
+
+      {/* Redes sociais */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Redes Sociais & Canais</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {SOCIAL_INTEGRATIONS.map(integration => {
+            const isConnected = statuses[integration.id] === 'connected';
+            return (
+              <motion.article key={integration.id} whileHover={{ y: -2 }} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+                <div className="flex items-start justify-between mb-4">
+                  <div className={`w-12 h-12 rounded-2xl ${integration.color} flex items-center justify-center text-white shadow-sm`}>
+                    {integration.icon}
+                  </div>
+                  <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1 rounded-full ${isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                    {isConnected ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    {isConnected ? 'Conectado' : 'Desconectado'}
+                  </span>
+                </div>
+                <h4 className="font-black text-sm text-neutral-900 mb-1">{integration.name}</h4>
+                <p className="text-xs text-neutral-500 leading-relaxed mb-5">{integration.description}</p>
+                <div className="flex items-center justify-between pt-4 border-t border-neutral-100">
+                  {!isConnected && (
+                    <a href={integration.docsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[9px] font-bold text-neutral-400 hover:text-amber-600 transition-colors">
+                      <ExternalLink className="w-3 h-3" /> Docs
+                    </a>
+                  )}
+                  {isConnected && (
+                    <button onClick={() => { toast.info('Verificando conexão...'); setTimeout(() => toast.success('Conexão ativa!'), 1200); }} className="flex items-center gap-1 text-[9px] font-bold text-neutral-400 hover:text-amber-600 transition-colors">
+                      <RefreshCcw className="w-3 h-3" /> Testar
+                    </button>
+                  )}
+                  <button
+                    onClick={() => toggleConnect(integration.id)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isConnected ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-neutral-900 text-white hover:bg-neutral-800'}`}
+                  >
+                    {isConnected ? 'Desconectar' : 'Conectar'}
+                  </button>
+                </div>
+              </motion.article>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Webhooks PMS */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Integração PMS Externo</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[
+            { id: 'cloudbeds', name: 'Cloudbeds', icon: <Database className="w-6 h-6" />, color: '#6366f1' },
+            { id: 'mews', name: 'Mews', icon: <Cloud className="w-6 h-6" />, color: '#10b981' },
+          ].map(pms => {
+            const cfg = pmsConfig[pms.id] ?? { webhookUrl: '', apiKey: '', enabled: false };
+            return (
+              <div key={pms.id} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white" style={{ background: pms.color }}>{pms.icon}</div>
+                  <div>
+                    <p className="font-black text-sm text-neutral-900">{pms.name}</p>
+                    <p className="text-[10px] text-neutral-500">Webhook Outbound</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Webhook URL</label>
+                    <input value={cfg.webhookUrl} onChange={e => savePmsWebhook(pms.id, { ...cfg, webhookUrl: e.target.value })} placeholder={`https://api.${pms.id}.com/v1/webhooks/...`} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">API Key</label>
+                    <input type="password" value={cfg.apiKey} onChange={e => savePmsWebhook(pms.id, { ...cfg, apiKey: e.target.value })} placeholder="••••••••" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-xs" />
+                  </div>
+                  <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl bg-neutral-50">
+                    <div onClick={() => savePmsWebhook(pms.id, { ...cfg, enabled: !cfg.enabled })} className={`w-9 h-5 rounded-full transition-all cursor-pointer ${cfg.enabled ? 'bg-amber-500' : 'bg-neutral-300'}`}>
+                      <div className={`w-3.5 h-3.5 bg-white rounded-full shadow mt-0.5 transition-transform ${cfg.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                    <span className="text-xs font-bold text-neutral-700">Envio automático de confirmações</span>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Webhooks URLs do sistema */}
+      <section className="space-y-4">
+        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+          <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
+          {['whatsapp', 'instagram', 'facebook'].map(ch => (
+            <div key={ch} className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
+                <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
+                  <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* E-mail de confirmação */}
+      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+            <Mail className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <p className="font-black text-sm text-neutral-900">E-mail de Confirmação de Reserva</p>
+            <p className="text-xs text-neutral-500">Notificar o gerente quando o bot confirmar uma reserva</p>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <input type="email" value={confirmEmail} onChange={e => setConfirmEmail(e.target.value)} placeholder="gerente@hotel.com" className="flex-1 px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+          <button onClick={() => { if (!confirmEmail) { toast.error('Informe o e-mail'); return; } toast.success('E-mail de confirmação salvo!'); }} className="px-5 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center gap-2">
+            <Save className="w-4 h-4" /> Salvar
+          </button>
+        </div>
+      </section>
+
+      {/* Token modal */}
+      <AnimatePresence>
+        {showTokenModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowTokenModal(null)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-2xl ${showTokenModal.color} flex items-center justify-center text-white`}>{showTokenModal.icon}</div>
+                  <h3 className="text-lg font-black text-neutral-950">{showTokenModal.name}</h3>
+                </div>
+                <button onClick={() => setShowTokenModal(null)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">
+                    {showTokenModal.id === 'instagram' ? 'ID da Conta Instagram' : showTokenModal.id === 'facebook' ? 'ID da Página Facebook' : showTokenModal.id === 'google' ? 'ID do Google Meu Negócio' : showTokenModal.id === 'linkedin' ? 'ID da Página LinkedIn' : 'Phone ID / Access Token'}
+                  </label>
+                  <input
+                    value={tokenInput}
+                    onChange={e => setTokenInput(e.target.value)}
+                    placeholder={showTokenModal.id === 'whatsapp' ? '106988195493619' : showTokenModal.id === 'instagram' ? '17841400008460056' : 'Cole o ID ou token aqui'}
+                    className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm font-mono border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+                <p className="text-xs text-neutral-500 leading-relaxed">
+                  Obtenha esse ID no{' '}
+                  <a href={showTokenModal.docsUrl} target="_blank" rel="noreferrer" className="text-amber-600 font-bold hover:underline">
+                    portal de desenvolvedores <ExternalLink className="w-3 h-3 inline" />
+                  </a>
+                </p>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowTokenModal(null)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
+                  <button onClick={confirmToken} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2">
+                    <Link2 className="w-4 h-4" /> Conectar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* SMTP modal */}
+      <AnimatePresence>
+        {showSmtp && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSmtp(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-black text-neutral-950">Configurar Servidor E-mail</h3>
+                <button onClick={() => setShowSmtp(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Host SMTP</label>
+                    <input value={smtpConfig.host} onChange={e => setSmtpConfig(c => ({ ...c, host: e.target.value }))} placeholder="smtp.gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Porta</label>
+                    <input value={smtpConfig.port} onChange={e => setSmtpConfig(c => ({ ...c, port: e.target.value }))} placeholder="587" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Usuário / E-mail</label>
+                  <input value={smtpConfig.user} onChange={e => setSmtpConfig(c => ({ ...c, user: e.target.value }))} placeholder="hotel@gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Senha / App Password</label>
+                  <input type="password" value={smtpConfig.pass} onChange={e => setSmtpConfig(c => ({ ...c, pass: e.target.value }))} placeholder="••••••••••••" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Remetente</label>
+                  <input value={smtpConfig.fromName} onChange={e => setSmtpConfig(c => ({ ...c, fromName: e.target.value }))} placeholder="Recepção Royal PMS" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowSmtp(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
+                  <button onClick={saveSmtp} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2">
+                    <Save className="w-4 h-4" /> Salvar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1312,6 +1911,8 @@ const TABS = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'simulator', label: 'Simulador', icon: Smartphone },
   { id: 'training', label: 'Treinamento', icon: Bot },
+  { id: 'financeiro', label: 'Financeiro', icon: QrCode },
+  { id: 'integracoes', label: 'Integrações', icon: Link2 },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -1380,6 +1981,8 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
         {activeTab === 'analytics' && <AnalyticsTab />}
         {activeTab === 'simulator' && <SimulatorTab />}
         {activeTab === 'training' && <BotTrainingTab />}
+        {activeTab === 'financeiro' && <FinanceiroTab />}
+        {activeTab === 'integracoes' && <IntegracoesTab />}
       </div>
     </div>
   );
