@@ -1320,6 +1320,7 @@ interface ReservationPix {
   pix_qr_base64: string | null;
   pix_copia_cola: string | null;
   pix_generated_at: string | null;
+  fiscal_data: string | null;
 }
 
 function FinanceiroTab() {
@@ -1334,7 +1335,7 @@ function FinanceiroTab() {
   const [loadingRes, setLoadingRes] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null); // reservation id or 'manual'
   const [viewPix, setViewPix] = useState<{ qrCodeUrl: string; copiaECola: string; paymentId: string; guestName: string } | null>(null);
-  const [form, setForm] = useState({ guestName: '', guestEmail: '', amount: '', description: '' });
+  const [form, setForm] = useState({ guestName: '', guestEmail: '', amount: '', description: '', guestCpf: '' });
 
   // Carregar reservas e verificar se token está configurado
   useEffect(() => {
@@ -1342,7 +1343,7 @@ function FinanceiroTab() {
       setLoadingRes(true);
       const { data } = await supabase
         .from('reservations')
-        .select('id,guest_name,total_amount,contact_email,reservation_code,room_number,check_in,check_out,pix_payment_id,pix_status,pix_qr_base64,pix_copia_cola,pix_generated_at')
+        .select('id,guest_name,total_amount,contact_email,reservation_code,room_number,check_in,check_out,pix_payment_id,pix_status,pix_qr_base64,pix_copia_cola,pix_generated_at,fiscal_data')
         .in('status', ['confirmed', 'checked_in', 'pending'])
         .order('created_at', { ascending: false });
       if (data) setReservations(data as ReservationPix[]);
@@ -1452,6 +1453,7 @@ function FinanceiroTab() {
           description: form.description || `Cobrança — ${form.guestName}`,
           payer_email: form.guestEmail || 'hospede@hotel.com',
           payer_name: form.guestName,
+          payer_cpf: form.guestCpf || undefined,
         }),
       });
       const data = await r.json() as { ok: boolean; error?: string; qr_code?: string; qr_code_base64?: string; payment_id?: string };
@@ -1466,6 +1468,7 @@ function FinanceiroTab() {
       }
       setViewPix({ qrCodeUrl, copiaECola, paymentId: data.payment_id ?? '', guestName: form.guestName });
       setShowForm(false);
+      setForm({ guestName: '', guestEmail: '', amount: '', description: '', guestCpf: '' });
       toast.success('PIX gerado!');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao gerar PIX');
@@ -1721,9 +1724,15 @@ function FinanceiroTab() {
                   <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
                   <input value={form.guestName} onChange={e => setForm(f => ({ ...f, guestName: e.target.value }))} placeholder="Ana Beatriz Costa" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">E-mail (opcional)</label>
-                  <input type="email" value={form.guestEmail} onChange={e => setForm(f => ({ ...f, guestEmail: e.target.value }))} placeholder="hospede@email.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">E-mail (opcional)</label>
+                    <input type="email" value={form.guestEmail} onChange={e => setForm(f => ({ ...f, guestEmail: e.target.value }))} placeholder="hospede@email.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">CPF <span className="text-red-500">*</span></label>
+                    <input value={form.guestCpf} onChange={e => setForm(f => ({ ...f, guestCpf: e.target.value }))} placeholder="000.000.000-00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
