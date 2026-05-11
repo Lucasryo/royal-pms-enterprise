@@ -401,7 +401,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert"];
+  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection"];
   if (internalTypes.includes(body.type as string)) {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return { ok: false, error: "unauthorized" };
@@ -411,6 +411,29 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+
+  if ((body.type as string) === "request_inspection") {
+    const ticketId  = body.ticket_id as string;
+    const actorName = (body.actor_name as string) ?? "Operador";
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const { data: tk } = await db
+      .from("maintenance_tickets")
+      .select("title,room_number,status_reason,inspection_status,created_at,resolved_at")
+      .eq("id", ticketId).single();
+    if (!tk) return { ok: false, error: "ticket not found" };
+    if (tk.inspection_status !== "pending") return { ok: false, error: "inspection not pending" };
+    const mins = tk.resolved_at && tk.created_at
+      ? Math.round((new Date(tk.resolved_at).getTime() - new Date(tk.created_at).getTime()) / 60000)
+      : null;
+    await sendInspectionRequest(
+      CHAT_ID, ticketId,
+      tk.status_reason ?? actorName,
+      tk.title ?? "",
+      tk.room_number ?? null,
+      mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
+    );
+    return { ok: true };
+  }
 
   // Fix J: validate inspection_status before sending rating
   if ((body.type as string) === "request_rating") {
