@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,6 +16,8 @@ import {
   QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
   CheckCircle, XCircle, Wifi, Key,
 } from 'lucide-react';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 interface MarketingModuleDashboardProps {
   profile: UserProfile;
@@ -1309,82 +1312,195 @@ interface PaymentRecord {
   amount: number;
   description: string;
   status: 'pending' | 'completed' | 'failed' | 'refunded';
-  method: 'pix' | 'card';
+  method: 'pix';
   createdAt: string;
-  pixKey?: string;
+  paymentId?: string;
+}
+
+type GatewayType = 'mercadopago' | 'stripe';
+
+interface GatewayConfig {
+  gateway: GatewayType;
+  accessToken: string;
+  testMode: boolean;
 }
 
 const SEED_PAYMENTS: PaymentRecord[] = [
   { id: '1', guestName: 'Ana Beatriz Costa', amount: 718, description: 'Reserva 2 noites — UH Executiva', status: 'completed', method: 'pix', createdAt: '2026-05-10T14:32:00Z' },
   { id: '2', guestName: 'Carlos Lima', amount: 359, description: 'Reserva 1 noite — UH Executiva', status: 'pending', method: 'pix', createdAt: '2026-05-10T16:05:00Z' },
-  { id: '3', guestName: 'Marina Souza', amount: 1040, description: 'Reserva 2 noites — Suíte Master', status: 'completed', method: 'card', createdAt: '2026-05-09T11:20:00Z' },
+  { id: '3', guestName: 'Marina Souza', amount: 1040, description: 'Reserva 2 noites — Suíte Master', status: 'completed', method: 'pix', createdAt: '2026-05-09T11:20:00Z' },
   { id: '4', guestName: 'Roberto Ferreira', amount: 289, description: 'Reserva 1 noite — Standard', status: 'failed', method: 'pix', createdAt: '2026-05-08T09:15:00Z' },
 ];
 
+const GATEWAYS = [
+  {
+    id: 'mercadopago' as GatewayType,
+    name: 'Mercado Pago',
+    description: 'PIX nativo via API oficial do Mercado Pago. Receba na sua conta MP em segundos.',
+    logo: '🟡',
+    tokenLabel: 'Access Token',
+    tokenPlaceholder: 'APP_USR-000000000000000-000000-...',
+    tokenHelp: 'Obtenha em mercadopago.com.br → Sua empresa → Credenciais',
+    docsUrl: 'https://www.mercadopago.com.br/developers/pt/docs/checkout-api/payment-methods/other-payment-methods/add-pix',
+    fee: '0,99% por transação',
+  },
+  {
+    id: 'stripe' as GatewayType,
+    name: 'Stripe',
+    description: 'Pagamentos globais com suporte a PIX para contas brasileiras habilitadas.',
+    logo: '💳',
+    tokenLabel: 'Secret Key',
+    tokenPlaceholder: 'sk_live_... ou sk_test_...',
+    tokenHelp: 'Obtenha em dashboard.stripe.com → Developers → API keys',
+    docsUrl: 'https://stripe.com/docs/payments/pix',
+    fee: '1,5% + R$ 0,50 por transação',
+  },
+];
+
 function FinanceiroTab() {
-  const [payments] = useState<PaymentRecord[]>(SEED_PAYMENTS);
+  const [payments, setPayments] = useState<PaymentRecord[]>(SEED_PAYMENTS);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'failed'>('all');
-  const [showPixForm, setShowPixForm] = useState(false);
-  const [showPixConfig, setShowPixConfig] = useState(false);
-  const [pixConfig, setPixConfig] = useState({
-    institution: 'Banco do Brasil',
-    pixKey: '',
-    pixKeyType: 'cnpj' as 'cpf' | 'cnpj' | 'email' | 'phone' | 'random',
-    beneficiaryName: 'Royal PMS Palace Hotel',
-    city: 'Macaé',
-  });
-  const [pixConfigSaved, setPixConfigSaved] = useState(false);
-  const [form, setForm] = useState({ guestName: '', amount: '', description: '', guestPhone: '' });
-  const [generatedPix, setGeneratedPix] = useState<{ qrText: string; copiaECola: string } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [gwConfig, setGwConfig] = useState<GatewayConfig>({ gateway: 'mercadopago', accessToken: '', testMode: true });
+  const [gwSaved, setGwSaved] = useState(false);
+  const [form, setForm] = useState({ guestName: '', guestEmail: '', amount: '', description: '' });
   const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<{ qrCodeUrl: string; copiaECola: string; paymentId: string } | null>(null);
+  const [testingToken, setTestingToken] = useState(false);
 
   const statusMap = {
-    pending: { label: 'Pendente', cls: 'bg-amber-100 text-amber-700', icon: <Clock className="w-3 h-3" /> },
-    completed: { label: 'Concluído', cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle className="w-3 h-3" /> },
-    failed: { label: 'Falhou', cls: 'bg-red-100 text-red-700', icon: <XCircle className="w-3 h-3" /> },
+    pending:  { label: 'Pendente',    cls: 'bg-amber-100 text-amber-700',   icon: <Clock className="w-3 h-3" /> },
+    completed:{ label: 'Concluído',   cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle className="w-3 h-3" /> },
+    failed:   { label: 'Falhou',      cls: 'bg-red-100 text-red-700',       icon: <XCircle className="w-3 h-3" /> },
     refunded: { label: 'Reembolsado', cls: 'bg-neutral-100 text-neutral-600', icon: <RefreshCw className="w-3 h-3" /> },
   };
 
   const filtered = payments.filter(p => filter === 'all' || p.status === filter);
-  const total = payments.filter(p => p.status === 'completed').reduce((a, b) => a + b.amount, 0);
-  const pending = payments.filter(p => p.status === 'pending').reduce((a, b) => a + b.amount, 0);
+  const totalReceived = payments.filter(p => p.status === 'completed').reduce((a, b) => a + b.amount, 0);
+  const totalPending  = payments.filter(p => p.status === 'pending').reduce((a, b) => a + b.amount, 0);
 
-  async function generatePixQR() {
-    if (!form.guestName || !form.amount) { toast.error('Nome e valor são obrigatórios'); return; }
-    if (!pixConfig.pixKey) { toast.error('Configure a chave PIX antes de gerar cobranças'); setShowPixConfig(true); return; }
+  function saveGateway() {
+    if (!gwConfig.accessToken.trim()) { toast.error('Informe o Access Token'); return; }
+    setGwSaved(true);
+    setShowConfig(false);
+    toast.success(`${GATEWAYS.find(g => g.id === gwConfig.gateway)?.name} configurado!`);
+  }
+
+  async function testToken() {
+    if (!gwConfig.accessToken.trim()) { toast.error('Informe o token primeiro'); return; }
+    setTestingToken(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/create-pix-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gateway: gwConfig.gateway,
+          access_token: gwConfig.accessToken,
+          amount: 1.00,
+          description: 'Teste de conexão Royal PMS',
+          payer_email: 'test@royalpms.com',
+          payer_name: 'Teste Royal PMS',
+        }),
+      });
+      const data = await res.json() as { ok: boolean; error?: string };
+      if (data.ok) {
+        toast.success('Token válido! Conexão estabelecida.');
+      } else {
+        toast.error(`Token inválido: ${data.error ?? 'Erro desconhecido'}`);
+      }
+    } catch {
+      toast.error('Erro ao testar conexão');
+    } finally {
+      setTestingToken(false);
+    }
+  }
+
+  async function generateCharge() {
+    if (!form.guestName || !form.amount || !form.guestEmail) {
+      toast.error('Nome, e-mail e valor são obrigatórios'); return;
+    }
+    if (!gwSaved) { toast.error('Configure o gateway de pagamento primeiro'); setShowConfig(true); return; }
+
     setGenerating(true);
-    await new Promise(r => setTimeout(r, 900));
-    const amt = parseFloat(form.amount).toFixed(2);
-    const copiaECola = `00020126580014BR.GOV.BCB.PIX0136${pixConfig.pixKey}5204000053039865406${amt.replace('.', '')}5802BR5925${pixConfig.beneficiaryName.slice(0, 25)}6009${pixConfig.city.slice(0, 9)}62070503***6304`;
-    setGeneratedPix({ qrText: copiaECola, copiaECola });
-    setGenerating(false);
-    toast.success('PIX gerado! Compartilhe com o hóspede.');
+    setResult(null);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/create-pix-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gateway: gwConfig.gateway,
+          access_token: gwConfig.accessToken,
+          amount: parseFloat(form.amount),
+          description: form.description || `Pagamento — ${form.guestName}`,
+          payer_email: form.guestEmail,
+          payer_name: form.guestName,
+        }),
+      });
+      const data = await res.json() as {
+        ok: boolean; error?: string;
+        qr_code?: string; qr_code_base64?: string;
+        ticket_url?: string; payment_id?: string;
+      };
+
+      if (!data.ok) throw new Error(data.error ?? 'Erro ao gerar cobrança');
+
+      const copiaECola = data.qr_code ?? '';
+
+      // Gerar QR Code real a partir da string copia-e-cola
+      let qrCodeUrl = '';
+      if (data.qr_code_base64) {
+        qrCodeUrl = `data:image/png;base64,${data.qr_code_base64}`;
+      } else if (copiaECola) {
+        qrCodeUrl = await QRCodeLib.toDataURL(copiaECola, {
+          margin: 2,
+          width: 300,
+          color: { dark: '#0a0a0a', light: '#ffffff' },
+        });
+      }
+
+      setResult({ qrCodeUrl, copiaECola, paymentId: data.payment_id ?? '' });
+
+      // Adicionar à lista local
+      setPayments(prev => [{
+        id: data.payment_id ?? Math.random().toString(36).slice(2),
+        guestName: form.guestName,
+        amount: parseFloat(form.amount),
+        description: form.description || `Pagamento — ${form.guestName}`,
+        status: 'pending',
+        method: 'pix',
+        createdAt: new Date().toISOString(),
+        paymentId: data.payment_id,
+      }, ...prev]);
+
+      toast.success('Cobrança PIX gerada com sucesso!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao gerar PIX');
+    } finally {
+      setGenerating(false);
+    }
   }
 
-  function savePixConfig() {
-    if (!pixConfig.pixKey) { toast.error('Informe a chave PIX'); return; }
-    setPixConfigSaved(true);
-    setShowPixConfig(false);
-    toast.success('Dados bancários salvos com sucesso!');
-  }
+  const activeGw = GATEWAYS.find(g => g.id === gwConfig.gateway)!;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Financeiro</p>
-          <h2 className="text-xl font-black text-neutral-950">PIX & Pagamentos</h2>
+          <h2 className="text-xl font-black text-neutral-950">PIX via Gateway de Pagamento</h2>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => setShowPixConfig(true)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${pixConfigSaved ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}
+            onClick={() => setShowConfig(true)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-colors ${gwSaved ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}
           >
-            {pixConfigSaved ? <CheckCircle className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
-            {pixConfigSaved ? 'PIX configurado' : 'Configurar PIX'}
+            {gwSaved ? <CheckCircle className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
+            {gwSaved ? `${activeGw.name} ativo` : 'Configurar Gateway'}
           </button>
           <button
-            onClick={() => { setGeneratedPix(null); setForm({ guestName: '', amount: '', description: '', guestPhone: '' }); setShowPixForm(true); }}
+            onClick={() => { setResult(null); setForm({ guestName: '', guestEmail: '', amount: '', description: '' }); setShowForm(true); }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors"
           >
             <QrCode className="w-4 h-4" /> Gerar cobrança PIX
@@ -1395,10 +1511,10 @@ function FinanceiroTab() {
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Recebido', value: `R$ ${total.toLocaleString('pt-BR')}`, icon: Banknote, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Pendente', value: `R$ ${pending.toLocaleString('pt-BR')}`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Transações', value: payments.length.toString(), icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Taxa sucesso', value: `${Math.round((payments.filter(p => p.status === 'completed').length / payments.length) * 100)}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { label: 'Recebido',    value: `R$ ${totalReceived.toLocaleString('pt-BR')}`, icon: Banknote,   color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Pendente',   value: `R$ ${totalPending.toLocaleString('pt-BR')}`,  icon: Clock,      color: 'text-amber-600',   bg: 'bg-amber-50' },
+          { label: 'Transações', value: payments.length.toString(),                    icon: CreditCard, color: 'text-blue-600',    bg: 'bg-blue-50' },
+          { label: 'Sucesso',    value: `${payments.length ? Math.round((payments.filter(p=>p.status==='completed').length/payments.length)*100) : 0}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
@@ -1410,120 +1526,132 @@ function FinanceiroTab() {
         ))}
       </div>
 
-      {/* Como funciona */}
-      {!pixConfigSaved && (
-        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex items-start gap-3">
-            <QrCode className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-black text-amber-900 text-sm">Configure sua chave PIX para começar</p>
-              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                Vincule a conta bancária do hotel e o bot passa a gerar QR Codes de cobrança automaticamente durante conversas, além de disponibilizar o pagamento na landing page para hóspedes.
-              </p>
-              <button onClick={() => setShowPixConfig(true)} className="mt-3 px-4 py-2 bg-amber-600 text-white text-xs font-black rounded-xl hover:bg-amber-700 transition-colors">
-                Configurar agora
-              </button>
-            </div>
+      {/* Banner configurar gateway */}
+      {!gwSaved && (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1">
+            <p className="font-black text-amber-900 text-sm">Conecte seu gateway de pagamento</p>
+            <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+              Cadastre o Access Token do Mercado Pago ou Stripe para gerar QR Codes PIX reais. O bot envia o link de pagamento direto no WhatsApp para o hóspede.
+            </p>
+          </div>
+          <div className="flex gap-3 shrink-0">
+            <button onClick={() => { setGwConfig(c => ({ ...c, gateway: 'mercadopago' })); setShowConfig(true); }} className="px-4 py-2.5 bg-yellow-400 text-yellow-900 text-xs font-black rounded-xl hover:bg-yellow-300 transition-colors">🟡 Mercado Pago</button>
+            <button onClick={() => { setGwConfig(c => ({ ...c, gateway: 'stripe' })); setShowConfig(true); }} className="px-4 py-2.5 bg-indigo-600 text-white text-xs font-black rounded-xl hover:bg-indigo-700 transition-colors">💳 Stripe</button>
           </div>
         </div>
       )}
 
-      {/* Filters + list */}
-      <div className="space-y-4">
+      {/* Lista transações */}
+      <div className="space-y-3">
         <div className="flex gap-2 overflow-x-auto scrollbar-none">
           {(['all', 'pending', 'completed', 'failed'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider ${filter === f ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-500'}`}>
-              {f === 'all' ? 'Todos' : f === 'pending' ? 'Pendentes' : f === 'completed' ? 'Concluídos' : 'Falhos'}
+              {f === 'all' ? 'Todas' : f === 'pending' ? 'Pendentes' : f === 'completed' ? 'Concluídas' : 'Falhas'}
             </button>
           ))}
         </div>
-
         <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
           {filtered.length === 0 ? (
             <div className="py-16 text-center text-neutral-400">
               <Banknote className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-bold">Nenhum pagamento encontrado</p>
+              <p className="font-bold">Nenhuma transação encontrada</p>
             </div>
-          ) : (
-            filtered.map((p, idx) => {
-              const s = statusMap[p.status];
-              return (
-                <div key={p.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < filtered.length - 1 ? 'border-b border-neutral-100' : ''}`}>
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${p.method === 'pix' ? 'bg-emerald-50' : 'bg-blue-50'}`}>
-                    {p.method === 'pix' ? <QrCode className="w-5 h-5 text-emerald-600" /> : <CreditCard className="w-5 h-5 text-blue-600" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-neutral-900 truncate">{p.guestName}</p>
-                    <p className="text-xs text-neutral-500 truncate">{p.description}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-black text-sm text-neutral-900">R$ {p.amount.toLocaleString('pt-BR')}</p>
-                    <p className="text-[9px] text-neutral-400">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</p>
-                  </div>
-                  <span className={`hidden sm:flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-full ${s.cls}`}>
-                    {s.icon} {s.label}
-                  </span>
+          ) : filtered.map((p, idx) => {
+            const s = statusMap[p.status];
+            return (
+              <div key={p.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < filtered.length - 1 ? 'border-b border-neutral-100' : ''}`}>
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
+                  <QrCode className="w-5 h-5 text-emerald-600" />
                 </div>
-              );
-            })
-          )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-neutral-900 truncate">{p.guestName}</p>
+                  <p className="text-xs text-neutral-500 truncate">{p.description}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-black text-sm text-neutral-900">R$ {p.amount.toLocaleString('pt-BR')}</p>
+                  <p className="text-[9px] text-neutral-400">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</p>
+                </div>
+                <span className={`hidden sm:flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-full ${s.cls}`}>
+                  {s.icon} {s.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* PIX config modal */}
+      {/* Modal configurar gateway */}
       <AnimatePresence>
-        {showPixConfig && (
+        {showConfig && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPixConfig(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowConfig(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-lg font-black text-neutral-950">Dados Bancários & PIX</h3>
-                  <p className="text-xs text-neutral-500 mt-0.5">Vinculada à sua conta para geração de QR Codes</p>
+                  <h3 className="text-lg font-black text-neutral-950">Gateway de Pagamento</h3>
+                  <p className="text-xs text-neutral-500 mt-0.5">PIX via API oficial — QR Codes válidos e rastreáveis</p>
                 </div>
-                <button onClick={() => setShowPixConfig(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+                <button onClick={() => setShowConfig(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
+
+              {/* Gateway selector */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {GATEWAYS.map(gw => (
+                  <button
+                    key={gw.id}
+                    onClick={() => setGwConfig(c => ({ ...c, gateway: gw.id }))}
+                    className={`p-4 rounded-2xl border-2 text-left transition-all ${gwConfig.gateway === gw.id ? 'border-amber-500 bg-amber-50' : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300'}`}
+                  >
+                    <p className="text-2xl mb-1">{gw.logo}</p>
+                    <p className="font-black text-sm text-neutral-900">{gw.name}</p>
+                    <p className="text-[9px] text-neutral-500 mt-0.5">{gw.fee}</p>
+                  </button>
+                ))}
+              </div>
+
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Instituição Bancária</label>
-                  <select value={pixConfig.institution} onChange={e => setPixConfig(p => ({ ...p, institution: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
-                    {['Banco do Brasil', 'Itaú', 'Bradesco', 'Caixa Econômica', 'Nubank', 'Santander', 'Inter', 'Sicoob', 'Mercado Pago', 'PicPay', 'Outro'].map(b => <option key={b}>{b}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Tipo de Chave PIX</label>
-                    <select value={pixConfig.pixKeyType} onChange={e => setPixConfig(p => ({ ...p, pixKeyType: e.target.value as typeof pixConfig.pixKeyType }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
-                      <option value="cnpj">CNPJ</option>
-                      <option value="cpf">CPF</option>
-                      <option value="email">E-mail</option>
-                      <option value="phone">Telefone</option>
-                      <option value="random">Chave aleatória</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Chave PIX</label>
-                    <input value={pixConfig.pixKey} onChange={e => setPixConfig(p => ({ ...p, pixKey: e.target.value }))} placeholder={pixConfig.pixKeyType === 'cnpj' ? '00.000.000/0001-00' : pixConfig.pixKeyType === 'email' ? 'hotel@email.com' : pixConfig.pixKeyType === 'phone' ? '(22) 99999-0000' : 'Cole a chave aqui'} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Beneficiário (como aparece no PIX)</label>
-                  <input value={pixConfig.beneficiaryName} onChange={e => setPixConfig(p => ({ ...p, beneficiaryName: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Cidade</label>
-                  <input value={pixConfig.city} onChange={e => setPixConfig(p => ({ ...p, city: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-                </div>
-                <div className="p-4 rounded-2xl bg-emerald-50 flex items-start gap-3">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                  <p className="text-xs text-emerald-700 leading-relaxed">
-                    O bot usará esses dados para gerar QR Codes no padrão EMV do Banco Central. O hóspede paga direto no app do banco — sem taxas de intermediário.
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{activeGw.tokenLabel}</label>
+                  <input
+                    type="password"
+                    value={gwConfig.accessToken}
+                    onChange={e => setGwConfig(c => ({ ...c, accessToken: e.target.value }))}
+                    placeholder={activeGw.tokenPlaceholder}
+                    className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm font-mono border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                  <p className="text-[10px] text-neutral-400 mt-1">
+                    {activeGw.tokenHelp} —{' '}
+                    <a href={activeGw.docsUrl} target="_blank" rel="noreferrer" className="text-amber-600 font-bold hover:underline">
+                      Ver documentação
+                    </a>
                   </p>
                 </div>
-                <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowPixConfig(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
-                  <button onClick={savePixConfig} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2">
-                    <Banknote className="w-4 h-4" /> Salvar dados
+
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
+                  <div>
+                    <p className="font-bold text-sm text-neutral-900">Modo teste</p>
+                    <p className="text-xs text-neutral-500">Use credenciais de sandbox para testar</p>
+                  </div>
+                  <button onClick={() => setGwConfig(c => ({ ...c, testMode: !c.testMode }))} className={`w-10 h-6 rounded-full transition-all ${gwConfig.testMode ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform mt-1 ${gwConfig.testMode ? 'translate-x-1' : 'translate-x-5'}`} />
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-blue-50 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    O token é enviado diretamente para a Edge Function do Supabase e nunca fica exposto no frontend. Use sempre o token de <strong>produção</strong> para cobranças reais.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={testToken} disabled={testingToken} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-700 hover:bg-neutral-200 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
+                    {testingToken ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    Testar token
+                  </button>
+                  <button onClick={saveGateway} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2">
+                    <Save className="w-4 h-4" /> Salvar
                   </button>
                 </div>
               </div>
@@ -1532,58 +1660,87 @@ function FinanceiroTab() {
         )}
       </AnimatePresence>
 
-      {/* Gerar cobrança modal */}
+      {/* Modal gerar cobrança */}
       <AnimatePresence>
-        {showPixForm && (
+        {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (!generating) { setShowForm(false); setResult(null); } }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-neutral-950">{generatedPix ? 'QR Code PIX gerado' : 'Nova cobrança PIX'}</h3>
-                <button onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+                <h3 className="text-lg font-black text-neutral-950">{result ? 'QR Code PIX' : 'Nova cobrança PIX'}</h3>
+                <button onClick={() => { setShowForm(false); setResult(null); }} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
 
-              {generatedPix ? (
+              {result ? (
                 <div className="text-center space-y-5">
-                  {/* QR placeholder visual */}
-                  <div className="mx-auto w-48 h-48 bg-neutral-900 rounded-2xl flex items-center justify-center">
-                    <QrCode className="w-32 h-32 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-neutral-500 mb-2">Copia e cola</p>
-                    <div className="flex items-center gap-2 p-3 bg-neutral-50 rounded-xl">
-                      <p className="text-[9px] font-mono text-neutral-600 flex-1 truncate">{generatedPix.copiaECola}</p>
-                      <button onClick={() => { navigator.clipboard.writeText(generatedPix.copiaECola); toast.success('Copiado!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-100">
+                  {result.qrCodeUrl ? (
+                    <img src={result.qrCodeUrl} alt="QR Code PIX" className="mx-auto w-52 h-52 rounded-2xl border border-neutral-200" />
+                  ) : (
+                    <div className="mx-auto w-52 h-52 rounded-2xl border border-neutral-200 bg-neutral-50 flex items-center justify-center">
+                      <QrCode className="w-20 h-20 text-neutral-300" />
+                    </div>
+                  )}
+                  <div className="text-left">
+                    <p className="text-[10px] font-black uppercase text-neutral-400 mb-1.5">Pix Copia e Cola</p>
+                    <div className="flex items-center gap-2 p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+                      <p className="text-[9px] font-mono text-neutral-600 flex-1 break-all leading-relaxed">{result.copiaECola}</p>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(result.copiaECola); toast.success('Copia e cola copiado!'); }}
+                        className="shrink-0 p-2 rounded-lg bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
+                      >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    {result.paymentId && (
+                      <p className="text-[9px] text-neutral-400 mt-1.5">ID: {result.paymentId}</p>
+                    )}
                   </div>
-                  <p className="text-xs text-neutral-500">Compartilhe via WhatsApp ou exiba na landing page do hotel para que o hóspede pague direto pelo app do banco.</p>
-                  <button onClick={() => { setShowPixForm(false); setGeneratedPix(null); }} className="w-full py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold">Fechar</button>
+                  <p className="text-xs text-neutral-500 leading-relaxed">Compartilhe o QR Code ou o Copia e Cola via WhatsApp. O hóspede paga direto no app do banco — sem abrir navegador.</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => { setResult(null); setForm({ guestName: '', guestEmail: '', amount: '', description: '' }); }}
+                      className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-700"
+                    >
+                      Nova cobrança
+                    </button>
+                    <button onClick={() => { setShowForm(false); setResult(null); }} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold">
+                      Fechar
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
-                    <input value={form.guestName} onChange={e => setForm(f => ({ ...f, guestName: e.target.value }))} placeholder="Ana Beatriz Costa" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-                  </div>
+                  {gwSaved && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50">
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <p className="text-xs font-bold text-emerald-700">{activeGw.name} — {gwConfig.testMode ? 'Modo teste' : 'Produção'}</p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
+                      <input value={form.guestName} onChange={e => setForm(f => ({ ...f, guestName: e.target.value }))} placeholder="Ana Beatriz Costa" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">E-mail do hóspede</label>
+                      <input type="email" value={form.guestEmail} onChange={e => setForm(f => ({ ...f, guestEmail: e.target.value }))} placeholder="hospede@email.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
                     <div>
                       <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Valor (R$)</label>
-                      <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="359,00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                      <input type="number" step="0.01" min="1" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="359,00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">WhatsApp</label>
-                      <input value={form.guestPhone} onChange={e => setForm(f => ({ ...f, guestPhone: e.target.value }))} placeholder="(22) 99999-0000" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Descrição</label>
+                      <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Reserva 1 noite" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Descrição</label>
-                    <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Reserva 2 noites — UH Executiva" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-                  </div>
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => setShowPixForm(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
-                    <button onClick={generatePixQR} disabled={generating} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
+                    <button onClick={() => setShowForm(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
+                    <button
+                      onClick={generateCharge}
+                      disabled={generating}
+                      className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+                    >
                       {generating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
                       {generating ? 'Gerando...' : 'Gerar QR Code'}
                     </button>
