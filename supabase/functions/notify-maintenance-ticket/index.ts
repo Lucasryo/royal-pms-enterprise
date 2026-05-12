@@ -751,6 +751,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
@@ -857,6 +858,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
 
@@ -875,6 +877,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
 
@@ -905,6 +908,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `📝 Digite sua nota de andamento \\[note:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
 
@@ -1297,6 +1301,7 @@ async function handleReply(message: Record<string, unknown>) {
 // ── message handler ─────────────────────────────────────────────────────────
 async function handleMessage(message: Record<string, unknown>) {
   const text   = (message.text as string) ?? "";
+  const msgId  = message.message_id;
   const chatId = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
   const from   = (message.from as Record<string, unknown>) ?? {};
   const name   = [from.first_name, from.last_name].filter(Boolean).join(" ") || "Tecnico";
@@ -1602,6 +1607,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `❌ Informe o motivo do cancelamento \\[cancel:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
@@ -1639,6 +1645,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `🔄 Informe o motivo da reabertura \\[reopen:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
@@ -1676,6 +1683,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `📌 Nome do técnico para direcionar \\[direct:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
+      reply_to_message_id: msgId,
       reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
