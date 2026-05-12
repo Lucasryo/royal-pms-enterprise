@@ -22,6 +22,7 @@ export type ViewType =
   | 'prio-billing'
   | 'reports'
   | 'maintenance-qr'
+  | 'housekeeping-staff'
   | 'marketing';
 
 export interface EventItem {

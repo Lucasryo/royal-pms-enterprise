@@ -79,6 +79,8 @@ export function canAccessView(
       return ['admin', 'manager', 'finance', 'faturamento'].includes(profile.role);
     case 'maintenance-qr':
       return ['admin', 'manager', 'maintenance', 'reception'].includes(profile.role);
+    case 'housekeeping-staff':
+      return ['admin', 'manager', 'housekeeping'].includes(profile.role);
     case 'marketing':
       return ['admin', 'manager', 'marketing'].includes(profile.role);
     case 'profile':

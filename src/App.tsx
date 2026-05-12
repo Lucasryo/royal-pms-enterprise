@@ -12,6 +12,7 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import MarketingLanding from './components/MarketingLanding';
 import AdminDashboard from './components/AdminDashboard';
+import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
 import ReservationsDashboard from './components/ReservationsDashboard';
 import EventsDashboard from './components/EventsDashboard';
@@ -333,6 +334,7 @@ export default function App() {
       { id: 'admin-control' as ViewType, label: 'Admin', icon: ShieldCheck },
       { id: 'reports' as ViewType, label: 'Relatórios', icon: BarChart3 },
       { id: 'maintenance-qr' as ViewType, label: 'QR Manutenção', icon: Wrench },
+      { id: 'housekeeping-staff' as ViewType, label: 'Camareiras', icon: Users },
       { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
@@ -420,6 +422,7 @@ export default function App() {
       case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;
       case 'audit': return <AuditDashboard profile={profile} />;
       case 'maintenance-qr': return <MaintenanceQRPrint />;
+      case 'housekeeping-staff': return <AdminHousekeepingManager />;
       case 'marketing': return <MarketingModuleDashboard profile={profile} />;
       case 'dashboard':
       default:
