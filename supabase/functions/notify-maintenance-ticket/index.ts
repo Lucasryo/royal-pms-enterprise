@@ -1786,6 +1786,9 @@ serve(async (req) => {
     });
   }
   try {
+    const body        = await req.json();
+    const authHeader  = req.headers.get("authorization");
+
     // 1A: Validate Telegram webhook secret header
     const tgSecret     = req.headers.get("x-telegram-bot-api-secret-token");
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
