@@ -764,6 +764,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                       {ticket.status_reason && <p className="mt-1 text-xs text-neutral-500">👷 Resolvido por: {ticket.status_reason}</p>}
+                      {ticket.resolution_notes && <p className="mt-0.5 text-[11px] text-purple-600">📝 {ticket.resolution_notes}</p>}
                       {inspector && <p className="mt-0.5 text-xs font-bold text-purple-700">🔍 Vistoriador: {inspector.name}</p>}
                     </div>
                     {canAct && (

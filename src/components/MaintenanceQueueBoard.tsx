@@ -398,6 +398,7 @@ function AwaitingInspectionCard({ ticket }: { ticket: Ticket }) {
           </div>
           <h3 className="mt-1.5 font-black text-sm text-white">{ticket.title}</h3>
           {ticket.status_reason && <p className="mt-1 text-[11px] text-purple-200 font-semibold">👷 Concluído por {ticket.status_reason}</p>}
+          {ticket.resolution_notes && <p className="mt-1 text-[11px] text-purple-300 line-clamp-2">📝 {ticket.resolution_notes}</p>}
           <div className="mt-1.5 inline-flex items-center gap-1.5 text-purple-300 text-[11px] font-bold">
             <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
             aguardando vistoriador ha <span className="tabular-nums ml-1">{formatElapsed(since)}</span>

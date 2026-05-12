@@ -235,18 +235,21 @@ async function sendInspectionRequest(
   ticketTitle: string,
   roomNumber: string | null,
   durationPart: string,
+  resolutionNotes?: string,
 ) {
   const uhPart = roomNumber ? ` \\(UH ${esc(roomNumber)}\\)` : "";
+  const lines = [
+    `🔍 *Vistoria necessária*`, "",
+    `*${esc(ticketTitle)}*${uhPart}`,
+    `👷 Concluído por *${esc(techName)}*${durationPart}`,
+  ];
+  if (resolutionNotes) {
+    lines.push("", `📝 _${esc(resolutionNotes)}_`);
+  }
+  lines.push("", `_Somente moderadores do grupo podem assumir a vistoria\\._`, "", `🔖 \`${ticketId}\``);
   await tg("sendMessage", {
     chat_id: chatId,
-    text: [
-      `🔍 *Vistoria necessária*`, "",
-      `*${esc(ticketTitle)}*${uhPart}`,
-      `👷 Concluído por *${esc(techName)}*${durationPart}`,
-      "",
-      `_Somente moderadores do grupo podem assumir a vistoria\\._`,
-      "", `🔖 \`${ticketId}\``,
-    ].join("\n"),
+    text: lines.join("\n"),
     parse_mode: "MarkdownV2",
     reply_markup: inspectionKb(ticketId),
   });
@@ -441,7 +444,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     if (!ticketId) return { ok: false, error: "missing ticket_id" };
     const { data: tk } = await db
       .from("maintenance_tickets")
-      .select("title,room_number,status_reason,inspection_status,created_at,resolved_at")
+      .select("title,room_number,status_reason,inspection_status,created_at,resolved_at,resolution_notes")
       .eq("id", ticketId).single();
     if (!tk) return { ok: false, error: "ticket not found" };
     if (tk.inspection_status !== "pending") return { ok: false, error: "inspection not pending" };
@@ -454,6 +457,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       tk.title ?? "",
       tk.room_number ?? null,
       mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
+      tk.resolution_notes as string | undefined,
     );
     return { ok: true };
   }
@@ -519,6 +523,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
         (record.title as string) ?? "",
         record.room_number as string | null,
         mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
+        record.resolution_notes as string | undefined,
       );
     }
     return { ok: true };
