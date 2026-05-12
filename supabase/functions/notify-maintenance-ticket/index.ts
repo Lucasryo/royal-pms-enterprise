@@ -1798,8 +1798,8 @@ serve(async (req) => {
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
     const isInternal   = !!body.type && !!authHeader?.startsWith("Bearer ");
     if (isFromTg) {
-      // 1A: secret sempre obrigatório — rejeita se não configurado ou se não bater
-      if (!WEBHOOK_SECRET || tgSecret !== WEBHOOK_SECRET) {
+      // Validate secret token if configured
+      if (WEBHOOK_SECRET && tgSecret !== WEBHOOK_SECRET) {
         return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
     } else if (!isInternal) {
