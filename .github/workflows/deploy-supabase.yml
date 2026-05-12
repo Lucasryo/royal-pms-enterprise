@@ -31,33 +31,57 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy public-rates-calendar \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --no-verify-jwt
+          for i in 1 2 3; do
+            if supabase functions deploy public-rates-calendar \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+              --no-verify-jwt; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
 
       - name: Deploy edge function — public-rates-quote
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy public-rates-quote \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --no-verify-jwt
+          for i in 1 2 3; do
+            if supabase functions deploy public-rates-quote \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+              --no-verify-jwt; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
 
       - name: Deploy edge function — public-booking-request
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy public-booking-request \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --no-verify-jwt
+          for i in 1 2 3; do
+            if supabase functions deploy public-booking-request \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+              --no-verify-jwt; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
 
       - name: Deploy edge function — send-push-notification
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy send-push-notification \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --no-verify-jwt
+          for i in 1 2 3; do
+            if supabase functions deploy send-push-notification \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+              --no-verify-jwt; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
 
       - name: Run SQL migrations
         env:
@@ -91,9 +115,15 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy notify-maintenance-ticket \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --no-verify-jwt
+          for i in 1 2 3; do
+            if supabase functions deploy notify-maintenance-ticket \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+              --no-verify-jwt; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
 
       - name: Set Telegram secrets on Edge Function
         env:
