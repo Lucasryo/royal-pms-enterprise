@@ -587,11 +587,12 @@ async function handleCallback(query: Record<string, unknown>) {
     await tg("answerCallbackQuery", { callback_query_id: cbId });
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,inspection_status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
-    // Fix B+4: block if another moderator already assumed
-    if (ticket.inspection_status !== null) {
+    // Block only if another Telegram moderator already set inspector_tg_id
+    // (inspection_status='pending' set by the portal does NOT count as "assumed")
+    if (ticket.inspector_tg_id !== null) {
       await tg("sendMessage", {
         chat_id: chatId,
         text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
@@ -599,13 +600,22 @@ async function handleCallback(query: Record<string, unknown>) {
       });
       return { ok: true };
     }
+    if (ticket.inspection_status === "approved" || ticket.inspection_status === "rejected") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Esta vistoria já foi ${ticket.inspection_status === "approved" ? "aprovada" : "reprovada"}\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
 
-    // Fix B: save inspector_tg_id atomically; only update if inspection_status IS NULL
+    // Atomic update: guard against race condition using inspector_tg_id (not inspection_status)
+    // This allows assumption even when portal set inspection_status='pending' without a TG moderator
     const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "pending",
       inspector_tg_id: fromId,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId).is("inspection_status", null).select("id", { count: "exact", head: true });
+    }).eq("id", ticketId).is("inspector_tg_id", null).select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
       await tg("sendMessage", {
