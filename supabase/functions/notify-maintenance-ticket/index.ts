@@ -1786,17 +1786,6 @@ serve(async (req) => {
     });
   }
   try {
-    const authHeader = req.headers.get("authorization");
-    const body = await req.json();
-
-    // Webhook deduplication — skip if already processed
-    const updateId = body.update_id as number;
-    if (updateId && isDuplicate(updateId)) {
-      return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // 1A: Validate Telegram webhook secret header
     const tgSecret     = req.headers.get("x-telegram-bot-api-secret-token");
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
@@ -1810,19 +1799,34 @@ serve(async (req) => {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
-    let result: Record<string, unknown>;
-
-    if (body.callback_query) {
-      result = await handleCallback(body.callback_query);
-    } else if (body.message?.reply_to_message) {
-      result = await handleReply(body.message);
-    } else if (body.message?.text) {
-      result = await handleMessage(body.message);
-    } else if (body.type) {
-      result = await handleDbWebhook(body, authHeader);
-    } else {
-      result = { ok: true, skipped: "unknown-event" };
+    // 1B: For Telegram updates, respond immediately to prevent retries
+    //     then process the update asynchronously
+    if (isFromTg) {
+      // Deduplication — skip if already processed
+      const updateId = body.update_id as number;
+      if (updateId && isDuplicate(updateId)) {
+        return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // Return 200 OK immediately to Telegram, process in background
+      const eventPromise = body.callback_query
+        ? handleCallback(body.callback_query)
+        : body.message?.reply_to_message
+          ? handleReply(body.message)
+          : body.message?.text
+            ? handleMessage(body.message)
+            : Promise.resolve({ ok: true, skipped: "unknown-event" });
+      eventPromise.catch(err => console.error("[notify] Telegram handler error:", err));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+
+    // Internal/webhook calls — process synchronously
+    const result = body.type
+      ? await handleDbWebhook(body, authHeader)
+      : { ok: true, skipped: "unknown-event" };
 
     return new Response(JSON.stringify(result), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
