@@ -15,6 +15,7 @@ type Ticket = {
   resolution_notes: string | null;
   awaiting_parts: boolean | null;
   inspection_status: 'pending' | 'approved' | 'rejected' | null;
+  telegram_user_id: number | null;
   created_at: string;
   started_at: string | null;
   resolved_at: string | null;
@@ -70,10 +71,10 @@ const isSLABreached = (ticket: Ticket) => {
 export default function MaintenanceQueueBoard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [, setTick] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    const id = setInterval(() => setLastUpdate(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -155,7 +156,7 @@ export default function MaintenanceQueueBoard() {
         <div>
           <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.32em] text-amber-400">Royal PMS · Manutencao</p>
           <h1 className="mt-1 text-3xl sm:text-5xl font-black tracking-tight">Quadro de Chamados</h1>
-          <p className="mt-1 text-xs sm:text-sm text-neutral-400">Atualizacao em tempo real · {new Date().toLocaleString('pt-BR')}</p>
+          <p className="mt-1 text-xs sm:text-sm text-neutral-400">Atualizacao em tempo real · {lastUpdate.toLocaleString('pt-BR')}</p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
           <Stat label="Abertos" value={stats.open} tone="amber" />
@@ -258,11 +259,23 @@ function OpenTicketCard({ ticket }: { ticket: Ticket }) {
   async function assume() {
     const name = prompt('Seu nome (para registro):')?.trim();
     if (name === null) return;
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('maintenance_tickets')
-      .update({ status: 'in_progress', started_at: new Date().toISOString(), updated_at: new Date().toISOString(), status_reason: name || null })
-      .eq('id', ticket.id);
-    if (error) alert('Erro ao assumir: ' + error.message);
+      .update({
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status_reason: name || null,
+        awaiting_parts: false,
+      })
+      .eq('id', ticket.id)
+      .eq('status', 'open')
+      .select();
+    if (error) {
+      alert('Erro ao assumir: ' + error.message);
+    } else if (!data || data.length === 0) {
+      alert('Chamado já foi assumido por outra pessoa.');
+    }
   }
 
   return (
@@ -301,11 +314,25 @@ function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
 
   async function resolve() {
     const note = prompt('Nota de resolucao (opcional):') ?? '';
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('maintenance_tickets')
-      .update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...(note ? { resolution_notes: note } : {}) })
-      .eq('id', ticket.id);
-    if (error) alert('Erro ao resolver: ' + error.message);
+      .update({
+        status: 'resolved',
+        resolved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...(note ? { resolution_notes: note } : {}),
+        inspection_status: null,
+        inspector_tg_id: null,
+        awaiting_parts: false,
+      })
+      .eq('id', ticket.id)
+      .eq('status', 'in_progress')
+      .select();
+    if (error) {
+      alert('Erro ao resolver: ' + error.message);
+    } else if (!data || data.length === 0) {
+      alert('Chamado não está mais em andamento.');
+    }
   }
 
   return (

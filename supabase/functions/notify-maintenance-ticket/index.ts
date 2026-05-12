@@ -11,6 +11,21 @@ const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET")    ?? "";
 const db = createClient(SUPA_URL, SUPA_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+// Webhook deduplication — prevents processing the same update twice
+const processedUpdates = new Map<number, number>();
+const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function isDuplicate(updateId: number): boolean {
+  const now = Date.now();
+  // Clean expired entries
+  for (const [id, ts] of processedUpdates.entries()) {
+    if (now - ts > DEDUP_TTL_MS) processedUpdates.delete(id);
+  }
+  if (processedUpdates.has(updateId)) return true;
+  processedUpdates.set(updateId, now);
+  return false;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -51,15 +66,16 @@ function esc(text: string | null | undefined): string {
   return String(text).replace(/[_*[\]()~`>#+=|{}.!\\-]/g, "\\$&");
 }
 
-// 3A: suporte a dias para tickets abertos há mais de 24h
+// 3A: suporte a dias para tickets abertos ha mais de 24h
 function formatDuration(minutes: number): string {
-  if (minutes < 1) return "menos de 1 min";
-  if (minutes < 60) return `${minutes} min`;
-  if (minutes < 1440) {
-    const h = Math.floor(minutes / 60), m = minutes % 60;
-    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  const m = Math.abs(Math.round(minutes));
+  if (m < 1) return "menos de 1 min";
+  if (m < 60) return `${m} min`;
+  if (m < 1440) {
+    const h = Math.floor(m / 60), rm = m % 60;
+    return rm > 0 ? `${h}h ${rm}min` : `${h}h`;
   }
-  const d = Math.floor(minutes / 1440), h = Math.floor((minutes % 1440) / 60);
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
   return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
@@ -150,6 +166,7 @@ async function logEvent(opts: {
   actorType: "pms_user" | "telegram_user" | "system";
   actorId?: string;
   actorName?: string;
+  actorTgId?: number;
   event: string;
   prevStatus?: string;
   newStatus?: string;
@@ -161,6 +178,7 @@ async function logEvent(opts: {
       actor_type:  opts.actorType,
       actor_id:    opts.actorId   ?? null,
       actor_name:  opts.actorName ?? null,
+      actor_tg_id: opts.actorTgId ?? null,
       event:       opts.event,
       prev_status: opts.prevStatus ?? null,
       new_status:  opts.newStatus  ?? null,
@@ -405,6 +423,11 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if (internalTypes.includes(body.type as string)) {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return { ok: false, error: "unauthorized" };
+    }
+    // Validate actual token value against WEBHOOK_SECRET
+    const token = authHeader.slice(7);
+    if (WEBHOOK_SECRET && token !== WEBHOOK_SECRET) {
+      return { ok: false, error: "invalid token" };
     }
   }
 
@@ -728,7 +751,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
   }
@@ -834,7 +857,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
 
   } else if (action === "parts") {
@@ -852,13 +875,13 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
 
   } else if (action === "details") {
     const elapsed = formatDuration(Math.floor((Date.now() - new Date(ticket.created_at as string).getTime()) / 60000));
     const lines = [
-      `*Chamado \\#${esc((ticket.id as string).slice(0, 8))}*`,
+      `*Chamado \\#${esc(ticket.id as string)}*`,
       `🏠 UH: ${esc(ticket.room_number as string)}`,
       `📌 Título: ${esc(ticket.title as string)}`,
       ticket.description ? `📝 Descrição: ${esc(ticket.description as string)}` : null,
@@ -882,7 +905,7 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId,
       text: `📝 Digite sua nota de andamento \\[note:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
 
   } else if (action === "transfer") {
@@ -1240,13 +1263,7 @@ async function handleReply(message: Record<string, unknown>) {
       parse_mode: "MarkdownV2",
     });
 
-    await sendInspectionRequest(
-      chatId, ticketId, name,
-      ticket.title ?? "",
-      ticket.room_number ?? null,
-      durationPart,
-    );
-
+    // Inspection request is handled by the DB webhook — do not send twice
   } else if (isParts) {
     const { data: ticket } = await db
       .from("maintenance_tickets").select("status").eq("id", ticketId).single();
@@ -1585,7 +1602,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `❌ Informe o motivo do cancelamento \\[cancel:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
   }
@@ -1622,7 +1639,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `🔄 Informe o motivo da reabertura \\[reopen:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
   }
@@ -1659,7 +1676,7 @@ async function handleMessage(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `📌 Nome do técnico para direcionar \\[direct:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
-      reply_markup: { force_reply: true, selective: false },
+      reply_markup: { force_reply: true, selective: true },
     });
     return { ok: true };
   }
@@ -1767,6 +1784,14 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("authorization");
     const body = await req.json();
+
+    // Webhook deduplication — skip if already processed
+    const updateId = body.update_id as number;
+    if (updateId && isDuplicate(updateId)) {
+      return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // 1A: Validate Telegram webhook secret header
     const tgSecret     = req.headers.get("x-telegram-bot-api-secret-token");

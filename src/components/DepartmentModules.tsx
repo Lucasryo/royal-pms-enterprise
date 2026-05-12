@@ -235,25 +235,32 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   }
 
   async function assume(ticket: MaintTicket) {
-    const { error } = await supabase.from('maintenance_tickets').update({
+    const { data, error } = await supabase.from('maintenance_tickets').update({
       status: 'in_progress',
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       status_reason: profile.name,
-    }).eq('id', ticket.id);
+      awaiting_parts: false,
+    }).eq('id', ticket.id).eq('status', 'open').select();
     if (error) toast.error('Erro: ' + error.message);
+    else if (!data || data.length === 0) toast.error('Chamado já foi assumido por outra pessoa.');
     else { toast.success('Chamado assumido.'); fetchTickets(); }
   }
 
   async function resolve(ticket: MaintTicket) {
     const note = prompt('Nota de resolucao (opcional):') ?? '';
-    const { error } = await supabase.from('maintenance_tickets').update({
+    const { data, error } = await supabase.from('maintenance_tickets').update({
       status: 'resolved',
       resolved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      status_reason: profile.name,
       ...(note ? { resolution_notes: note } : {}),
-    }).eq('id', ticket.id);
+      inspection_status: null,
+      inspector_tg_id: null,
+      awaiting_parts: false,
+    }).eq('id', ticket.id).eq('status', 'in_progress').select();
     if (error) toast.error('Erro: ' + error.message);
+    else if (!data || data.length === 0) toast.error('Chamado não está mais em andamento.');
     else { toast.success('Chamado resolvido.'); fetchTickets(); }
   }
 
@@ -293,21 +300,27 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     const reason = prompt('Motivo da reabertura (obrigatorio):')?.trim();
     if (reason === undefined) return;
     if (!reason) { toast.error('Motivo obrigatorio para reabrir.'); return; }
-    const { error } = await supabase.from('maintenance_tickets').update({
+    const { data, error } = await supabase.from('maintenance_tickets').update({
       status: 'open',
       assigned_to: null,
       status_reason: null,
       started_at: null,
       resolved_at: null,
       rating: null,
+      rated_by_tg_id: null,
       inspection_status: null,
       inspector_id: null,
+      inspector_tg_id: null,
       inspection_notes: null,
       inspected_at: null,
+      inspection_requested_at: null,
+      awaiting_parts: false,
+      telegram_user_id: null,
       resolution_notes: `Reaberto: ${reason} (${profile.name})`,
       updated_at: new Date().toISOString(),
-    }).eq('id', ticket.id);
+    }).eq('id', ticket.id).neq('status', 'open').select();
     if (error) toast.error('Erro: ' + error.message);
+    else if (!data || data.length === 0) toast.error('Chamado já está aberto.');
     else { toast.success('Chamado reaberto.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 

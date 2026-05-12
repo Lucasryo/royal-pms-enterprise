@@ -357,7 +357,20 @@ export default function App() {
     const qrToken = new URLSearchParams(window.location.search).get('k') ?? '';
     return <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} qrToken={qrToken} />;
   }
-  if (path === '/board/maintenance') return <MaintenanceQueueBoard />;
+  if (path === '/board/maintenance') {
+    // Requires authentication — do not expose active tickets publicly
+    if (!session) {
+      return (
+        <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
+          <div className="text-center bg-white/5 border border-white/10 rounded-3xl p-8 max-w-sm">
+            <h1 className="text-xl font-black text-white">Acesso restrito</h1>
+            <p className="mt-2 text-sm text-neutral-400">Faca login para visualizar o quadro de manutencao.</p>
+          </div>
+        </div>
+      );
+    }
+    return <MaintenanceQueueBoard />;
+  }
 
   if (loading) {
     return (

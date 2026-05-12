@@ -1,13 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { uploadImage } from '../lib/imgbb';
-import { validateQRToken } from '../lib/qrToken';
 import { AlertTriangle, Camera, CheckCircle2, Loader2, LogOut, Mic, Send, X as CloseIcon } from 'lucide-react';
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 type AuthState = 'loading' | 'login' | 'form';
 
 const ALLOWED_ROLES = ['housekeeping', 'maintenance', 'manager', 'admin', 'reception'];
+
+async function validateQRTokenServer(token: string, roomNumber: string): Promise<boolean> {
+  try {
+    const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${supaUrl}/functions/v1/qr-validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_number: roomNumber, token }),
+    });
+    const data = await res.json();
+    return data.valid === true;
+  } catch {
+    return false;
+  }
+}
 
 const PRIORITY_OPTIONS: Array<{ value: Priority; label: string; color: string; description: string }> = [
   { value: 'low',    label: 'Baixa',   color: 'bg-emerald-50 text-emerald-700 border-emerald-200', description: 'Pode aguardar alguns dias' },
@@ -41,15 +55,15 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1C: Validate QR token on mount before showing anything
+  // 1C: Validate QR token on mount via Edge Function (secret never exposed client-side)
   useEffect(() => {
-    validateQRToken(qrToken, roomNumber).then((valid) => {
+    validateQRTokenServer(qrToken, roomNumber).then((valid) => {
       setTokenValid(valid);
       if (valid) void checkSession();
     });
   }, []);
 
-  // Speech recognition setup
+  // Speech recognition setup + cleanup on unmount
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
@@ -63,6 +77,9 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
     rec.onend = () => setRecording(false);
     rec.onerror = () => setRecording(false);
     recognitionRef.current = rec;
+    return () => {
+      try { rec.abort(); } catch { /* already stopped */ }
+    };
   }, []);
 
   async function checkSession() {
