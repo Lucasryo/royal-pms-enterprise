@@ -1791,7 +1791,6 @@ serve(async (req) => {
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
     const isInternal   = !!body.type && !!authHeader?.startsWith("Bearer ");
     if (isFromTg) {
-      // Validate secret token if configured
       if (WEBHOOK_SECRET && tgSecret !== WEBHOOK_SECRET) {
         return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
@@ -1799,34 +1798,27 @@ serve(async (req) => {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
-    // 1B: For Telegram updates, respond immediately to prevent retries
-    //     then process the update asynchronously
-    if (isFromTg) {
-      // Deduplication — skip if already processed
-      const updateId = body.update_id as number;
-      if (updateId && isDuplicate(updateId)) {
-        return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      // Return 200 OK immediately to Telegram, process in background
-      const eventPromise = body.callback_query
-        ? handleCallback(body.callback_query)
-        : body.message?.reply_to_message
-          ? handleReply(body.message)
-          : body.message?.text
-            ? handleMessage(body.message)
-            : Promise.resolve({ ok: true, skipped: "unknown-event" });
-      eventPromise.catch(err => console.error("[notify] Telegram handler error:", err));
-      return new Response(JSON.stringify({ ok: true }), {
+    // Deduplication — skip if already processed
+    const updateId = body.update_id as number;
+    if (updateId && isDuplicate(updateId)) {
+      return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Internal/webhook calls — process synchronously
-    const result = body.type
-      ? await handleDbWebhook(body, authHeader)
-      : { ok: true, skipped: "unknown-event" };
+    let result: Record<string, unknown>;
+
+    if (body.callback_query) {
+      result = await handleCallback(body.callback_query);
+    } else if (body.message?.reply_to_message) {
+      result = await handleReply(body.message);
+    } else if (body.message?.text) {
+      result = await handleMessage(body.message);
+    } else if (body.type) {
+      result = await handleDbWebhook(body, authHeader);
+    } else {
+      result = { ok: true, skipped: "unknown-event" };
+    }
 
     return new Response(JSON.stringify(result), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
