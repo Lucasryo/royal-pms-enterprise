@@ -91,9 +91,13 @@ export default function MaintenanceQueueBoard() {
       .from('maintenance_tickets')
       .select('*')
       .neq('status', 'cancelled')
-      .neq('status', 'resolved')
+      // inclui resolved apenas quando há vistoria pendente; os demais resolved são excluídos via filtro memo
       .order('created_at', { ascending: false });
-    setTickets((data ?? []) as Ticket[]);
+    // Filtra fora resolved sem vistoria pendente (encerrados definitivamente)
+    const filtered = (data ?? []).filter(
+      (t) => t.status !== 'resolved' || t.inspection_status === 'pending',
+    );
+    setTickets(filtered as Ticket[]);
     setLoading(false);
   }
 

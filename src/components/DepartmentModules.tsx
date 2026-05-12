@@ -358,7 +358,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspection_status: 'rejected',
       inspection_notes: note,
       inspected_at: new Date().toISOString(),
-      resolved_at: null,
+      inspector_id: null,
+      // resolved_at preserved intentionally — clearing it breaks SLA/KPI metrics
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);

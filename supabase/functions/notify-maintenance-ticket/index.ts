@@ -588,7 +588,10 @@ async function handleCallback(query: Record<string, unknown>) {
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
+    if (!ticket) {
+      await tg("sendMessage", { chat_id: chatId, text: `⚠️ Chamado não encontrado\\. Pode ter sido removido\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
 
     // Block only if another Telegram moderator already set inspector_tg_id
     // (inspection_status='pending' set by the portal does NOT count as "assumed")
@@ -661,7 +664,10 @@ async function handleCallback(query: Record<string, unknown>) {
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,room_number,status_reason,inspector_tg_id").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
+    if (!ticket) {
+      await tg("sendMessage", { chat_id: chatId, text: `⚠️ Chamado não encontrado\\. Pode ter sido removido\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
 
     // Secondary DB-level lock check
     if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
@@ -673,11 +679,21 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
-    await db.from("maintenance_tickets").update({
+    // Atomic update — only approve if still pending (prevents double-approval race condition)
+    const { count: approvedCount } = await db.from("maintenance_tickets").update({
       inspection_status: "approved",
       inspected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
+    }).eq("id", ticketId).eq("inspection_status", "pending").select("id", { count: "exact", head: true });
+
+    if (!approvedCount || approvedCount === 0) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Esta vistoria já foi processada por outra ação\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
 
     // 3C: audit
     await logEvent({
@@ -694,6 +710,15 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `✅ *${esc(name)}* aprovou a vistoria de *${esc(ticket.title)}*${uhPart}`,
       parse_mode: "MarkdownV2",
     });
+
+    // Notifica o técnico original que seu trabalho foi aprovado (M9)
+    if (ticket.telegram_user_id && ticket.telegram_user_id !== fromId) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🎉 [${esc(ticket.status_reason ?? "Técnico")}](tg://user?id=${ticket.telegram_user_id})\\, sua vistoria foi *aprovada*\\! Bom trabalho 👏`,
+        parse_mode: "MarkdownV2",
+      });
+    }
 
     await tg("sendMessage", {
       chat_id: chatId,
@@ -722,7 +747,10 @@ async function handleCallback(query: Record<string, unknown>) {
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,inspector_tg_id").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
+    if (!ticket) {
+      await tg("sendMessage", { chat_id: chatId, text: `⚠️ Chamado não encontrado\\. Pode ter sido removido\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
 
     // DB-level lock check
     if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
@@ -771,7 +799,10 @@ async function handleCallback(query: Record<string, unknown>) {
     .from("maintenance_tickets")
     .select("id,status,room_number,title,created_at,status_reason,telegram_user_id,awaiting_parts,resolution_notes,inspection_status,description,assigned_to,priority,resolved_at,inspection_notes,inspected_at,rating")
     .eq("id", ticketId).single();
-  if (!ticket) return { ok: true };
+  if (!ticket) {
+    await tg("sendMessage", { chat_id: chatId, text: `⚠️ Chamado não encontrado\\. Pode ter sido removido\\.`, parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
 
   if (action === "assume") {
     // Fix A+10: atomic update with status guard to prevent double-assume
@@ -819,6 +850,8 @@ async function handleCallback(query: Record<string, unknown>) {
       awaiting_parts: false,
       updated_at: new Date().toISOString(),
     }).eq("id", ticketId);
+    await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
+      event: "parts_received", prevStatus: ticket.status, newStatus: ticket.status });
     if (msgId) await tg("editMessageReplyMarkup", {
       chat_id: chatId, message_id: msgId,
       reply_markup: inProgressKb(ticketId, lockedTgUserId ?? undefined),
@@ -896,7 +929,9 @@ async function handleCallback(query: Record<string, unknown>) {
     });
 
   } else if (action === "transfer") {
-    if (!lockedTgUserId || lockedTgUserId !== fromId) {
+    const mod = await isModerator(chatId, fromId);
+    // Block if: ticket is locked to another Telegram user AND current user is not a moderator
+    if (lockedTgUserId && lockedTgUserId !== fromId && !mod) {
       await tg("sendMessage", {
         chat_id: chatId,
         text: `🔒 Apenas o técnico responsável pode transferir este chamado\\.`,
@@ -912,9 +947,15 @@ async function handleCallback(query: Record<string, unknown>) {
       });
       return { ok: true };
     }
-    const { count: transferCount } = await db.from("maintenance_tickets")
+    // Build atomic update: moderators can release any in_progress ticket;
+    // technicians can only release tickets locked to themselves
+    let transferQuery = db.from("maintenance_tickets")
       .update({ status: "open", telegram_user_id: null, assigned_to: null, status_reason: null, updated_at: new Date().toISOString() })
-      .eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .eq("id", ticketId).eq("status", "in_progress");
+    if (!mod) {
+      transferQuery = transferQuery.eq("telegram_user_id", fromId);
+    }
+    const { count: transferCount } = await transferQuery
       .select("id", { count: "exact", head: true });
     if (!transferCount || transferCount === 0) {
       await tg("sendMessage", {
@@ -1005,7 +1046,8 @@ async function handleReply(message: Record<string, unknown>) {
       inspection_status: "rejected",
       inspection_notes: userText,
       inspected_at: new Date().toISOString(),
-      resolved_at: null,
+      inspector_tg_id: null,
+      // resolved_at preserved intentionally — clearing it breaks SLA/KPI metrics
       awaiting_parts: false,
       updated_at: new Date().toISOString(),
     }).eq("id", ticketId);
@@ -1130,9 +1172,9 @@ async function handleReply(message: Record<string, unknown>) {
       status: "in_progress",
       assigned_to: tech.id,
       status_reason: tech.name,
+      telegram_user_id: null,
       started_at: now,
       updated_at: now,
-      // telegram_user_id não é definido — qualquer técnico pode concluir
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
