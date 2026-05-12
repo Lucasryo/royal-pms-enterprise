@@ -1180,7 +1180,12 @@ async function handleReply(message: Record<string, unknown>) {
       event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
+      text: [
+        `📌 *${esc(name)}* direcionou para *${esc(tech.name)}*:`,
+        `*${esc(ticket.title)}*`,
+        ``,
+        `_${esc(tech.name)}, verifique \\/meus para ver seus chamados\\._`,
+      ].join("\n"),
       parse_mode: "MarkdownV2",
       reply_markup: inProgressKb(ticketId),
     });
@@ -1472,6 +1477,39 @@ async function handleMessage(message: Record<string, unknown>) {
       lines.push(`  \`${t.id}\``);
     }
     await tg("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "MarkdownV2" });
+    return { ok: true };
+  }
+
+  if (cmd === "/vistoria") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    const { data: pending } = await db.from("maintenance_tickets")
+      .select("id,priority,room_number,title,created_at,inspector_tg_id,status_reason")
+      .eq("inspection_status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(10);
+    if (!pending || pending.length === 0) {
+      await tg("sendMessage", { chat_id: chatId, text: `✅ Nenhuma vistoria pendente no momento\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    for (const t of pending) {
+      const mins = Math.round((Date.now() - new Date(t.created_at).getTime()) / 60000);
+      const uhPart = t.room_number ? ` \\(UH ${esc(t.room_number)}\\)` : "";
+      const assumed = t.inspector_tg_id !== null;
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: [
+          `🔍 *Vistoria pendente*`,
+          `${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}`,
+          `👷 Concluído por *${esc(t.status_reason ?? "Técnico")}* — aguarda *${esc(formatDuration(mins))}*`,
+          assumed ? `_Em vistoria por um moderador_` : `_Nenhum moderador assumiu ainda_`,
+        ].join("\n"),
+        parse_mode: "MarkdownV2",
+        reply_markup: assumed ? undefined : inspectionKb(t.id),
+      });
+    }
     return { ok: true };
   }
 
@@ -1789,6 +1827,7 @@ async function handleMessage(message: Record<string, unknown>) {
       `/peças — Chamados aguardando material`,
       `/sla — Chamados com SLA estourado \\(detalhado\\)`,
       "", `*Moderadores\\:*`,
+      `/vistoria — Lista chamados aguardando vistoria`,
       `/liberar \\[UUID\\] — Libera chamado travado`,
       `/reenviar \\[UUID\\] — Reenvia notificação de chamado`,
       `/cancelar \\[UUID\\] — Cancelar chamado com justificativa`,
@@ -1808,6 +1847,24 @@ async function handleMessage(message: Record<string, unknown>) {
   return { ok: true };
 }
 
+// ── audit table check (runs once per cold-start) ────────────────────────────
+let auditTableVerified = false;
+async function verifyAuditTable() {
+  if (auditTableVerified) return;
+  auditTableVerified = true;
+  const { error } = await db.from("maintenance_ticket_events").select("id").limit(1);
+  if (error) {
+    console.error("[CRITICAL] maintenance_ticket_events inacessível:", error.message);
+    if (CHAT_ID) {
+      await tg("sendMessage", {
+        chat_id: CHAT_ID,
+        text: `⚠️ *ALERTA DO BOT:* Tabela de auditoria inacessível\\. Audit trail desativado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    }
+  }
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -1816,6 +1873,8 @@ serve(async (req) => {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  // Fire-and-forget audit table check on first request of each cold-start
+  verifyAuditTable().catch(() => {});
   try {
     const authHeader = req.headers.get("authorization");
     const body = await req.json();
