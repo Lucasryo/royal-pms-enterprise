@@ -560,13 +560,15 @@ async function handleCallback(query: Record<string, unknown>) {
   const action   = data.slice(0, colonIdx);
   const rest     = data.slice(colonIdx + 1);
 
+  // Immediately acknowledge callback to prevent Telegram retries
+  await tg("answerCallbackQuery", { callback_query_id: cbId });
+
   // ── Rating ──────────────────────────────────────────────────────────────
   if (action === "rate") {
     const parts    = rest.split(":");
     const ticketId = parts[0];
     const rating   = Number(parts[1]);
     if (!ticketId || !rating || rating < 1 || rating > 5) {
-      await tg("answerCallbackQuery", { callback_query_id: cbId });
       return { ok: true };
     }
 
@@ -580,18 +582,13 @@ async function handleCallback(query: Record<string, unknown>) {
     if (!ratingCount || ratingCount === 0) {
       const { data: tk } = await db
         .from("maintenance_tickets").select("rating").eq("id", ticketId).single();
-      await tg("answerCallbackQuery", {
-        callback_query_id: cbId,
+      await tg("sendMessage", {
+        chat_id: chatId,
         text: `✅ Este chamado já foi avaliado com ${tk?.rating ?? "?"}/5 estrelas.`,
-        show_alert: true,
+        parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
-    await tg("answerCallbackQuery", {
-      callback_query_id: cbId,
-      text: `⭐ Avaliacao ${rating}/5 registrada! Obrigado.`,
-      show_alert: false,
-    });
     if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
     await tg("sendMessage", {
       chat_id: chatId,
@@ -605,14 +602,13 @@ async function handleCallback(query: Record<string, unknown>) {
   if (action === "insp_assume") {
     const ticketId = rest;
     if (!await isModerator(chatId, fromId)) {
-      await tg("answerCallbackQuery", {
-        callback_query_id: cbId,
-        text: "🔒 Apenas moderadores do grupo podem assumir a vistoria.",
-        show_alert: true,
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Apenas moderadores do grupo podem assumir a vistoria\\.`,
+        parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
-    await tg("answerCallbackQuery", { callback_query_id: cbId });
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,room_number,inspection_status").eq("id", ticketId).single();
@@ -668,14 +664,13 @@ async function handleCallback(query: Record<string, unknown>) {
 
     // Fix B: validate lock against DB inspector_tg_id too
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("answerCallbackQuery", {
-        callback_query_id: cbId,
-        text: "🔒 Apenas o vistoriador que assumiu pode aprovar.",
-        show_alert: true,
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Apenas o vistoriador que assumiu pode aprovar\\.`,
+        parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
-    await tg("answerCallbackQuery", { callback_query_id: cbId });
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,room_number,status_reason,inspector_tg_id").eq("id", ticketId).single();
@@ -729,14 +724,13 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("answerCallbackQuery", {
-        callback_query_id: cbId,
-        text: "🔒 Apenas o vistoriador que assumiu pode reprovar.",
-        show_alert: true,
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🔒 Apenas o vistoriador que assumiu pode reprovar\\.`,
+        parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
-    await tg("answerCallbackQuery", { callback_query_id: cbId });
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,inspector_tg_id").eq("id", ticketId).single();
@@ -757,7 +751,7 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Descreva o problema encontrado..." },
     });
     return { ok: true };
   }
@@ -768,22 +762,19 @@ async function handleCallback(query: Record<string, unknown>) {
   const lockedTgUserId = restParts[1] ? Number(restParts[1]) : null;
 
   if (!ticketId) {
-    await tg("answerCallbackQuery", { callback_query_id: cbId });
     return { ok: true };
   }
 
   if (lockedTgUserId && lockedTgUserId !== fromId) {
     const { data: tk } = await db
       .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await tg("answerCallbackQuery", {
-      callback_query_id: cbId,
-      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado.`,
-      show_alert: true,
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado\\.`,
+      parse_mode: "MarkdownV2",
     });
     return { ok: true };
   }
-
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
 
   // 3C: select específico — evita carregar campos desnecessários
   const { data: ticket } = await db
@@ -864,7 +855,7 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Digite a solução aqui..." },
     });
 
   } else if (action === "parts") {
@@ -883,7 +874,7 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Descreva as peças necessárias..." },
     });
 
   } else if (action === "details") {
@@ -914,7 +905,7 @@ async function handleCallback(query: Record<string, unknown>) {
       text: `📝 Digite sua nota de andamento \\[note:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Digite sua nota de andamento..." },
     });
 
   } else if (action === "transfer") {
@@ -1613,7 +1604,7 @@ async function handleMessage(message: Record<string, unknown>) {
       text: `❌ Informe o motivo do cancelamento \\[cancel:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Motivo do cancelamento..." },
     });
     return { ok: true };
   }
@@ -1651,7 +1642,7 @@ async function handleMessage(message: Record<string, unknown>) {
       text: `🔄 Informe o motivo da reabertura \\[reopen:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Motivo da reabertura..." },
     });
     return { ok: true };
   }
@@ -1689,7 +1680,7 @@ async function handleMessage(message: Record<string, unknown>) {
       text: `📌 Nome do técnico para direcionar \\[direct:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(tk.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, selective: true },
+      reply_markup: { force_reply: true, input_field_placeholder: "Nome do técnico..." },
     });
     return { ok: true };
   }
