@@ -324,6 +324,7 @@ function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
         inspection_status: null,
         inspector_tg_id: null,
         awaiting_parts: false,
+        inspection_requested_at: new Date().toISOString(),
       })
       .eq('id', ticket.id)
       .eq('status', 'in_progress')

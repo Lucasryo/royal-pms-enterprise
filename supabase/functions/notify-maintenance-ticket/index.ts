@@ -611,10 +611,20 @@ async function handleCallback(query: Record<string, unknown>) {
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,inspection_status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,inspection_status,status").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
-    // Fix B+4: block if another moderator already assumed
+    // Only allow assuming inspection on resolved tickets
+    if (ticket.status !== "resolved") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Este chamado não está aguardando vistoria \\(status: ${esc(ticket.status ?? "desconhecido")}\\)\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
+    // Block if another moderator already assumed (inspection_status is "pending" and inspector_tg_id is set)
     if (ticket.inspection_status !== null) {
       await tg("sendMessage", {
         chat_id: chatId,
@@ -1263,7 +1273,15 @@ async function handleReply(message: Record<string, unknown>) {
       parse_mode: "MarkdownV2",
     });
 
-    // Inspection request is handled by the DB webhook — do not send twice
+    // Send inspection request directly (DB trigger removed)
+    await sendInspectionRequest(
+      CHAT_ID, ticketId,
+      name,
+      ticket.title ?? "",
+      ticket.room_number ?? null,
+      mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
+      userText || undefined,
+    );
   } else if (isParts) {
     const { data: ticket } = await db
       .from("maintenance_tickets").select("status").eq("id", ticketId).single();

@@ -244,7 +244,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }).eq('id', ticket.id).eq('status', 'open').select();
     if (error) toast.error('Erro: ' + error.message);
     else if (!data || data.length === 0) toast.error('Chamado já foi assumido por outra pessoa.');
-    else { toast.success('Chamado assumido.'); fetchTickets(); }
+    else { toast.success('Chamado assumido.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function resolve(ticket: MaintTicket) {
@@ -258,10 +258,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspection_status: null,
       inspector_tg_id: null,
       awaiting_parts: false,
+      inspection_requested_at: new Date().toISOString(),
     }).eq('id', ticket.id).eq('status', 'in_progress').select();
     if (error) toast.error('Erro: ' + error.message);
     else if (!data || data.length === 0) toast.error('Chamado não está mais em andamento.');
-    else { toast.success('Chamado resolvido.'); fetchTickets(); }
+    else { toast.success('Chamado resolvido.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
   }
 
   async function direct(ticket: MaintTicket) {
