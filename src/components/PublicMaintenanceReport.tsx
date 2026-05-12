@@ -21,7 +21,7 @@ async function validateQRTokenServer(token: string, roomNumber: string): Promise
   }
 }
 
-async function validatePin(pin: string): Promise<{ valid: boolean; floor_number?: number; attendant_name?: string; attendant_number?: number }> {
+async function validatePin(pin: string): Promise<{ valid: boolean; name?: string; floor_number?: number }> {
   try {
     const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
     const res = await fetch(`${supaUrl}/functions/v1/pin-validate`, {
@@ -66,7 +66,6 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
   const [recording, setRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pinInputRef = useRef<HTMLInputElement>(null);
 
   // Validate QR token on mount
   useEffect(() => {
@@ -75,13 +74,6 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       if (valid) setAuthState('login');
     });
   }, []);
-
-  // Focus PIN input on login screen
-  useEffect(() => {
-    if (authState === 'login' && pinInputRef.current) {
-      pinInputRef.current.focus();
-    }
-  }, [authState]);
 
   // Speech recognition setup + cleanup on unmount
   useEffect(() => {
@@ -117,7 +109,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       return;
     }
 
-    setStaffName(result.attendant_name ?? '');
+    setStaffName(result.name ?? '');
     setStaffFloor(result.floor_number ?? null);
     setAuthState('form');
   }
@@ -127,7 +119,6 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       const newPin = pin + digit;
       setPin(newPin);
       if (newPin.length === 4) {
-        // Auto-submit when 4 digits entered
         setTimeout(() => {
           setPinLoading(true);
           setPinError(null);
@@ -138,7 +129,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
               setPin('');
               return;
             }
-            setStaffName(result.attendant_name ?? '');
+            setStaffName(result.name ?? '');
             setStaffFloor(result.floor_number ?? null);
             setAuthState('form');
           });
@@ -314,12 +305,8 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
               })}
             </div>
 
-            {/* Manual submit button (hidden, for accessibility) */}
-            <button type="submit" className="hidden" disabled={pinLoading || pin.length !== 4}>
-              Entrar
-            </button>
+            <button type="submit" className="hidden" disabled={pinLoading || pin.length !== 4}>Entrar</button>
 
-            {/* Loading state */}
             {pinLoading && (
               <div className="flex items-center justify-center gap-2 text-neutral-500 text-sm">
                 <Loader2 className="w-4 h-4 animate-spin" />
