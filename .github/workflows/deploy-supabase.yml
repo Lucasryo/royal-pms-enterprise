@@ -196,6 +196,42 @@ jobs:
             sleep 10
           done
 
+      - name: Set Gemini API key for bot-simulator
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        continue-on-error: true
+        run: |
+          supabase secrets set \
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Deploy edge function — execute-flow
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if supabase functions deploy execute-flow \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
+
+      - name: Run marketing tables migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<'SQLEOF'
+          {
+            "query": "create table if not exists public.marketing_contacts (id uuid default gen_random_uuid() primary key, name text not null, phone text, email text, channel text default 'whatsapp' check (channel in ('whatsapp','instagram','facebook','email','google','twitter','linkedin')), opt_out boolean not null default false, opt_out_at timestamptz, lead_score integer not null default 0 check (lead_score >= 0 and lead_score <= 100), lead_temp text not null default 'cold' check (lead_temp in ('hot','warm','cold')), tags text[] not null default '{}', notes text, source text, total_conversations integer not null default 0, last_contact_at timestamptz, created_at timestamptz default timezone('utc', now()) not null, updated_at timestamptz default timezone('utc', now()) not null); create index if not exists idx_marketing_contacts_opt_out on public.marketing_contacts(opt_out) where opt_out = false; create index if not exists idx_marketing_contacts_lead_temp on public.marketing_contacts(lead_temp, lead_score desc); alter table public.marketing_contacts enable row level security; do $$ begin if not exists (select 1 from pg_policies where tablename='marketing_contacts' and policyname='marketing_contacts_staff') then create policy marketing_contacts_staff on public.marketing_contacts for all to authenticated using (true) with check (true); end if; end $$; create table if not exists public.marketing_flows (id uuid default gen_random_uuid() primary key, name text not null, trigger_type text not null check (trigger_type in ('first_message','keyword','no_reply','reservation_event','manual')), trigger_condition jsonb not null default '{}', steps jsonb not null default '[]', status text not null default 'inactive' check (status in ('active','inactive')), channel text not null default 'whatsapp' check (channel in ('whatsapp','instagram','facebook','all')), created_by uuid references auth.users(id), created_at timestamptz default timezone('utc', now()) not null, updated_at timestamptz default timezone('utc', now()) not null); create table if not exists public.marketing_flow_executions (id uuid default gen_random_uuid() primary key, flow_id uuid not null references public.marketing_flows(id) on delete cascade, contact_id uuid references public.marketing_contacts(id), contact_identifier text, status text not null default 'running' check (status in ('running','completed','failed','cancelled')), current_step integer not null default 0, context jsonb not null default '{}', started_at timestamptz default timezone('utc', now()) not null, completed_at timestamptz, error text); create index if not exists idx_marketing_flows_status on public.marketing_flows(status); create index if not exists idx_flow_executions_flow_id on public.marketing_flow_executions(flow_id, status); create index if not exists idx_flow_executions_contact on public.marketing_flow_executions(contact_id, status); alter table public.marketing_flows enable row level security; alter table public.marketing_flow_executions enable row level security; do $$ begin if not exists (select 1 from pg_policies where tablename='marketing_flows' and policyname='flows_staff') then create policy flows_staff on public.marketing_flows for all to authenticated using (true) with check (true); end if; if not exists (select 1 from pg_policies where tablename='marketing_flow_executions' and policyname='flow_executions_staff') then create policy flow_executions_staff on public.marketing_flow_executions for all to authenticated using (true) with check (true); end if; end $$;"
+          }
+          SQLEOF
+
       - name: Add rating and inspection columns to maintenance_tickets
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
