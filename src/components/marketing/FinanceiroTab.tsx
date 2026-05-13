@@ -351,14 +351,17 @@ export function FinanceiroTab() {
                       </button>
                     </div>
                   ) : (
-                    <input
-                      type="password"
-                      value={tokenInput}
-                      onChange={e => setTokenInput(e.target.value)}
-                      placeholder="APP_USR-000000000000000-000000-..."
-                      className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm font-mono border-0 focus:ring-2 focus:ring-amber-500 outline-none"
-                      autoFocus
-                    />
+                    <form onSubmit={e => { e.preventDefault(); handleSaveToken(); }} autoComplete="off">
+                      <input
+                        type="password"
+                        value={tokenInput}
+                        onChange={e => setTokenInput(e.target.value)}
+                        placeholder="APP_USR-000000000000000-000000-..."
+                        className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm font-mono border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+                        autoComplete="new-password"
+                        autoFocus
+                      />
+                    </form>
                   )}
 
                   <p className="text-[10px] text-neutral-400 mt-1">
