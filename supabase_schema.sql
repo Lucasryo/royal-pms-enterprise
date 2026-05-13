@@ -149,6 +149,9 @@ create table if not exists public.maintenance_tickets (
   resolved_at timestamptz,
   status_reason text,
   resolution_notes text,
+  telegram_chat_id bigint,
+  telegram_message_id bigint,
+  telegram_card_updated_at timestamptz,
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
 );
@@ -743,6 +746,9 @@ alter table public.maintenance_tickets add column if not exists started_at times
 alter table public.maintenance_tickets add column if not exists status_reason text;
 alter table public.maintenance_tickets add column if not exists resolution_notes text;
 alter table public.maintenance_tickets add column if not exists inspection_requested_at timestamptz;
+alter table public.maintenance_tickets add column if not exists telegram_chat_id bigint;
+alter table public.maintenance_tickets add column if not exists telegram_message_id bigint;
+alter table public.maintenance_tickets add column if not exists telegram_card_updated_at timestamptz;
 
 alter table public.reservations add column if not exists checked_in_at timestamptz;
 alter table public.reservations add column if not exists checked_out_at timestamptz;
@@ -1051,6 +1057,9 @@ create index if not exists idx_pos_orders_reservation on public.pos_orders(reser
 create index if not exists idx_pos_items_order on public.pos_order_items(order_id);
 create index if not exists idx_maintenance_status on public.maintenance_tickets(status, priority);
 create index if not exists idx_maintenance_room on public.maintenance_tickets(room_number);
+create index if not exists idx_maintenance_tickets_telegram_card
+  on public.maintenance_tickets(telegram_chat_id, telegram_message_id)
+  where telegram_chat_id is not null and telegram_message_id is not null;
 create index if not exists idx_maintenance_notifications_ticket on public.maintenance_notification_logs(ticket_id, created_at desc);
 create index if not exists idx_lost_found_status on public.lost_found_items(status, found_at desc);
 create index if not exists idx_shift_handovers_date on public.shift_handovers(shift_date desc);

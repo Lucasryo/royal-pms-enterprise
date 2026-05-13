@@ -111,6 +111,20 @@ jobs:
           }
           SQL
 
+      - name: Add Telegram card columns to maintenance_tickets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @- <<'SQLEOF'
+          {
+            "query": "alter table public.maintenance_tickets add column if not exists telegram_chat_id bigint; alter table public.maintenance_tickets add column if not exists telegram_message_id bigint; alter table public.maintenance_tickets add column if not exists telegram_card_updated_at timestamptz; create index if not exists idx_maintenance_tickets_telegram_card on public.maintenance_tickets(telegram_chat_id, telegram_message_id) where telegram_chat_id is not null and telegram_message_id is not null;"
+          }
+          SQLEOF
+
       - name: Deploy edge function — notify-maintenance-ticket
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -168,6 +182,6 @@ jobs:
             -H "Content-Type: application/json" \
             -d @- <<'SQLEOF'
           {
-            "query": "alter table public.maintenance_tickets add column if not exists rating int check (rating is null or (rating >= 1 and rating <= 5)); alter table public.maintenance_tickets add column if not exists inspection_status text check (inspection_status is null or inspection_status in ('pending','approved','rejected')); alter table public.maintenance_tickets add column if not exists inspector_id uuid references auth.users(id); alter table public.maintenance_tickets add column if not exists inspection_notes text; alter table public.maintenance_tickets add column if not exists inspected_at timestamptz; alter table public.maintenance_tickets add column if not exists inspection_requested_at timestamptz; create index if not exists idx_maintenance_tickets_inspection_requested_at on public.maintenance_tickets(inspection_requested_at) where inspection_requested_at is not null;"
+            "query": "alter table public.maintenance_tickets add column if not exists rating int check (rating is null or (rating >= 1 and rating <= 5)); alter table public.maintenance_tickets add column if not exists inspection_status text check (inspection_status is null or inspection_status in ('pending','approved','rejected')); alter table public.maintenance_tickets add column if not exists inspector_id uuid references auth.users(id); alter table public.maintenance_tickets add column if not exists inspection_notes text; alter table public.maintenance_tickets add column if not exists inspected_at timestamptz; alter table public.maintenance_tickets add column if not exists inspection_requested_at timestamptz; alter table public.maintenance_tickets add column if not exists telegram_chat_id bigint; alter table public.maintenance_tickets add column if not exists telegram_message_id bigint; alter table public.maintenance_tickets add column if not exists telegram_card_updated_at timestamptz; create index if not exists idx_maintenance_tickets_inspection_requested_at on public.maintenance_tickets(inspection_requested_at) where inspection_requested_at is not null; create index if not exists idx_maintenance_tickets_telegram_card on public.maintenance_tickets(telegram_chat_id, telegram_message_id) where telegram_chat_id is not null and telegram_message_id is not null;"
           }
           SQLEOF

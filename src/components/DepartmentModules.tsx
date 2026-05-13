@@ -112,6 +112,9 @@ type MaintTicket = {
   inspected_at: string | null;
   awaiting_parts: boolean | null;
   telegram_user_id: number | null;
+  telegram_chat_id: number | null;
+  telegram_message_id: number | null;
+  telegram_card_updated_at: string | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -226,7 +229,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_chat_id,telegram_message_id,telegram_card_updated_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -763,6 +766,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 text-[10px] font-black uppercase">VISTORIA</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase ${ticket.telegram_message_id ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                          {ticket.telegram_message_id ? 'CARD TELEGRAM OK' : 'REENVIAR CARD'}
+                        </span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
