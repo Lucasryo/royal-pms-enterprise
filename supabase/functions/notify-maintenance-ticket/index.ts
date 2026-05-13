@@ -688,6 +688,23 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
+    // Duplicate Telegram callbacks can arrive after the first one saved the inspector.
+    if (Number(ticket.inspector_tg_id) === fromId) {
+      if (msgId) {
+        await tg("editMessageReplyMarkup", {
+          chat_id: chatId, message_id: msgId,
+          reply_markup: inspectorActionsKb(ticketId, fromId),
+        });
+      }
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Vistoria já está assumida por você\\. Use os botões abaixo para aprovar ou reprovar\\.`,
+        parse_mode: "MarkdownV2",
+        reply_markup: inspectorActionsKb(ticketId, fromId),
+      });
+      return { ok: true };
+    }
+
     // Block only if another moderator already assumed it.
     if (ticket.inspector_tg_id) {
       await tg("sendMessage", {
@@ -706,6 +723,20 @@ async function handleCallback(query: Record<string, unknown>) {
     }).eq("id", ticketId).eq("status", "resolved").is("inspector_tg_id", null).select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("inspector_tg_id")
+        .eq("id", ticketId)
+        .single();
+      if (Number(current?.inspector_tg_id) === fromId) {
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `✅ Vistoria já está assumida por você\\. Use os botões abaixo para aprovar ou reprovar\\.`,
+          parse_mode: "MarkdownV2",
+          reply_markup: inspectorActionsKb(ticketId, fromId),
+        });
+        return { ok: true };
+      }
       await tg("sendMessage", {
         chat_id: chatId,
         text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
@@ -1389,7 +1420,11 @@ async function handleReply(message: Record<string, unknown>) {
       awaiting_parts: false,
       inspection_status: "pending",
       inspector_tg_id: null,
+      inspection_notes: null,
+      inspected_at: null,
       inspection_requested_at: null,
+      rating: null,
+      rated_by_tg_id: null,
     }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
 
     if (!resolvedCount || resolvedCount === 0) {
