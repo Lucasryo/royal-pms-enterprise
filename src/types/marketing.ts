@@ -15,6 +15,8 @@ export interface Lead {
   assignedTo?: string;
   tags?: string[];
   internalNotes?: string;
+  opt_out?: boolean;
+  opt_out_at?: string | null;
 }
 
 export interface Message {

@@ -227,6 +227,15 @@ function LeadInboxTab() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {selected.opt_out && (
+                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[9px] font-black uppercase tracking-wider">OPT-OUT</span>
+              )}
+              <button
+                onClick={toggleOptOut}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${selected.opt_out ? 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+              >
+                🚫 {selected.opt_out ? 'Remover opt-out' : 'Opt-out'}
+              </button>
               {selected.status !== 'resolved' && (
                 <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Resolver
@@ -1231,6 +1240,11 @@ function BroadcastsTab() {
         <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
           <Send className="w-4 h-4" /> Novo disparo
         </button>
+      </div>
+
+      <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+        <span className="shrink-0">⚠️</span>
+        <span>Contatos com opt-out ativo são excluídos automaticamente dos envios (LGPD).</span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
