@@ -76,7 +76,7 @@ serve(async (req) => {
           await adminClient
             .from("marketing_contacts")
             .update({
-              last_message: parsed.body,
+              last_message: emailPreview(parsed),
               last_message_at: new Date().toISOString(),
               unread_count: (contact.unread_count ?? 0) + 1,
               status: "new",
@@ -121,7 +121,7 @@ async function upsertContact(email: ParsedEmail) {
       email: email.fromEmail,
       name: email.fromName || email.fromEmail,
       channel: "email",
-      last_message: email.body,
+      last_message: emailPreview(email),
       last_message_at: new Date().toISOString(),
       status: "new",
       sentiment: "neutral",
@@ -304,8 +304,13 @@ function extractEmail(value: string) {
   return (value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "").toLowerCase();
 }
 
+function emailPreview(email: ParsedEmail) {
+  const body = email.body.replace(/\s+/g, " ").trim();
+  return email.subject ? `${email.subject} - ${body}`.slice(0, 500) : body.slice(0, 500);
+}
+
 function cleanBody(value: string) {
-  return value
+  const withoutMarkup = value
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -315,9 +320,37 @@ function cleanBody(value: string) {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16)));
+
+  return normalizeEmailBody(withoutMarkup)
     .slice(0, 12000);
+}
+
+function normalizeEmailBody(value: string) {
+  const lines = value
+    .replace(/\r\n/g, "\n")
+    .replace(/\t/g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/g, ""));
+
+  const cleaned: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^>/.test(trimmed)) break;
+    if (/^Em .+ escreveu:$/i.test(trimmed)) break;
+    if (/^On .+ wrote:$/i.test(trimmed)) break;
+    if (/^De:\s|^From:\s|^Enviado:\s|^Sent:\s|^Para:\s|^To:\s|^Assunto:\s|^Subject:\s/i.test(trimmed)) break;
+    if (/^-{2,}\s*(Original Message|Mensagem original)\s*-{2,}$/i.test(trimmed)) break;
+    cleaned.push(line);
+  }
+
+  return cleaned
+    .join("\n")
+    .replace(/[ \u00a0]{2,}/g, " ")
+    .replace(/\n[ \u00a0]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function json(body: unknown, status = 200) {

@@ -95,6 +95,7 @@ interface BotConfig {
 
 const CHANNELS = [
   { id: 'whatsapp', icon: <MessageSquare className="w-3 h-3" />, color: '#10b981', name: 'WhatsApp' },
+  { id: 'email', icon: <Mail className="w-3 h-3" />, color: '#f59e0b', name: 'E-mail' },
   { id: 'instagram', icon: <Instagram className="w-3 h-3" />, color: '#e11d48', name: 'Instagram' },
   { id: 'facebook', icon: <Facebook className="w-3 h-3" />, color: '#3b82f6', name: 'Facebook' },
   { id: 'twitter', icon: <Twitter className="w-3 h-3" />, color: '#0a0a0a', name: 'X / Twitter' },
@@ -169,6 +170,11 @@ function formatMessageTime(iso: string) {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatPreview(subject: string | null | undefined, body: string) {
+  const cleanedBody = body.replace(/\s+/g, ' ').trim();
+  return subject ? `${subject} - ${cleanedBody}` : cleanedBody;
+}
+
 function mapInboxMessage(row: InboxMessageRow): Message {
   return {
     id: row.id,
@@ -221,6 +227,7 @@ function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
 function LeadInboxTab() {
   const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
   const [selectedId, setSelectedId] = useState<string | null>('1');
+  const [activeChannel, setActiveChannel] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
@@ -328,7 +335,7 @@ function LeadInboxTab() {
 
           setLeads(prev => prev.map(lead => lead.id === row.contact_id ? {
             ...lead,
-            lastMessage: row.body,
+            lastMessage: formatPreview(row.subject, row.body),
             lastMessageAt: row.created_at,
             unreadCount: row.direction === 'in' && row.contact_id !== selectedId ? (lead.unreadCount || 0) + 1 : lead.unreadCount,
             status: row.direction === 'in' ? 'new' : lead.status,
@@ -356,10 +363,14 @@ function LeadInboxTab() {
   }, [selectedId]);
 
   const filteredLeads = leads.filter(l => {
+    if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
     if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+
+  const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
+  const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
 
   async function sendMessage() {
     if (!messageInput.trim() || !selectedId) return;
@@ -401,7 +412,7 @@ function LeadInboxTab() {
   return (
     <div className="flex h-[75vh] min-h-[500px] rounded-3xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
       {/* Sidebar */}
-      <div className="w-72 shrink-0 border-r border-neutral-100 flex flex-col">
+      <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
         <div className="p-4 border-b border-neutral-100 space-y-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
@@ -411,6 +422,28 @@ function LeadInboxTab() {
               placeholder="Buscar..."
               className="w-full pl-9 pr-3 py-2 bg-neutral-50 rounded-xl text-xs font-medium border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {channelOptions.map(channel => {
+              const count = channel.id === 'all' ? leads.length : leads.filter(lead => lead.channel === channel.id).length;
+              return (
+                <button
+                  key={channel.id}
+                  onClick={() => {
+                    setActiveChannel(channel.id);
+                    const nextLead = leads.find(lead => (channel.id === 'all' || lead.channel === channel.id) && (activeFilter === 'all' || lead.status === activeFilter));
+                    setSelectedId(nextLead?.id ?? null);
+                  }}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }}>{channel.icon}</span>
+                    <span className="truncate">{channel.name}</span>
+                  </span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${activeChannel === channel.id ? 'bg-white/15 text-white' : 'bg-white text-neutral-500'}`}>{count}</span>
+                </button>
+              );
+            })}
           </div>
           <div className="flex gap-1 overflow-x-auto scrollbar-none">
             {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
@@ -468,6 +501,10 @@ function LeadInboxTab() {
               <div>
                 <p className="font-bold text-sm text-neutral-900">{selected.guestName}</p>
                 <div className="flex items-center gap-2">
+                  {(() => {
+                    const channel = CHANNELS.find(c => c.id === selected.channel);
+                    return channel ? <span style={{ color: channel.color }} className="flex items-center gap-1 text-[10px] font-bold">{channel.icon}{channel.name}</span> : null;
+                  })()}
                   <StatusBadge status={selected.status} />
                   <SentimentIcon s={selected.sentiment} />
                 </div>
@@ -486,9 +523,15 @@ function LeadInboxTab() {
           <div className="flex-1 overflow-y-auto p-5 space-y-3">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
-                  {msg.text}
-                  <p className={`text-[9px] mt-1 ${msg.type === 'out' ? 'text-neutral-400' : 'text-neutral-400'}`}>{msg.time}</p>
+                <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : selected?.channel === 'email' ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
+                  {selected?.channel === 'email' && msg.subject && (
+                    <div className="mb-2 border-b border-neutral-100 pb-2">
+                      <p className="text-[9px] font-black uppercase tracking-wider text-amber-600">Assunto</p>
+                      <p className="text-sm font-black text-neutral-900">{msg.subject}</p>
+                    </div>
+                  )}
+                  <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                  <p className={`text-[9px] mt-2 ${msg.type === 'out' ? 'text-neutral-400' : 'text-neutral-400'}`}>{msg.time}</p>
                 </div>
               </div>
             ))}
