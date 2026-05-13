@@ -923,7 +923,7 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
+      text: `✍️ Descreva a solução \\[resolve:${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
       reply_markup: { force_reply: true, input_field_placeholder: "Digite a solução aqui..." },
@@ -1257,11 +1257,19 @@ async function handleReply(message: Record<string, unknown>) {
     return { ok: true };
   }
 
-  // ── Ticket force-reply responses [UUID] or [UUID|LOCKED_TG_ID] ───────────
-  const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  // ── Ticket force-reply responses ─────────────────────────────────────────
+  const resolveMatch = replyText.match(/\[resolve:([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  const legacyResolveMatch = !resolveMatch && replyText.startsWith("✍️")
+    ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
+    : null;
+  const partsMatch = replyText.startsWith("🔩")
+    ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
+    : null;
+  const match = resolveMatch ?? legacyResolveMatch ?? partsMatch;
   if (!match) return { ok: true };
   const ticketId       = match[1];
   const lockedTgUserId = match[2] ? Number(match[2]) : null;
+  const solutionText   = userText.trim();
 
   if (lockedTgUserId && lockedTgUserId !== fromId) {
     const { data: tk } = await db
@@ -1274,10 +1282,19 @@ async function handleReply(message: Record<string, unknown>) {
     return { ok: true };
   }
 
-  const isResolve = replyText.startsWith("✍️");
-  const isParts   = replyText.startsWith("🔩");
+  const isResolve = !!(resolveMatch ?? legacyResolveMatch);
+  const isParts   = !!partsMatch;
 
   if (isResolve) {
+    if (!solutionText) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Envie uma descrição da solução para concluir o chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
     const { data: ticket } = await db
       .from("maintenance_tickets").select("created_at,title,room_number,status").eq("id", ticketId).single();
 
@@ -1301,7 +1318,7 @@ async function handleReply(message: Record<string, unknown>) {
       status: "resolved",
       resolved_at: now,
       updated_at: now,
-      resolution_notes: userText,
+      resolution_notes: solutionText,
       status_reason: name,
       awaiting_parts: false,
       inspection_status: null,
@@ -1323,14 +1340,14 @@ async function handleReply(message: Record<string, unknown>) {
       ticketId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
       event: "resolved", prevStatus: "in_progress", newStatus: "resolved",
-      notes: userText.slice(0, 500),
+      notes: solutionText.slice(0, 500),
     });
 
     const durationPart = mins !== null ? ` em *${esc(formatDuration(mins))}*` : "";
 
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✅ Concluído${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}`,
+      text: `✅ Concluído${durationPart} por *${esc(name)}*\\!\n📝 ${esc(solutionText)}`,
       parse_mode: "MarkdownV2",
     });
 
@@ -1341,7 +1358,7 @@ async function handleReply(message: Record<string, unknown>) {
       ticket.title ?? "",
       ticket.room_number ?? null,
       mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
-      userText || undefined,
+      solutionText,
     );
   } else if (isParts) {
     const { data: ticket } = await db
