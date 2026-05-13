@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { SmtpClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +14,112 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+// Minimal SMTP client using raw TCP — avoids denomailer STARTTLS issues with Locaweb
+class SmtpSender {
+  private conn!: Deno.TlsConn | Deno.TcpConn;
+  private encoder = new TextEncoder();
+  private decoder = new TextDecoder();
+  private buf = new Uint8Array(65536);
+
+  async connect(host: string, port: number, tls: boolean) {
+    if (tls) {
+      this.conn = await Deno.connectTls({ hostname: host, port });
+    } else {
+      this.conn = await Deno.connect({ hostname: host, port });
+    }
+    await this.readLine(); // 220 greeting
+  }
+
+  async send(cmd: string) {
+    await this.conn.write(this.encoder.encode(cmd + "\r\n"));
+  }
+
+  async readLine(): Promise<string> {
+    let result = "";
+    const single = new Uint8Array(1);
+    while (true) {
+      await this.conn.read(single);
+      const ch = this.decoder.decode(single);
+      if (ch === "\n") break;
+      if (ch !== "\r") result += ch;
+    }
+    // Read continuation lines (e.g. "250-..." multi-line responses)
+    while (result[3] === "-") {
+      let line = "";
+      while (true) {
+        await this.conn.read(single);
+        const ch = this.decoder.decode(single);
+        if (ch === "\n") break;
+        if (ch !== "\r") line += ch;
+      }
+      result = line;
+    }
+    const code = parseInt(result.substring(0, 3), 10);
+    if (code >= 400) throw new Error(`SMTP error ${code}: ${result.substring(4)}`);
+    return result;
+  }
+
+  async cmd(command: string): Promise<string> {
+    await this.send(command);
+    return this.readLine();
+  }
+
+  async upgradeToTls(host: string) {
+    await this.send("STARTTLS");
+    await this.readLine();
+    this.conn = await Deno.startTls(this.conn as Deno.TcpConn, { hostname: host });
+  }
+
+  async sendEmail(opts: {
+    host: string; port: number; user: string; pass: string;
+    from: string; to: string; subject: string; body: string; fromDisplay: string;
+  }) {
+    const useSsl = opts.port === 465;
+    await this.connect(opts.host, opts.port, useSsl);
+
+    await this.cmd(`EHLO ${opts.host}`);
+
+    if (!useSsl) {
+      // STARTTLS upgrade for port 587
+      try {
+        await this.upgradeToTls(opts.host);
+        await this.cmd(`EHLO ${opts.host}`);
+      } catch {
+        // Some servers don't require STARTTLS — continue without it
+      }
+    }
+
+    // AUTH LOGIN
+    await this.cmd("AUTH LOGIN");
+    await this.cmd(btoa(opts.user));
+    await this.cmd(btoa(opts.pass));
+
+    await this.cmd(`MAIL FROM:<${opts.from}>`);
+    await this.cmd(`RCPT TO:<${opts.to}>`);
+    await this.cmd("DATA");
+
+    const date = new Date().toUTCString();
+    const message = [
+      `From: ${opts.fromDisplay} <${opts.from}>`,
+      `To: ${opts.to}`,
+      `Subject: ${opts.subject}`,
+      `Date: ${date}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      opts.body,
+      `.`,
+    ].join("\r\n");
+
+    await this.send(message);
+    await this.readLine(); // 250 OK
+
+    await this.cmd("QUIT");
+    this.conn.close();
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -28,10 +133,9 @@ serve(async (req) => {
     const { to, subject, body: bodyText } = await req.json();
 
     if (!to || !subject || !bodyText) {
-      return json({ error: "to, subject and body are required" }, 400);
+      return json({ error: "to, subject e body são obrigatórios" }, 400);
     }
 
-    // Load SMTP config from app_settings
     const { data, error } = await adminClient
       .from("app_settings")
       .select("value")
@@ -39,38 +143,35 @@ serve(async (req) => {
       .maybeSingle();
 
     if (error || !data?.value) {
-      return json({ error: "SMTP not configured. Please configure it in Integrações." }, 400);
+      return json({ error: "SMTP não configurado. Configure em Integrações." }, 400);
     }
 
     const cfg = data.value as {
-      host: string;
-      port: string;
-      user: string;
-      pass: string;
-      fromName: string;
+      host: string; port: string; user: string; pass: string; fromName: string;
     };
 
     if (!cfg.host || !cfg.user || !cfg.pass) {
-      return json({ error: "Incomplete SMTP configuration." }, 400);
+      return json({ error: "Configuração SMTP incompleta." }, 400);
     }
 
-    const port = parseInt(cfg.port ?? "587", 10);
-    const useTls = port === 465;
+    const port = parseInt(cfg.port ?? "465", 10);
+    const sender = new SmtpSender();
 
-    const client = new SmtpClient({ connection: { hostname: cfg.host, port, tls: useTls, auth: { username: cfg.user, password: cfg.pass } } });
-
-    await client.send({
-      from: `${cfg.fromName ?? "Hotel"} <${cfg.user}>`,
+    await sender.sendEmail({
+      host: cfg.host,
+      port,
+      user: cfg.user,
+      pass: cfg.pass,
+      from: cfg.user,
       to,
       subject,
-      content: bodyText,
+      body: bodyText,
+      fromDisplay: cfg.fromName ?? "Hotel",
     });
 
-    await client.close();
-
     return json({ success: true });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "Unexpected error";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erro inesperado";
     return json({ error: msg }, 500);
   }
 });

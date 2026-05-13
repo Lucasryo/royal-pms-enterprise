@@ -26,7 +26,7 @@ export function IntegracoesTab() {
   const [showWebhook, setShowWebhook] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState<SocialIntegration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
-  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '587', user: '', pass: '', fromName: 'Recepção Hotel' });
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '465', user: '', pass: '', fromName: 'Recepção Hotel' });
   const [pmsConfig, setPmsConfig] = useState<Record<string, PmsWebhook>>({
     cloudbeds: { webhookUrl: '', apiKey: '', enabled: false },
     mews: { webhookUrl: '', apiKey: '', enabled: false },
@@ -273,14 +273,18 @@ export function IntegracoesTab() {
                 <button onClick={() => setShowSmtp(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
+                <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800">
+                  <p className="font-black mb-1">Locaweb</p>
+                  <p>Host: <span className="font-mono">email.locaweb.com.br</span> · Porta: <span className="font-mono">465</span> (SSL)</p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Host SMTP</label>
-                    <input value={smtpConfig.host} onChange={e => setSmtpConfig(c => ({ ...c, host: e.target.value }))} placeholder="smtp.gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    <input value={smtpConfig.host} onChange={e => setSmtpConfig(c => ({ ...c, host: e.target.value }))} placeholder="email.locaweb.com.br" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Porta</label>
-                    <input value={smtpConfig.port} onChange={e => setSmtpConfig(c => ({ ...c, port: e.target.value }))} placeholder="587" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    <input value={smtpConfig.port} onChange={e => setSmtpConfig(c => ({ ...c, port: e.target.value }))} placeholder="465" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                 </div>
                 <div>
