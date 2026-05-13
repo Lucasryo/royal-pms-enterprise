@@ -50,7 +50,7 @@ serve(async (req) => {
       return json({ error: "SMTP nao esta configurado." }, 400);
     }
 
-    const messageId = await sendWithRetry({
+    await sendWithRetry({
       smtpConfig,
       to,
       subject,
@@ -58,7 +58,7 @@ serve(async (req) => {
       inReplyTo,
       references,
     });
-    return json({ sent: true, messageId });
+    return json({ sent: true, messageId: null });
   } catch (error) {
     const message = formatPublicError(error);
     return json({ error: message }, 500);
@@ -97,7 +97,7 @@ async function sendWithRetry({ smtpConfig, to, subject, message, inReplyTo, refe
         await smtp.ehlo();
       }
       await smtp.authLogin(smtpConfig.user, smtpConfig.pass);
-      const messageId = await smtp.sendMail({
+      await smtp.sendMail({
         fromEmail: smtpConfig.user,
         fromName: smtpConfig.fromName || smtpConfig.user,
         to,
@@ -108,7 +108,7 @@ async function sendWithRetry({ smtpConfig, to, subject, message, inReplyTo, refe
         references,
       });
       await smtp.quit();
-      return messageId;
+      return;
     } catch (error) {
       lastError = error;
       if (!isTransientSmtpError(error) || attempt === 3) break;
@@ -157,14 +157,12 @@ class SmtpClient {
     await this.command("DATA", [354]);
 
     const boundary = `royal-pms-${crypto.randomUUID()}`;
-    const messageId = createMessageId(fromEmail);
     const headers = [
       `From: ${encodeAddress(fromName, fromEmail)}`,
       `To: <${to}>`,
       `Subject: ${encodeHeader(subject)}`,
-      `Message-ID: ${messageId}`,
-      ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
-      ...(references ? [`References: ${references}`] : []),
+      ...(inReplyTo ? [foldHeader("In-Reply-To", inReplyTo)] : []),
+      ...(references ? [foldHeader("References", references)] : []),
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       `Date: ${new Date().toUTCString()}`,
@@ -173,22 +171,21 @@ class SmtpClient {
     const mimeBody = [
       `--${boundary}`,
       "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
+      "Content-Transfer-Encoding: base64",
       "",
-      body,
+      base64Mime(body),
       "",
       `--${boundary}`,
       "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
+      "Content-Transfer-Encoding: base64",
       "",
-      html,
+      base64Mime(html),
       "",
       `--${boundary}--`,
     ].join("\r\n");
 
     await this.write(`${headers.join("\r\n")}\r\n\r\n${dotStuff(mimeBody)}\r\n.\r\n`);
     await this.readResponse([250]);
-    return messageId;
   }
 
   async quit() {
@@ -280,12 +277,25 @@ function cleanMessageId(value: unknown) {
 function cleanReferences(value: unknown, inReplyTo: string | null) {
   const refs = String(value ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
   if (inReplyTo && !refs.includes(inReplyTo)) refs.push(inReplyTo);
-  return refs.length ? refs.join(" ").slice(0, 2000) : null;
+  return refs.length ? refs.slice(-12).join(" ") : null;
 }
 
-function createMessageId(fromEmail: string) {
-  const domain = fromEmail.split("@")[1]?.replace(/[^a-z0-9.-]/gi, "") || "royal-pms.local";
-  return `<${crypto.randomUUID()}@${domain}>`;
+function foldHeader(name: string, value: string) {
+  const words = value.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = `${name}:`;
+
+  for (const word of words) {
+    if (`${current} ${word}`.length > 76) {
+      lines.push(current);
+      current = ` ${word}`;
+    } else {
+      current = `${current} ${word}`;
+    }
+  }
+
+  lines.push(current);
+  return lines.join("\r\n");
 }
 
 function base64(value: string) {
@@ -293,6 +303,10 @@ function base64(value: string) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+function base64Mime(value: string) {
+  return base64(value).replace(/.{1,76}/g, "$&\r\n").trim();
 }
 
 function encodeHeader(value: string) {
