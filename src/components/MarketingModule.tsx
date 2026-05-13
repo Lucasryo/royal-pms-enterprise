@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
 import type {
   Lead, Message, Campaign, Template, BotConfig,
-  ReservationPix, PixPaymentResult, SocialIntegration, SmtpConfig, PmsWebhook,
+  SocialIntegration, SmtpConfig, PmsWebhook,
 } from '../types/marketing';
 import { SEED_LEADS, SEED_CAMPAIGNS, SEED_TEMPLATES } from '../constants/marketingSeeds';
 import { FinanceiroTab } from './marketing/FinanceiroTab';

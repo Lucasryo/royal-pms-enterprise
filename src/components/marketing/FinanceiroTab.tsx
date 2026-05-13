@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../../supabase';
+import type { ReservationPix, PixPaymentResult } from '../../types/marketing';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -9,23 +10,6 @@ import {
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-
-interface ReservationPix {
-  id: string;
-  guest_name: string;
-  total_amount: number;
-  contact_email: string | null;
-  reservation_code: string | null;
-  room_number: string | null;
-  check_in: string;
-  check_out: string;
-  pix_payment_id: string | null;
-  pix_status: string | null;
-  pix_qr_base64: string | null;
-  pix_copia_cola: string | null;
-  pix_generated_at: string | null;
-  fiscal_data: string | null;
-}
 
 export function FinanceiroTab() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
@@ -74,7 +58,7 @@ export function FinanceiroTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'save_token', token: tokenInput.trim() }),
       });
-      const data = await res.json() as { ok: boolean; error?: string };
+      const data = await res.json() as PixPaymentResult;
       if (!data.ok) throw new Error(data.error);
       setTokenSaved(true);
       setTokenEditing(false);
@@ -98,7 +82,7 @@ export function FinanceiroTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await res.json() as { ok: boolean; error?: string; payment_id?: string };
+      const data = await res.json() as PixPaymentResult;
       if (data.ok) toast.success(`Token válido! ID teste: ${data.payment_id}`);
       else toast.error(`Token inválido: ${data.error}`);
     } catch {
@@ -121,7 +105,7 @@ export function FinanceiroTab() {
           reservation_id: res.id,
         }),
       });
-      const data = await r.json() as { ok: boolean; error?: string; qr_code?: string; qr_code_base64?: string; payment_id?: string };
+      const data = await r.json() as PixPaymentResult;
       if (!data.ok) throw new Error(data.error);
 
       const copiaECola = data.qr_code ?? '';
@@ -169,7 +153,7 @@ export function FinanceiroTab() {
           payer_cpf: form.guestCpf || undefined,
         }),
       });
-      const data = await r.json() as { ok: boolean; error?: string; qr_code?: string; qr_code_base64?: string; payment_id?: string };
+      const data = await r.json() as PixPaymentResult;
       if (!data.ok) throw new Error(data.error);
 
       const copiaECola = data.qr_code ?? '';
