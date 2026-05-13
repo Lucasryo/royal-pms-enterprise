@@ -429,30 +429,57 @@ function CampaignsTab() {
 
 function TemplatesTab() {
   const [templates, setTemplates] = useState<Template[]>(SEED_TEMPLATES);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);
   const [form, setForm] = useState({ name: '', text: '', category: 'Saudação', channel: 'WhatsApp' });
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
 
+  useEffect(() => {
+    async function fetchTemplates() {
+      setLoadingTemplates(true);
+      const { data } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('id', 'marketing_templates')
+        .maybeSingle();
+      if (data?.value) {
+        try { setTemplates(JSON.parse(data.value) as Template[]); } catch { /* fallback to seeds */ }
+      }
+      setLoadingTemplates(false);
+    }
+    fetchTemplates();
+  }, []);
+
+  async function persistTemplates(updated: Template[]) {
+    await supabase.from('app_settings').upsert({ id: 'marketing_templates', value: JSON.stringify(updated) });
+  }
+
   function openCreate() { setEditing(null); setForm({ name: '', text: '', category: 'Saudação', channel: 'WhatsApp' }); setShowForm(true); }
   function openEdit(t: Template) { setEditing(t); setForm({ name: t.name, text: t.text, category: t.category, channel: t.channel }); setShowForm(true); }
 
-  function saveTemplate() {
+  async function saveTemplate() {
     if (!form.name.trim() || !form.text.trim()) { toast.error('Nome e texto são obrigatórios'); return; }
+    let updated: Template[];
     if (editing) {
-      setTemplates(prev => prev.map(t => t.id === editing.id ? { ...t, ...form } : t));
+      updated = templates.map(t => t.id === editing.id ? { ...t, ...form } : t);
+      setTemplates(updated);
       toast.success('Template atualizado!');
     } else {
-      setTemplates(prev => [{ id: Math.random().toString(36).slice(2), ...form }, ...prev]);
+      updated = [{ id: Math.random().toString(36).slice(2), ...form }, ...templates];
+      setTemplates(updated);
       toast.success('Template criado!');
     }
+    await persistTemplates(updated);
     setShowForm(false);
   }
 
-  function deleteTemplate(id: string) {
+  async function deleteTemplate(id: string) {
     if (!confirm('Excluir este template?')) return;
-    setTemplates(prev => prev.filter(t => t.id !== id));
+    const updated = templates.filter(t => t.id !== id);
+    setTemplates(updated);
+    await persistTemplates(updated);
     toast.success('Removido');
   }
 
@@ -468,8 +495,9 @@ function TemplatesTab() {
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Templates</p>
           <h2 className="text-xl font-black text-neutral-950">{templates.length} templates</h2>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
-          <Plus className="w-4 h-4" /> Novo template
+        <button onClick={openCreate} disabled={loadingTemplates} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-colors">
+          {loadingTemplates ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {loadingTemplates ? 'Carregando...' : 'Novo template'}
         </button>
       </div>
 
@@ -753,32 +781,52 @@ function NPSTab() {
 
 // ─── Bot Training Tab ─────────────────────────────────────────────────────────
 
+const DEFAULT_BOT_CONFIG: BotConfig = {
+  name: 'Royal PMS Palace Hotel',
+  address: 'Av. Principal, 1000 - Centro',
+  phone: '(22) 99999-0000',
+  email: 'contato@royalpms.com',
+  description: 'Hotel executivo com localização privilegiada, café da manhã incluso, Wi-Fi de alta velocidade e atendimento 24h.',
+  policies: 'Check-in: 14h | Check-out: 11h | Pets não permitidos | Fumantes apenas em áreas externas',
+  rooms: 'Standard (2 pessoas): R$ 289/noite\nExecutiva (2 pessoas): R$ 359/noite\nSuíte Master (2 pessoas): R$ 520/noite',
+  faq: 'Café da manhã incluso? Sim, servido das 6h às 10h.\nTem estacionamento? Sim, gratuito.\nAceita cartão? Sim, todos os cartões.',
+  pricingTable: '',
+  botMood: 'professional',
+  upsellActive: true,
+  npsActive: true,
+  widgetBotName: 'Assistente Virtual',
+  widgetWelcomeMessage: 'Olá! Como posso ajudar com sua reserva hoje?',
+  googleReviewLink: '',
+  npsSendAfterHours: 24,
+};
+
 function BotTrainingTab() {
   const [saving, setSaving] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(true);
   const [activeSection, setActiveSection] = useState<'info' | 'pricing' | 'personality'>('info');
-  const [config, setConfig] = useState<BotConfig>({
-    name: 'Royal PMS Palace Hotel',
-    address: 'Av. Principal, 1000 - Centro',
-    phone: '(22) 99999-0000',
-    email: 'contato@royalpms.com',
-    description: 'Hotel executivo com localização privilegiada, café da manhã incluso, Wi-Fi de alta velocidade e atendimento 24h.',
-    policies: 'Check-in: 14h | Check-out: 11h | Pets não permitidos | Fumantes apenas em áreas externas',
-    rooms: 'Standard (2 pessoas): R$ 289/noite\nExecutiva (2 pessoas): R$ 359/noite\nSuíte Master (2 pessoas): R$ 520/noite',
-    faq: 'Café da manhã incluso? Sim, servido das 6h às 10h.\nTem estacionamento? Sim, gratuito.\nAceita cartão? Sim, todos os cartões.',
-    pricingTable: '',
-    botMood: 'professional',
-    upsellActive: true,
-    npsActive: true,
-    widgetBotName: 'Assistente Virtual',
-    widgetWelcomeMessage: 'Olá! Como posso ajudar com sua reserva hoje?',
-    googleReviewLink: '',
-    npsSendAfterHours: 24,
-  });
+  const [config, setConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
+
+  useEffect(() => {
+    async function fetchConfig() {
+      setLoadingConfig(true);
+      const { data } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('id', 'bot_config')
+        .maybeSingle();
+      if (data?.value) {
+        try { setConfig(JSON.parse(data.value) as BotConfig); } catch { /* fallback to defaults */ }
+      }
+      setLoadingConfig(false);
+    }
+    fetchConfig();
+  }, []);
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
+    const { error } = await supabase.from('app_settings').upsert({ id: 'bot_config', value: JSON.stringify(config) });
     setSaving(false);
+    if (error) { toast.error('Erro ao salvar configurações'); return; }
     toast.success('Configurações salvas com sucesso!');
   }
 
@@ -795,9 +843,9 @@ function BotTrainingTab() {
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Treinamento</p>
           <h2 className="text-xl font-black text-neutral-950">Configurar Bot IA</h2>
         </div>
-        <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all">
-          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {saving ? 'Salvando...' : 'Sincronizar'}
+        <button onClick={handleSave} disabled={saving || loadingConfig} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all">
+          {saving || loadingConfig ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {loadingConfig ? 'Carregando...' : saving ? 'Salvando...' : 'Salvar configurações'}
         </button>
       </div>
 
