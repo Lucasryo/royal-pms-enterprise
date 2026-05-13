@@ -137,6 +137,20 @@ function LeadInboxTab() {
     toast.success('Conversa resolvida');
   }
 
+  function toggleOptOut() {
+    if (!selectedId) return;
+    setLeads(prev => prev.map(l => {
+      if (l.id !== selectedId) return l;
+      const newOptOut = !l.opt_out;
+      if (newOptOut) {
+        toast.error('Contato marcado como opt-out. Não será incluído em broadcasts.');
+      } else {
+        toast.success('Opt-out removido.');
+      }
+      return { ...l, opt_out: newOptOut, opt_out_at: newOptOut ? new Date().toISOString() : null };
+    }));
+  }
+
   return (
     <div className="flex h-[75vh] min-h-[500px] rounded-3xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
       {/* Sidebar */}
