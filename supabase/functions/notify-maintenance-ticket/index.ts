@@ -44,6 +44,16 @@ async function tg(method: string, body: Record<string, unknown>) {
   return data;
 }
 
+async function deleteChatMessage(chatId: unknown, messageId: number): Promise<boolean> {
+  const r = await fetch(`${TG}/deleteMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+  });
+  const data = await r.json();
+  return data.ok === true;
+}
+
 async function isAuthorizedInternal(authHeader: string | null): Promise<boolean> {
   if (!authHeader?.startsWith("Bearer ")) return false;
   const token = authHeader.slice(7);
@@ -1379,6 +1389,36 @@ async function handleMessage(message: Record<string, unknown>) {
   // Fix H: restrict data commands to the configured group only
   const isGroupChat = String(chatId) === String(CHAT_ID);
 
+  if (cmd === "/clear") {
+    if (!isGroupChat) {
+      await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas administradores do grupo podem limpar o histórico\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+
+    const requested = Number(text.trim().split(/\s+/)[1]);
+    const limit = Math.min(Math.max(Number.isFinite(requested) ? requested : 80, 1), 200);
+    let deleted = 0;
+    for (let id = Number(msgId); id > Number(msgId) - limit; id--) {
+      if (await deleteChatMessage(chatId, id)) deleted++;
+    }
+
+    const confirm = await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🧹 Limpeza concluída\\. Mensagens removidas: *${deleted}*\\.`,
+      parse_mode: "MarkdownV2",
+    });
+    const confirmId = Number(confirm?.result?.message_id);
+    if (confirmId) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await deleteChatMessage(chatId, confirmId);
+    }
+    return { ok: true, deleted };
+  }
+
   if (cmd === "/urgente") {
     const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (!uuidMatch) {
@@ -1833,6 +1873,7 @@ async function handleMessage(message: Record<string, unknown>) {
       `/reabrir \\[UUID\\] — Reabrir chamado encerrado`,
       `/direcionar \\[UUID\\] — Direcionar a técnico específico`,
       `/performance — Ranking de desempenho da semana`,
+      `/clear \\[quantidade\\] — Limpa mensagens recentes do grupo`,
       "", `*Fluxo de atendimento\\:*`,
       `1\\. Novo chamado → clique ✅ Assumir`,
       `2\\. Conclua → clique ✅ Concluir e descreva a solução`,
