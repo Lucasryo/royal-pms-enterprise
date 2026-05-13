@@ -616,35 +616,67 @@ function TemplatesTab() {
 
 // ─── Analytics Tab ────────────────────────────────────────────────────────────
 
+interface AnalyticsData {
+  totalSent: number;
+  totalFailed: number;
+  totalScheduled: number;
+  newReservations: number;
+  byChannel: { channel: string; sent: number; failed: number }[];
+}
+
 function AnalyticsTab() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
+  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<AnalyticsData>({
+    totalSent: 0, totalFailed: 0, totalScheduled: 0, newReservations: 0, byChannel: [],
+  });
 
-  const metrics = {
-    '7d': { total: 148, botResolved: 112, escalated: 36, avgResp: 2.4, satisfaction: 4.7, conversion: 12.3 },
-    '30d': { total: 524, botResolved: 398, escalated: 126, avgResp: 3.1, satisfaction: 4.5, conversion: 10.8 },
-    '90d': { total: 1847, botResolved: 1401, escalated: 446, avgResp: 2.9, satisfaction: 4.6, conversion: 11.2 },
-  }[period];
+  useEffect(() => {
+    async function fetchAnalytics() {
+      setIsLoading(true);
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - days);
+      const iso = periodStart.toISOString();
 
-  const dailyData = Array.from({ length: period === '7d' ? 7 : period === '30d' ? 30 : 90 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    return { date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), conversations: Math.floor(Math.random() * 30 + 10), resolved: Math.floor(Math.random() * 25 + 5) };
-  }).reverse();
+      const [msgsRes, resvRes] = await Promise.all([
+        supabase.from('guest_messages').select('channel, status').gte('created_at', iso),
+        supabase.from('reservations').select('id', { count: 'exact', head: true }).gte('created_at', iso),
+      ]);
 
-  const maxVal = Math.max(...dailyData.map(d => d.conversations));
+      const msgs = msgsRes.data ?? [];
+      const totalSent = msgs.filter(m => m.status === 'sent').length;
+      const totalFailed = msgs.filter(m => m.status === 'failed').length;
+      const totalScheduled = msgs.filter(m => m.status === 'scheduled').length;
 
-  const intents = [
-    { intent: 'Consulta de preço', count: 89 },
-    { intent: 'Disponibilidade', count: 67 },
-    { intent: 'Check-in/out', count: 43 },
-    { intent: 'Serviços', count: 31 },
-    { intent: 'Cancelamento', count: 18 },
-  ];
+      const channelMap: Record<string, { sent: number; failed: number }> = {};
+      for (const m of msgs) {
+        if (!channelMap[m.channel]) channelMap[m.channel] = { sent: 0, failed: 0 };
+        if (m.status === 'sent') channelMap[m.channel].sent++;
+        if (m.status === 'failed') channelMap[m.channel].failed++;
+      }
+      const byChannel = Object.entries(channelMap).map(([channel, v]) => ({ channel, ...v }));
+
+      setData({
+        totalSent, totalFailed, totalScheduled,
+        newReservations: resvRes.count ?? 0,
+        byChannel,
+      });
+      setIsLoading(false);
+    }
+    fetchAnalytics();
+  }, [period]);
+
+  const failureRate = data.totalSent + data.totalFailed > 0
+    ? ((data.totalFailed / (data.totalSent + data.totalFailed)) * 100).toFixed(1)
+    : '0.0';
+  const topChannel = [...data.byChannel].sort((a, b) => b.sent - a.sent)[0];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Analytics do Bot</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Analytics de Mensagens</p>
           <h2 className="text-xl font-black text-neutral-950">Desempenho</h2>
         </div>
         <div className="flex bg-neutral-100 rounded-xl p-1">
@@ -656,62 +688,74 @@ function AnalyticsTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Conversas', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Bot resolveu', value: metrics.botResolved.toString(), icon: Bot, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Escalados', value: metrics.escalated.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Resp. média', value: `${metrics.avgResp}min`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Satisfação', value: metrics.satisfaction.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Conversão', value: `${metrics.conversion}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm animate-pulse">
+              <div className="w-8 h-8 rounded-xl bg-neutral-200 mb-2" />
+              <div className="h-6 w-12 bg-neutral-200 rounded mb-1" />
+              <div className="h-3 w-16 bg-neutral-100 rounded" />
             </div>
-            <p className="text-xl font-black text-neutral-950">{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Bar chart */}
-        <div className="lg:col-span-2 rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-black text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
-          <div className="flex items-end gap-1 h-32">
-            {dailyData.slice(-14).map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
-                  style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: 4 }}
-                  title={`${d.date}: ${d.conversations} conversas`}
-                />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {[
+            { label: 'Mensagens Enviadas', value: data.totalSent.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: 'Agendadas', value: data.totalScheduled.toString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+            { label: 'Falhas', value: data.totalFailed.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+            { label: 'Taxa de Falha', value: `${failureRate}%`, icon: TrendingDown, color: 'text-orange-600', bg: 'bg-orange-50' },
+            { label: 'Novas Reservas', value: data.newReservations.toString(), icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+            { label: 'Canal Principal', value: topChannel?.channel ?? '—', icon: Bot, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          ].map(stat => (
+            <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+              <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+                <stat.icon className={`w-4 h-4 ${stat.color}`} />
               </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-2 text-[9px] text-neutral-400">
-            <span>{dailyData.slice(-14)[0]?.date}</span>
-            <span>{dailyData.slice(-1)[0]?.date}</span>
-          </div>
+              <p className="text-xl font-black text-neutral-950 truncate">{stat.value}</p>
+              <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* By channel */}
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <h3 className="font-black text-sm text-neutral-900 mb-4">Mensagens por Canal</h3>
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-8 bg-neutral-100 rounded-xl animate-pulse" />)}
+            </div>
+          ) : data.byChannel.length === 0 ? (
+            <p className="text-xs text-neutral-400 text-center py-6">Nenhuma mensagem no período</p>
+          ) : (
+            <div className="space-y-3">
+              {[...data.byChannel].sort((a, b) => b.sent - a.sent).map((ch) => (
+                <div key={ch.channel} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-medium text-neutral-700 capitalize">{ch.channel}</span>
+                    <span className="font-black text-neutral-900">{ch.sent} enviadas · <span className="text-red-500">{ch.failed} falhas</span></span>
+                  </div>
+                  <div className="w-full bg-neutral-100 rounded-full h-1.5">
+                    <div className="bg-amber-500 h-1.5 rounded-full transition-all" style={{ width: `${data.totalSent > 0 ? (ch.sent / data.totalSent) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Top intents */}
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-black text-sm text-neutral-900 mb-4">Top Intenções</h3>
-          <div className="space-y-3">
-            {intents.map((intent, i) => (
-              <div key={i} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-medium text-neutral-700 truncate">{intent.intent}</span>
-                  <span className="font-black text-neutral-900 ml-2">{intent.count}</span>
-                </div>
-                <div className="w-full bg-neutral-100 rounded-full h-1.5">
-                  <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${(intent.count / intents[0].count) * 100}%` }} />
-                </div>
-              </div>
-            ))}
+        {/* Unavailable bot metrics note */}
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm flex flex-col justify-center items-center text-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-neutral-100 flex items-center justify-center">
+            <Bot className="w-6 h-6 text-neutral-400" />
           </div>
+          <div>
+            <p className="font-black text-sm text-neutral-700">Métricas de Bot Indisponíveis</p>
+            <p className="text-xs text-neutral-400 mt-1 max-w-xs">Taxa de resolução automática, tempo médio de resposta e conversão requerem integração de bot ativa.</p>
+          </div>
+          <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-neutral-100 text-neutral-500">Requer integração de bot ativa</span>
         </div>
       </div>
     </div>
@@ -720,84 +764,136 @@ function AnalyticsTab() {
 
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
+interface NPSTicket {
+  id: string;
+  rating: number;
+  created_at: string;
+}
+
 function NPSTab() {
-  const [scores] = useState([
-    { id: '1', guest: 'Ana Beatriz', score: 9, comment: 'Excelente atendimento, muito rápido!', channel: 'WhatsApp', date: '2026-05-10' },
-    { id: '2', guest: 'Carlos Lima', score: 7, comment: 'Bom, mas poderia melhorar o check-in.', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '3', guest: 'Marina Souza', score: 10, comment: 'Perfeito em todos os aspectos!', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '4', guest: 'Roberto F.', score: 6, comment: 'Wi-fi um pouco lento.', channel: 'Instagram', date: '2026-05-08' },
-    { id: '5', guest: 'Juliana Alves', score: 8, comment: 'Gostei muito do café da manhã.', channel: 'WhatsApp', date: '2026-05-07' },
-  ]);
+  const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('30d');
+  const [isLoading, setIsLoading] = useState(true);
+  const [tickets, setTickets] = useState<NPSTicket[]>([]);
 
-  const promoters = scores.filter(s => s.score >= 9).length;
-  const passives = scores.filter(s => s.score >= 7 && s.score <= 8).length;
-  const detractors = scores.filter(s => s.score <= 6).length;
-  const nps = Math.round(((promoters - detractors) / scores.length) * 100);
-  const avg = (scores.reduce((a, b) => a + b.score, 0) / scores.length).toFixed(1);
+  useEffect(() => {
+    async function fetchNPS() {
+      setIsLoading(true);
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - days);
+      const iso = periodStart.toISOString();
 
-  function scoreColor(s: number) {
-    if (s >= 9) return 'text-emerald-600 bg-emerald-50';
-    if (s >= 7) return 'text-amber-600 bg-amber-50';
+      const { data } = await supabase
+        .from('maintenance_tickets')
+        .select('id, rating, created_at')
+        .not('rating', 'is', null)
+        .gte('created_at', iso);
+
+      setTickets(data ?? []);
+      setIsLoading(false);
+    }
+    fetchNPS();
+  }, [period]);
+
+  const promoters = tickets.filter(t => t.rating >= 4).length;
+  const passives = tickets.filter(t => t.rating === 3).length;
+  const detractors = tickets.filter(t => t.rating <= 2).length;
+  const total = tickets.length;
+  const nps = total > 0 ? Math.round(((promoters - detractors) / total) * 100) : 0;
+  const avg = total > 0 ? (tickets.reduce((a, b) => a + b.rating, 0) / total).toFixed(1) : '—';
+
+  function ratingColor(r: number) {
+    if (r >= 4) return 'text-emerald-600 bg-emerald-50';
+    if (r === 3) return 'text-amber-600 bg-amber-50';
     return 'text-red-600 bg-red-50';
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-black text-neutral-950">Satisfação dos Hóspedes</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">NPS Engine</p>
+          <h2 className="text-xl font-black text-neutral-950">Satisfação dos Hóspedes</h2>
+          <p className="text-[10px] text-neutral-400 mt-0.5">Avaliações coletadas via chamados de manutenção</p>
+        </div>
+        <div className="flex bg-neutral-100 rounded-xl p-1">
+          {(['7d', '30d', '90d'] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
+              {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'NPS Score', value: `${nps}`, icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
-          { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm animate-pulse">
+              <div className="w-8 h-8 rounded-xl bg-neutral-200 mb-2" />
+              <div className="h-7 w-10 bg-neutral-200 rounded mb-1" />
+              <div className="h-3 w-16 bg-neutral-100 rounded" />
             </div>
-            <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[
+            { label: 'NPS Score', value: total > 0 ? `${nps}` : '—', icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
+            { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
+            { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
+          ].map(stat => (
+            <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+              <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+                <stat.icon className={`w-4 h-4 ${stat.color}`} />
+              </div>
+              <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
+              <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* NPS bar */}
-      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-black text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
-        <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
-        </div>
-        <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
-          <span className="text-red-500">Detratores (0-6)</span>
-          <span className="text-amber-500">Neutros (7-8)</span>
-          <span className="text-emerald-500">Promotores (9-10)</span>
-        </div>
-      </div>
-
-      {/* Responses */}
-      <div className="space-y-3">
-        {scores.map(s => (
-          <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${scoreColor(s.score)}`}>
-              {s.score}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm text-neutral-900">{s.guest}</p>
-              <p className="text-xs text-neutral-500 mt-0.5">{s.comment}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[9px] text-neutral-400">{s.date}</p>
-              <p className="text-[9px] font-bold text-neutral-500">{s.channel}</p>
-            </div>
+      {!isLoading && total > 0 && (
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <h3 className="font-black text-sm text-neutral-900 mb-4">Distribuição de Notas (1–5)</h3>
+          <div className="flex rounded-xl overflow-hidden h-6">
+            {detractors > 0 && <div className="bg-red-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(detractors / total) * 100}%` }}>{Math.round((detractors / total) * 100)}%</div>}
+            {passives > 0 && <div className="bg-amber-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(passives / total) * 100}%` }}>{Math.round((passives / total) * 100)}%</div>}
+            {promoters > 0 && <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(promoters / total) * 100}%` }}>{Math.round((promoters / total) * 100)}%</div>}
           </div>
-        ))}
-      </div>
+          <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
+            <span className="text-red-500">Detratores (1–2)</span>
+            <span className="text-amber-500">Neutros (3)</span>
+            <span className="text-emerald-500">Promotores (4–5)</span>
+          </div>
+        </div>
+      )}
+
+      {/* Ratings list */}
+      {!isLoading && (
+        total === 0 ? (
+          <div className="text-center py-10 text-sm text-neutral-400">Nenhuma avaliação encontrada no período</div>
+        ) : (
+          <div className="space-y-3">
+            {tickets.slice(0, 20).map(t => (
+              <div key={t.id} className="flex items-center gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${ratingColor(t.rating)}`}>
+                  {t.rating}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-neutral-900">Chamado #{t.id.slice(0, 8)}</p>
+                  <p className="text-xs text-neutral-400">Avaliação via chamado de manutenção</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[9px] text-neutral-400">{new Date(t.created_at).toLocaleDateString('pt-BR')}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }
