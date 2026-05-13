@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { SocialIntegration, SmtpConfig, PmsWebhook } from '../../types/marketing';
+import { supabase } from '../../supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -31,6 +32,16 @@ export function IntegracoesTab() {
     mews: { webhookUrl: '', apiKey: '', enabled: false },
   });
   const [confirmEmail, setConfirmEmail] = useState('');
+  const [savingSmtp, setSavingSmtp] = useState(false);
+
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('id', 'smtp_config').maybeSingle().then(({ data }) => {
+      if (data?.value) {
+        setSmtpConfig(data.value as SmtpConfig);
+        setStatuses(s => ({ ...s, email: 'connected' }));
+      }
+    });
+  }, []);
 
   function toggleConnect(id: string) {
     const integration = SOCIAL_INTEGRATIONS.find(i => i.id === id)!;
@@ -53,8 +64,12 @@ export function IntegracoesTab() {
     setTokenInput('');
   }
 
-  function saveSmtp() {
+  async function saveSmtp() {
     if (!smtpConfig.host || !smtpConfig.user) { toast.error('Host e usuário são obrigatórios'); return; }
+    setSavingSmtp(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 'smtp_config', value: smtpConfig }, { onConflict: 'id' });
+    setSavingSmtp(false);
+    if (error) { toast.error('Erro ao salvar: ' + error.message); return; }
     setStatuses(s => ({ ...s, email: 'connected' }));
     setShowSmtp(false);
     toast.success('Servidor de e-mail configurado!');
@@ -282,8 +297,8 @@ export function IntegracoesTab() {
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setShowSmtp(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
-                  <button onClick={saveSmtp} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2">
-                    <Save className="w-4 h-4" /> Salvar
+                  <button onClick={saveSmtp} disabled={savingSmtp} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                    <Save className="w-4 h-4" /> {savingSmtp ? 'Salvando…' : 'Salvar'}
                   </button>
                 </div>
               </div>

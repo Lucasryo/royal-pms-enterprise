@@ -5,8 +5,10 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import {
   Search, CheckCircle2, Send, Sparkles, Smile, Meh, Frown, Inbox,
-  MessageSquare, Instagram, Facebook, Twitter, Linkedin, Video, Globe,
+  MessageSquare, Instagram, Facebook, Twitter, Linkedin, Video, Globe, Mail,
 } from 'lucide-react';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 const CHANNELS = [
   { id: 'whatsapp', icon: <MessageSquare className="w-3 h-3" />, color: '#10b981', name: 'WhatsApp' },
@@ -16,6 +18,7 @@ const CHANNELS = [
   { id: 'linkedin', icon: <Linkedin className="w-3 h-3" />, color: '#0ea5e9', name: 'LinkedIn' },
   { id: 'tiktok', icon: <Video className="w-3 h-3" />, color: '#0a0a0a', name: 'TikTok' },
   { id: 'google', icon: <Globe className="w-3 h-3" />, color: '#0ea5e9', name: 'Google Reviews' },
+  { id: 'email', icon: <Mail className="w-3 h-3" />, color: '#f59e0b', name: 'E-mail' },
 ];
 
 function timeAgo(iso: string) {
@@ -64,6 +67,8 @@ export function LeadInboxTab() {
   });
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
@@ -94,9 +99,33 @@ export function LeadInboxTab() {
     return true;
   });
 
-  function sendMessage() {
+  async function sendMessage() {
     if (!messageInput.trim() || !selectedId) return;
-    const msg: Message = { text: messageInput, type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+    const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    if (selected?.channel === 'email') {
+      if (!emailSubject.trim()) { toast.error('Informe o assunto do e-mail'); return; }
+      if (!selected.email) { toast.error('Este contato não tem e-mail cadastrado'); return; }
+      setSendingEmail(true);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: selected.email, subject: emailSubject, body: messageInput }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error ?? 'Falha ao enviar e-mail');
+        toast.success('E-mail enviado!');
+        setEmailSubject('');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Erro ao enviar e-mail');
+        setSendingEmail(false);
+        return;
+      }
+      setSendingEmail(false);
+    }
+
+    const msg: Message = { text: messageInput, type: 'out', time: now };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: messageInput, status: 'ai_responded' as const } : l));
     setMessageInput('');
@@ -224,22 +253,32 @@ export function LeadInboxTab() {
           </div>
 
           {/* Input */}
-          <div className="p-4 border-t border-neutral-100 flex items-end gap-3">
+          <div className="p-4 border-t border-neutral-100 flex flex-col gap-2">
+            {selected?.channel === 'email' && (
+              <input
+                value={emailSubject}
+                onChange={e => setEmailSubject(e.target.value)}
+                placeholder="Assunto do e-mail..."
+                className="w-full px-4 py-2 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+            )}
+            <div className="flex items-end gap-3">
             <textarea
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Escreva uma mensagem..."
+              placeholder={selected?.channel === 'email' ? 'Corpo do e-mail...' : 'Escreva uma mensagem...'}
               rows={2}
               className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
             <button
               onClick={sendMessage}
-              disabled={!messageInput.trim()}
+              disabled={!messageInput.trim() || sendingEmail}
               className="p-3 bg-neutral-900 text-white rounded-2xl hover:bg-neutral-800 disabled:opacity-40 transition-all"
             >
               <Send className="w-4 h-4" />
             </button>
+            </div>
           </div>
         </div>
       ) : (
