@@ -836,9 +836,28 @@ async function handleCallback(query: Record<string, unknown>) {
     }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("status,telegram_user_id,status_reason")
+        .eq("id", ticketId)
+        .single();
+
+      if (current?.status === "in_progress" && Number(current.telegram_user_id) === fromId) {
+        if (msgId) await tg("editMessageReplyMarkup", {
+          chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
+        });
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `✅ Chamado já está assumido por você\\. Use os botões abaixo para concluir ou registrar peças\\.`,
+          parse_mode: "MarkdownV2",
+          reply_markup: inProgressKb(ticketId, fromId),
+        });
+        return { ok: true };
+      }
+
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `⚠️ Este chamado já foi assumido por outro técnico\\.`,
+        text: `⚠️ Este chamado já foi assumido por ${esc(current?.status_reason ?? "outro técnico")}\\.`,
         parse_mode: "MarkdownV2",
       });
       return { ok: true };
