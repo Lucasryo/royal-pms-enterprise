@@ -1365,7 +1365,7 @@ async function handleReply(message: Record<string, unknown>) {
       resolution_notes: solutionText,
       status_reason: name,
       awaiting_parts: false,
-      inspection_status: null,
+      inspection_status: "pending",
       inspector_tg_id: null,
       inspection_requested_at: now,
     }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
@@ -1396,6 +1396,7 @@ async function handleReply(message: Record<string, unknown>) {
         if (!current.inspection_requested_at) {
           const requestedAt = new Date().toISOString();
           await db.from("maintenance_tickets").update({
+            inspection_status: "pending",
             inspection_requested_at: requestedAt,
             updated_at: requestedAt,
           }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
