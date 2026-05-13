@@ -262,7 +262,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }).eq('id', ticket.id).eq('status', 'in_progress').select();
     if (error) toast.error('Erro: ' + error.message);
     else if (!data || data.length === 0) toast.error('Chamado não está mais em andamento.');
-    else { toast.success('Chamado resolvido.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
+    else { toast.success('Chamado resolvido.'); fetchTickets(); void notifyBot('request_inspection', ticket.id); }
   }
 
   async function direct(ticket: MaintTicket) {

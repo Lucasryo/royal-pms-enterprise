@@ -742,6 +742,7 @@ alter table public.profiles add column if not exists updated_at timestamptz defa
 alter table public.maintenance_tickets add column if not exists started_at timestamptz;
 alter table public.maintenance_tickets add column if not exists status_reason text;
 alter table public.maintenance_tickets add column if not exists resolution_notes text;
+alter table public.maintenance_tickets add column if not exists inspection_requested_at timestamptz;
 
 alter table public.reservations add column if not exists checked_in_at timestamptz;
 alter table public.reservations add column if not exists checked_out_at timestamptz;

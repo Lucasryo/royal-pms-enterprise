@@ -44,6 +44,15 @@ async function tg(method: string, body: Record<string, unknown>) {
   return data;
 }
 
+async function isAuthorizedInternal(authHeader: string | null): Promise<boolean> {
+  if (!authHeader?.startsWith("Bearer ")) return false;
+  const token = authHeader.slice(7);
+  if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return true;
+
+  const { data, error } = await db.auth.getUser(token);
+  return !error && !!data.user;
+}
+
 // 3B: cache com TTL de 5 min para evitar rate limit do Telegram
 const modCache = new Map<string, { result: boolean; expiresAt: number }>();
 
@@ -424,19 +433,34 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   // Fix L: validate Authorization for internal trigger types
   const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection"];
   if (internalTypes.includes(body.type as string)) {
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return { ok: false, error: "unauthorized" };
-    }
-    // Validate actual token value against WEBHOOK_SECRET
-    const token = authHeader.slice(7);
-    if (WEBHOOK_SECRET && token !== WEBHOOK_SECRET) {
-      return { ok: false, error: "invalid token" };
-    }
+    if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
 
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+
+  if ((body.type as string) === "public_report") {
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("*")
+      .eq("id", ticketId)
+      .eq("status", "open")
+      .gte("created_at", fiveMinutesAgo)
+      .single();
+    if (!ticket) return { ok: false, error: "ticket not found or too old" };
+    await tg("sendMessage", {
+      chat_id: CHAT_ID,
+      text: buildText(ticket, `${P_EMOJI[ticket.priority] ?? ""} *Novo chamado de manutencao*`),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: false,
+      reply_markup: openKb(ticketId),
+    });
+    return { ok: true };
+  }
 
   if ((body.type as string) === "request_inspection") {
     const ticketId  = body.ticket_id as string;
@@ -444,10 +468,18 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     if (!ticketId) return { ok: false, error: "missing ticket_id" };
     const { data: tk } = await db
       .from("maintenance_tickets")
-      .select("title,room_number,status_reason,inspection_status,created_at,resolved_at,resolution_notes")
+      .select("title,room_number,status,status_reason,inspection_status,created_at,resolved_at,resolution_notes")
       .eq("id", ticketId).single();
     if (!tk) return { ok: false, error: "ticket not found" };
-    if (tk.inspection_status !== "pending") return { ok: false, error: "inspection not pending" };
+    if (tk.status !== "resolved") return { ok: false, error: "ticket not resolved" };
+    if (tk.inspection_status && tk.inspection_status !== "pending") return { ok: false, error: "inspection already closed" };
+    if (!tk.inspection_status) {
+      await db.from("maintenance_tickets").update({
+        inspection_status: "pending",
+        inspection_requested_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", ticketId).is("inspection_status", null);
+    }
     const mins = tk.resolved_at && tk.created_at
       ? Math.round((new Date(tk.resolved_at).getTime() - new Date(tk.created_at).getTime()) / 60000)
       : null;
@@ -611,7 +643,7 @@ async function handleCallback(query: Record<string, unknown>) {
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,inspection_status,status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id,status").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
     // Only allow assuming inspection on resolved tickets
@@ -624,8 +656,8 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
-    // Block if another moderator already assumed (inspection_status is "pending" and inspector_tg_id is set)
-    if (ticket.inspection_status !== null) {
+    // Block only if another moderator already assumed it.
+    if (ticket.inspector_tg_id) {
       await tg("sendMessage", {
         chat_id: chatId,
         text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
@@ -639,7 +671,7 @@ async function handleCallback(query: Record<string, unknown>) {
       inspection_status: "pending",
       inspector_tg_id: fromId,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId).is("inspection_status", null).select("id", { count: "exact", head: true });
+    }).eq("id", ticketId).eq("status", "resolved").is("inspector_tg_id", null).select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
       await tg("sendMessage", {
@@ -1811,11 +1843,12 @@ serve(async (req) => {
     const tgSecret     = req.headers.get("x-telegram-bot-api-secret-token");
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
     const isInternal   = !!body.type && !!authHeader?.startsWith("Bearer ");
+    const isPublicReport = body.type === "public_report";
     if (isFromTg) {
       if (WEBHOOK_SECRET && tgSecret !== WEBHOOK_SECRET) {
         return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
-    } else if (!isInternal) {
+    } else if (!isInternal && !isPublicReport) {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
