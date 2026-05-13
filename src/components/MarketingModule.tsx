@@ -48,6 +48,8 @@ interface Message {
   time: string;
   subject?: string | null;
   createdAt?: string;
+  emailMessageId?: string | null;
+  emailReferences?: string | null;
 }
 
 interface Campaign {
@@ -146,6 +148,8 @@ type InboxMessageRow = {
   direction: 'in' | 'out';
   subject: string | null;
   body: string;
+  email_message_id: string | null;
+  email_references: string | null;
   read: boolean;
   created_at: string;
 };
@@ -183,6 +187,8 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     time: formatMessageTime(row.created_at),
     subject: row.subject,
     createdAt: row.created_at,
+    emailMessageId: row.email_message_id,
+    emailReferences: row.email_references,
   };
 }
 
@@ -412,9 +418,12 @@ function LeadInboxTab() {
 
     try {
       const lastIncomingSubject = [...messages].reverse().find(message => message.type === 'in' && message.subject)?.subject;
+      const lastIncomingEmail = [...messages].reverse().find(message => message.type === 'in' && message.emailMessageId);
+      const replyReferences = [lastIncomingEmail?.emailReferences, lastIncomingEmail?.emailMessageId].filter(Boolean).join(' ').trim();
       const subject = lastIncomingSubject
         ? (lastIncomingSubject.toLowerCase().startsWith('re:') ? lastIncomingSubject : `Re: ${lastIncomingSubject}`)
         : 'Resposta Royal PMS';
+      let outgoingMessageId: string | null = null;
 
       if (selectedLead.channel === 'email') {
         if (!selectedLead.guestEmail) {
@@ -439,6 +448,8 @@ function LeadInboxTab() {
             to: selectedLead.guestEmail,
             subject,
             body: text,
+            inReplyTo: lastIncomingEmail?.emailMessageId,
+            references: replyReferences,
           }),
         });
 
@@ -446,10 +457,12 @@ function LeadInboxTab() {
         if (!response.ok || !result.sent) {
           throw new Error(result.error || 'Falha ao enviar e-mail.');
         }
+        outgoingMessageId = typeof result.messageId === 'string' ? result.messageId : null;
       }
 
     const now = new Date().toISOString();
-    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined };
+    const emailReferences = replyReferences || lastIncomingEmail?.emailMessageId || null;
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
@@ -461,6 +474,8 @@ function LeadInboxTab() {
       direction: 'out',
       subject: selectedLead.channel === 'email' ? subject : null,
       body: text,
+      email_message_id: outgoingMessageId,
+      email_references: selectedLead.channel === 'email' ? emailReferences : null,
       read: true,
     }]);
 

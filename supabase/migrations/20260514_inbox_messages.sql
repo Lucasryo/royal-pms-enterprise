@@ -35,15 +35,24 @@ create table if not exists public.inbox_messages (
   subject text,
   body text not null,
   message_uid text,
+  email_message_id text,
+  email_references text,
   read boolean not null default false,
   created_at timestamptz default timezone('utc', now()) not null
 );
+
+alter table public.inbox_messages
+  add column if not exists email_message_id text,
+  add column if not exists email_references text;
 
 create index if not exists idx_inbox_messages_contact
   on public.inbox_messages(contact_id, created_at desc);
 create unique index if not exists idx_inbox_messages_uid
   on public.inbox_messages(channel, message_uid)
   where message_uid is not null;
+create index if not exists idx_inbox_messages_email_message_id
+  on public.inbox_messages(email_message_id)
+  where email_message_id is not null;
 
 alter table public.marketing_contacts enable row level security;
 alter table public.inbox_messages enable row level security;
@@ -109,6 +118,13 @@ exception
 end $$;
 
 do $$
+begin
+  perform cron.unschedule('poll-email-inbox-every-1min');
+exception
+  when others then null;
+end $$;
+
+do $$
 declare
   supabase_url text := current_setting('app.supabase_url', true);
   service_role_key text := current_setting('app.service_role_key', true);
@@ -118,8 +134,8 @@ begin
   end if;
 
   perform cron.schedule(
-    'poll-email-inbox-every-2min',
-    '*/2 * * * *',
+    'poll-email-inbox-every-1min',
+    '* * * * *',
     format(
       $cron$
         select net.http_post(

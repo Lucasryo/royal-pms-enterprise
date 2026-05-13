@@ -38,6 +38,8 @@ serve(async (req) => {
     const to = cleanEmail(body?.to);
     const subject = cleanSubject(body?.subject);
     const message = cleanBody(body?.body);
+    const inReplyTo = cleanMessageId(body?.inReplyTo);
+    const references = cleanReferences(body?.references, inReplyTo);
 
     if (!to || !subject || !message) {
       return json({ error: "Destinatario, assunto e mensagem sao obrigatorios." }, 400);
@@ -57,20 +59,21 @@ serve(async (req) => {
         await smtp.ehlo();
       }
       await smtp.authLogin(smtpConfig.user, smtpConfig.pass);
-      await smtp.sendMail({
+      const messageId = await smtp.sendMail({
         fromEmail: smtpConfig.user,
         fromName: smtpConfig.fromName || smtpConfig.user,
         to,
         subject,
         body: message,
         html: buildHtmlEmail(message, smtpConfig),
+        inReplyTo,
+        references,
       });
       await smtp.quit();
+      return json({ sent: true, messageId });
     } finally {
       smtp.close();
     }
-
-    return json({ sent: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return json({ error: message }, 500);
@@ -119,16 +122,20 @@ class SmtpClient {
     await this.command(base64(pass), [235], false);
   }
 
-  async sendMail({ fromEmail, fromName, to, subject, body, html }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string }) {
+  async sendMail({ fromEmail, fromName, to, subject, body, html, inReplyTo, references }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string; inReplyTo: string | null; references: string | null }) {
     await this.command(`MAIL FROM:<${fromEmail}>`, [250]);
     await this.command(`RCPT TO:<${to}>`, [250, 251]);
     await this.command("DATA", [354]);
 
     const boundary = `royal-pms-${crypto.randomUUID()}`;
+    const messageId = createMessageId(fromEmail);
     const headers = [
       `From: ${encodeAddress(fromName, fromEmail)}`,
       `To: <${to}>`,
       `Subject: ${encodeHeader(subject)}`,
+      `Message-ID: ${messageId}`,
+      ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
+      ...(references ? [`References: ${references}`] : []),
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       `Date: ${new Date().toUTCString()}`,
@@ -152,6 +159,7 @@ class SmtpClient {
 
     await this.write(`${headers.join("\r\n")}\r\n\r\n${dotStuff(mimeBody)}\r\n.\r\n`);
     await this.readResponse([250]);
+    return messageId;
   }
 
   async quit() {
@@ -211,6 +219,22 @@ function cleanSubject(value: unknown) {
 
 function cleanBody(value: unknown) {
   return String(value ?? "").replace(/\r\n/g, "\n").trim().slice(0, 12000);
+}
+
+function cleanMessageId(value: unknown) {
+  const match = String(value ?? "").match(/<[^<>\s]+@[^<>\s]+>/);
+  return match?.[0] ?? null;
+}
+
+function cleanReferences(value: unknown, inReplyTo: string | null) {
+  const refs = String(value ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
+  if (inReplyTo && !refs.includes(inReplyTo)) refs.push(inReplyTo);
+  return refs.length ? refs.join(" ").slice(0, 2000) : null;
+}
+
+function createMessageId(fromEmail: string) {
+  const domain = fromEmail.split("@")[1]?.replace(/[^a-z0-9.-]/gi, "") || "royal-pms.local";
+  return `<${crypto.randomUUID()}@${domain}>`;
 }
 
 function base64(value: string) {

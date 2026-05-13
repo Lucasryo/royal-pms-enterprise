@@ -29,6 +29,8 @@ type ParsedEmail = {
   fromName: string;
   subject: string;
   body: string;
+  messageId: string | null;
+  references: string | null;
 };
 
 serve(async (req) => {
@@ -69,6 +71,8 @@ serve(async (req) => {
             subject: parsed.subject,
             body: parsed.body,
             message_uid: uid,
+            email_message_id: parsed.messageId,
+            email_references: parsed.references,
             read: false,
           }]);
 
@@ -232,7 +236,9 @@ function parseEmail(raw: string): ParsedEmail {
   const fromName = from.replace(/<[^>]+>/g, "").replace(/"/g, "").trim();
   const subject = decodeHeader(headers.subject ?? "");
   const body = extractReadableBody(bodyText, headers["content-type"] ?? "", headers["content-transfer-encoding"] ?? "");
-  return { fromEmail, fromName, subject, body };
+  const messageId = cleanMessageId(headers["message-id"] ?? "");
+  const references = cleanReferences(headers.references ?? headers["in-reply-to"] ?? "");
+  return { fromEmail, fromName, subject, body, messageId, references };
 }
 
 function parseHeaders(text: string) {
@@ -302,6 +308,16 @@ function decodeHeader(value: string) {
 
 function extractEmail(value: string) {
   return (value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "").toLowerCase();
+}
+
+function cleanMessageId(value: string) {
+  const match = value.match(/<[^<>\s]+@[^<>\s]+>/);
+  return match?.[0] ?? null;
+}
+
+function cleanReferences(value: string) {
+  const refs = value.match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
+  return refs.length ? refs.join(" ").slice(0, 2000) : null;
 }
 
 function emailPreview(email: ParsedEmail) {
