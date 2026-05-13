@@ -393,17 +393,19 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   }
 
   // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
-  async function notifyBot(type: string, ticketId: string) {
+  async function notifyBot(type: string, ticketId: string): Promise<boolean> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) return false;
       const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
       });
-    } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
+      const body = await res.json().catch(() => null);
+      return res.ok && body?.ok !== false;
+    } catch { return false; }
   }
 
   async function resendNotification(ticket: MaintTicket) {
@@ -770,6 +772,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     </div>
                     {canAct && (
                       <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[130px]">
+                        <button onClick={async () => { const ok = await notifyBot('request_inspection', ticket.id); ok ? toast.success('Solicitação de vistoria reenviada ao Telegram.') : toast.error('Não foi possível reenviar a vistoria ao Telegram.'); }} className="flex-1 rounded-xl bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500 transition">
+                          🔍 Reenviar
+                        </button>
                         <button onClick={() => approveInspection(ticket)} className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500 transition">
                           ✅ Aprovar
                         </button>

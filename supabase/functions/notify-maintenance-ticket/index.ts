@@ -255,7 +255,7 @@ async function sendInspectionRequest(
   roomNumber: string | null,
   durationPart: string,
   resolutionNotes?: string,
-) {
+): Promise<boolean> {
   const uhPart = roomNumber ? ` \\(UH ${esc(roomNumber)}\\)` : "";
   const lines = [
     `🔍 *Vistoria necessária*`, "",
@@ -266,12 +266,28 @@ async function sendInspectionRequest(
     lines.push("", `📝 _${esc(resolutionNotes)}_`);
   }
   lines.push("", `_Somente moderadores do grupo podem assumir a vistoria\\._`, "", `🔖 \`${ticketId}\``);
-  await tg("sendMessage", {
+  const result = await tg("sendMessage", {
     chat_id: chatId,
     text: lines.join("\n"),
     parse_mode: "MarkdownV2",
     reply_markup: inspectionKb(ticketId),
   });
+  if (result?.ok) return true;
+
+  const fallback = [
+    "🔍 Vistoria necessária", "",
+    ticketTitle + (roomNumber ? ` (UH ${roomNumber})` : ""),
+    `Concluído por ${techName}${durationPart.replaceAll("*", "")}`,
+    ...(resolutionNotes ? ["", `Solução: ${resolutionNotes}`] : []),
+    "", "Somente moderadores do grupo podem assumir a vistoria.",
+    "", ticketId,
+  ];
+  const fallbackResult = await tg("sendMessage", {
+    chat_id: chatId,
+    text: fallback.join("\n"),
+    reply_markup: inspectionKb(ticketId),
+  });
+  return fallbackResult?.ok === true;
 }
 
 // ── daily report ────────────────────────────────────────────────────────────
@@ -483,17 +499,17 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     if (!tk) return { ok: false, error: "ticket not found" };
     if (tk.status !== "resolved") return { ok: false, error: "ticket not resolved" };
     if (tk.inspection_status && tk.inspection_status !== "pending") return { ok: false, error: "inspection already closed" };
+    const requestedAt = new Date().toISOString();
     if (!tk.inspection_status) {
       await db.from("maintenance_tickets").update({
         inspection_status: "pending",
-        inspection_requested_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        updated_at: requestedAt,
       }).eq("id", ticketId).is("inspection_status", null);
     }
     const mins = tk.resolved_at && tk.created_at
       ? Math.round((new Date(tk.resolved_at).getTime() - new Date(tk.created_at).getTime()) / 60000)
       : null;
-    await sendInspectionRequest(
+    const sent = await sendInspectionRequest(
       CHAT_ID, ticketId,
       tk.status_reason ?? actorName,
       tk.title ?? "",
@@ -501,7 +517,13 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
       tk.resolution_notes as string | undefined,
     );
-    return { ok: true };
+    if (sent) {
+      await db.from("maintenance_tickets").update({
+        inspection_requested_at: requestedAt,
+        updated_at: requestedAt,
+      }).eq("id", ticketId).eq("status", "resolved");
+    }
+    return { ok: sent };
   }
 
   // Fix J: validate inspection_status before sending rating
@@ -1367,7 +1389,7 @@ async function handleReply(message: Record<string, unknown>) {
       awaiting_parts: false,
       inspection_status: "pending",
       inspector_tg_id: null,
-      inspection_requested_at: now,
+      inspection_requested_at: null,
     }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
 
     if (!resolvedCount || resolvedCount === 0) {
@@ -1397,10 +1419,9 @@ async function handleReply(message: Record<string, unknown>) {
           const requestedAt = new Date().toISOString();
           await db.from("maintenance_tickets").update({
             inspection_status: "pending",
-            inspection_requested_at: requestedAt,
             updated_at: requestedAt,
           }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
-          await sendInspectionRequest(
+          const sent = await sendInspectionRequest(
             CHAT_ID, ticketId,
             (current.status_reason as string) ?? name,
             current.title ?? "",
@@ -1408,6 +1429,12 @@ async function handleReply(message: Record<string, unknown>) {
             duration,
             solutionText,
           );
+          if (sent) {
+            await db.from("maintenance_tickets").update({
+              inspection_requested_at: requestedAt,
+              updated_at: requestedAt,
+            }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
+          }
         }
         return { ok: true, skipped: "already-resolved" };
       }
@@ -1437,7 +1464,7 @@ async function handleReply(message: Record<string, unknown>) {
     });
 
     // Send inspection request directly (DB trigger removed)
-    await sendInspectionRequest(
+    const inspectionSent = await sendInspectionRequest(
       CHAT_ID, ticketId,
       name,
       ticket.title ?? "",
@@ -1445,6 +1472,18 @@ async function handleReply(message: Record<string, unknown>) {
       mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
       solutionText,
     );
+    if (inspectionSent) {
+      await db.from("maintenance_tickets").update({
+        inspection_requested_at: now,
+        updated_at: now,
+      }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
+    } else {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Chamado concluído, mas não consegui enviar a solicitação de vistoria no grupo\\. Use /reenviar ou solicite pelo PMS\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    }
   } else if (isParts) {
     const partsText = userText.trim();
     if (!partsText) {
