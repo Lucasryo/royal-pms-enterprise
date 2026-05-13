@@ -1,35 +1,69 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
+import { toast } from 'sonner';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+
+interface ChatMessage {
+  text: string;
+  type: 'in' | 'out';
+  time: string;
+  typing?: boolean;
+}
 
 export function SimulatorTab() {
-  const [messages, setMessages] = useState([
-    { text: 'Olá! Gostaria de fazer uma reserva para o próximo fim de semana.', type: 'in' as const, time: '10:31' },
-    { text: 'Olá! Seja bem-vindo ao Royal PMS Palace Hotel 🏨 Temos disponibilidade! Para 2 pessoas, nossa UH Executiva está R$ 359/noite. Inclui café da manhã, Wi-Fi e estacionamento. Deseja confirmar?', type: 'out' as const, time: '10:31' },
-    { text: 'Sim! Vou querer o pacote completo. Tem piscina?', type: 'in' as const, time: '10:32' },
-    { text: 'Sim! Temos piscina descoberta disponível das 7h às 22h 🏊 Posso confirmar a reserva agora?', type: 'out' as const, time: '10:32' },
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { text: 'Olá! Gostaria de fazer uma reserva para o próximo fim de semana.', type: 'in', time: '10:31' },
+    { text: 'Olá! Seja bem-vindo ao Royal PMS Palace Hotel 🏨 Temos disponibilidade! Para 2 pessoas, nossa UH Executiva está R$ 359/noite. Inclui café da manhã, Wi-Fi e estacionamento. Deseja confirmar?', type: 'out', time: '10:31' },
+    { text: 'Sim! Vou querer o pacote completo. Tem piscina?', type: 'in', time: '10:32' },
+    { text: 'Sim! Temos piscina descoberta disponível das 7h às 22h 🏊 Posso confirmar a reserva agora?', type: 'out', time: '10:32' },
   ]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  function sendMessage() {
-    if (!input.trim()) return;
-    const userMsg = { text: input, type: 'in' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
+
+    const userText = input.trim();
+    const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const userMsg: ChatMessage = { text: userText, type: 'in', time: now };
+
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setLoading(true);
 
-    setTimeout(() => {
-      const botReplies = [
-        'Perfeito! Vou verificar a disponibilidade para você. 😊',
-        'Nossa tarifa inclui café da manhã das 6h às 10h. Posso reservar agora?',
-        'Excelente escolha! Você prefere pagar via PIX ou cartão de crédito?',
-        'Check-in a partir das 14h e checkout até as 11h. Confirmado?',
-        'Obrigado pelo seu interesse! Vou te enviar os dados de pagamento em instantes.',
-      ];
-      const reply = botReplies[Math.floor(Math.random() * botReplies.length)];
-      setMessages(prev => [...prev, { text: reply, type: 'out' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
-    }, 1000);
+    // Add typing indicator
+    const typingMsg: ChatMessage = { text: '', type: 'out', time: now, typing: true };
+    setMessages(prev => [...prev, typingMsg]);
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/bot-simulator`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userText }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error ?? 'Erro ao contatar o assistente.');
+      }
+
+      const replyTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      setMessages(prev => [
+        ...prev.filter(m => !m.typing),
+        { text: data.reply, type: 'out', time: replyTime },
+      ]);
+    } catch (err) {
+      setMessages(prev => prev.filter(m => !m.typing));
+      const errMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+      toast.error(`Bot indisponível: ${errMsg}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -49,7 +83,7 @@ export function SimulatorTab() {
               <div className="w-9 h-9 rounded-full bg-emerald-400 flex items-center justify-center font-black text-white text-sm">R</div>
               <div>
                 <p className="text-white font-bold text-sm">Royal PMS Hotel</p>
-                <p className="text-emerald-300 text-[10px]">online</p>
+                <p className="text-emerald-300 text-[10px]">{loading ? 'digitando...' : 'online'}</p>
               </div>
             </div>
             {/* Messages area */}
@@ -57,8 +91,18 @@ export function SimulatorTab() {
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-[#005C4B] text-white' : 'bg-[#202C33] text-white'}`}>
-                    {msg.text}
-                    <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}</p>
+                    {msg.typing ? (
+                      <span className="flex items-center gap-0.5 h-4">
+                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                    ) : (
+                      <>
+                        {msg.text}
+                        <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}</p>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -71,9 +115,14 @@ export function SimulatorTab() {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
                 placeholder="Mensagem"
-                className="flex-1 bg-[#2A3942] text-white text-xs px-4 py-2.5 rounded-full border-0 outline-none placeholder-white/40"
+                disabled={loading}
+                className="flex-1 bg-[#2A3942] text-white text-xs px-4 py-2.5 rounded-full border-0 outline-none placeholder-white/40 disabled:opacity-50"
               />
-              <button onClick={sendMessage} className="w-9 h-9 bg-[#00A884] rounded-full flex items-center justify-center shrink-0">
+              <button
+                onClick={sendMessage}
+                disabled={loading || !input.trim()}
+                className="w-9 h-9 bg-[#00A884] rounded-full flex items-center justify-center shrink-0 disabled:opacity-50"
+              >
                 <Send className="w-4 h-4 text-white" />
               </button>
             </div>
