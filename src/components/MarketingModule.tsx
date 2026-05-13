@@ -2,6 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
+import type {
+  Lead, Message, Campaign, Template, BotConfig,
+  ReservationPix, PixPaymentResult, SocialIntegration, SmtpConfig, PmsWebhook,
+} from '../types/marketing';
+import { SEED_LEADS, SEED_CAMPAIGNS, SEED_TEMPLATES } from '../constants/marketingSeeds';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -23,70 +28,6 @@ interface MarketingModuleDashboardProps {
   profile: UserProfile;
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Lead {
-  id: string;
-  guestName: string;
-  guestPhone?: string;
-  channel: string;
-  lastMessage: string;
-  lastMessageAt: string;
-  status: 'new' | 'ai_responded' | 'needs_human' | 'resolved';
-  sentiment: 'happy' | 'neutral' | 'mixed';
-  unreadCount?: number;
-  assignedTo?: string;
-  tags?: string[];
-  internalNotes?: string;
-}
-
-interface Message {
-  text: string;
-  type: 'in' | 'out';
-  time: string;
-}
-
-interface Campaign {
-  id: string;
-  name: string;
-  status: 'active' | 'scheduled' | 'completed' | 'draft';
-  reach: string;
-  conv: string;
-  channel: string;
-  scheduledAt?: string;
-  targetAudience?: string;
-  messageTemplate?: string;
-  created_at?: string;
-}
-
-interface Template {
-  id: string;
-  name: string;
-  text: string;
-  category: string;
-  channel: string;
-  created_at?: string;
-}
-
-interface BotConfig {
-  name: string;
-  address: string;
-  phone: string;
-  email: string;
-  description: string;
-  policies: string;
-  rooms: string;
-  faq: string;
-  pricingTable: string;
-  botMood: string;
-  upsellActive: boolean;
-  npsActive: boolean;
-  widgetBotName: string;
-  widgetWelcomeMessage: string;
-  googleReviewLink: string;
-  npsSendAfterHours: number;
-}
-
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CHANNELS = [
@@ -101,29 +42,6 @@ const CHANNELS = [
 
 const TEMPLATE_CATEGORIES = ['Saudação', 'Preços', 'Confirmação', 'Follow-up', 'Wi-Fi/PIX', 'Check-out', 'Personalizado'];
 const TEMPLATE_CHANNELS = ['WhatsApp', 'Instagram', 'Facebook', 'Todos'];
-
-const SEED_LEADS: Lead[] = [
-  { id: '1', guestName: 'Ana Beatriz Costa', channel: 'whatsapp', lastMessage: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', lastMessageAt: new Date(Date.now() - 5 * 60000).toISOString(), status: 'new', sentiment: 'happy', unreadCount: 3 },
-  { id: '2', guestName: 'Carlos Eduardo Lima', channel: 'instagram', lastMessage: 'Quanto custa a diária? Vi pelo stories.', lastMessageAt: new Date(Date.now() - 22 * 60000).toISOString(), status: 'needs_human', sentiment: 'neutral', unreadCount: 1 },
-  { id: '3', guestName: 'Marina Souza', channel: 'whatsapp', lastMessage: 'Infelizmente não consegui fazer meu check-in ainda.', lastMessageAt: new Date(Date.now() - 90 * 60000).toISOString(), status: 'needs_human', sentiment: 'mixed', unreadCount: 0 },
-  { id: '4', guestName: 'Roberto Ferreira', channel: 'facebook', lastMessage: 'Muito obrigado pelo atendimento! Nota 10.', lastMessageAt: new Date(Date.now() - 3 * 3600000).toISOString(), status: 'resolved', sentiment: 'happy', unreadCount: 0 },
-  { id: '5', guestName: 'Juliana Alves', channel: 'google', lastMessage: 'Queria saber se o café da manhã está incluso nas tarifas exibidas.', lastMessageAt: new Date(Date.now() - 5 * 3600000).toISOString(), status: 'ai_responded', sentiment: 'neutral', unreadCount: 0 },
-];
-
-const SEED_CAMPAIGNS: Campaign[] = [
-  { id: '1', name: 'Promoção Feriado Junho', status: 'active', reach: '2.847', conv: '12.3%', channel: 'WhatsApp', scheduledAt: '2026-06-01' },
-  { id: '2', name: 'Recuperação Carrinho Abandonado', status: 'active', reach: '891', conv: '8.7%', channel: 'WhatsApp' },
-  { id: '3', name: 'Reengajamento Aniversariantes', status: 'scheduled', reach: '0', conv: '0%', channel: 'Instagram', scheduledAt: '2026-05-20' },
-  { id: '4', name: 'Black Friday Antecipado', status: 'completed', reach: '5.120', conv: '18.4%', channel: 'WhatsApp' },
-];
-
-const SEED_TEMPLATES: Template[] = [
-  { id: '1', name: 'Boas-vindas Geral', category: 'Saudação', channel: 'WhatsApp', text: 'Olá [NOME]! 👋 Bem-vindo ao Royal PMS Palace Hotel. Como posso ajudar com sua reserva hoje?' },
-  { id: '2', name: 'Preços Executiva', category: 'Preços', channel: 'WhatsApp', text: 'Nossas tarifas para UH Executiva: Semana R$ 289 | Fim de semana R$ 359 | Pacotes especiais disponíveis. Café da manhã incluso.' },
-  { id: '3', name: 'Confirmação de Reserva', category: 'Confirmação', channel: 'WhatsApp', text: 'Reserva confirmada! ✅ Olá [NOME], sua estadia de [CHECKIN] a [CHECKOUT] está garantida. Check-in a partir das 14h. Até lá!' },
-  { id: '4', name: 'Follow-up 24h', category: 'Follow-up', channel: 'WhatsApp', text: 'Oi [NOME]! Vi que você mostrou interesse em nossa acomodação. Posso te ajudar a finalizar a reserva? Hoje temos disponibilidade especial 🏨' },
-  { id: '5', name: 'Wi-Fi e PIX', category: 'Wi-Fi/PIX', channel: 'WhatsApp', text: '📶 Wi-Fi: Rede Royal_Guest | Senha: BemVindo2026\n💰 PIX: contato@royalpms.com' },
-];
 
 function timeAgo(iso: string) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -1306,23 +1224,6 @@ function BroadcastsTab() {
 
 // ─── Financeiro / PIX Tab ────────────────────────────────────────────────────
 
-interface ReservationPix {
-  id: string;
-  guest_name: string;
-  total_amount: number;
-  contact_email: string | null;
-  reservation_code: string | null;
-  room_number: string | null;
-  check_in: string;
-  check_out: string;
-  pix_payment_id: string | null;
-  pix_status: string | null;
-  pix_qr_base64: string | null;
-  pix_copia_cola: string | null;
-  pix_generated_at: string | null;
-  fiscal_data: string | null;
-}
-
 function FinanceiroTab() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
   const [showForm, setShowForm] = useState(false);
@@ -1409,7 +1310,7 @@ function FinanceiroTab() {
           reservation_id: res.id,
         }),
       });
-      const data = await r.json() as { ok: boolean; error?: string; qr_code?: string; qr_code_base64?: string; payment_id?: string };
+      const data = await r.json() as PixPaymentResult;
       if (!data.ok) throw new Error(data.error);
 
       const copiaECola = data.qr_code ?? '';
@@ -1456,7 +1357,7 @@ function FinanceiroTab() {
           payer_cpf: form.guestCpf || undefined,
         }),
       });
-      const data = await r.json() as { ok: boolean; error?: string; qr_code?: string; qr_code_base64?: string; payment_id?: string };
+      const data = await r.json() as PixPaymentResult;
       if (!data.ok) throw new Error(data.error);
 
       const copiaECola = data.qr_code ?? '';
@@ -1766,17 +1667,6 @@ function FinanceiroTab() {
 
 // ─── Integrações Tab ──────────────────────────────────────────────────────────
 
-interface SocialIntegration {
-  id: string;
-  name: string;
-  description: string;
-  icon: JSX.Element;
-  color: string;
-  colorHex: string;
-  docsUrl: string;
-  field: string;
-}
-
 const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
   { id: 'whatsapp', name: 'WhatsApp Business', description: 'Envio e recebimento de mensagens via API oficial Meta Cloud.', icon: <MessageSquare className="w-6 h-6" />, color: 'bg-emerald-500', colorHex: '#10b981', docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api', field: 'whatsappPhoneId' },
   { id: 'instagram', name: 'Instagram Professional', description: 'Responder DMs e comentários automaticamente com IA.', icon: <Instagram className="w-6 h-6" />, color: 'bg-pink-500', colorHex: '#ec4899', docsUrl: 'https://developers.facebook.com/docs/instagram-basic-display-api', field: 'instagramAccount' },
@@ -1785,9 +1675,6 @@ const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
   { id: 'google', name: 'Google Reviews', description: 'Monitorar e responder avaliações do Google Meu Negócio.', icon: <Globe className="w-6 h-6" />, color: 'bg-red-500', colorHex: '#ef4444', docsUrl: 'https://developers.google.com/my-business', field: 'googleBusinessId' },
   { id: 'linkedin', name: 'LinkedIn', description: 'Publicar conteúdo e capturar leads corporativos.', icon: <Linkedin className="w-6 h-6" />, color: 'bg-sky-700', colorHex: '#0369a1', docsUrl: 'https://www.linkedin.com/developers/', field: 'linkedinPage' },
 ];
-
-interface SmtpConfig { host: string; port: string; user: string; pass: string; fromName: string; }
-interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
 function IntegracoesTab() {
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
