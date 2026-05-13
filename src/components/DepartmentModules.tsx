@@ -112,6 +112,9 @@ type MaintTicket = {
   inspected_at: string | null;
   awaiting_parts: boolean | null;
   telegram_user_id: number | null;
+  telegram_chat_id: number | null;
+  telegram_message_id: number | null;
+  telegram_card_updated_at: string | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -226,7 +229,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_chat_id,telegram_message_id,telegram_card_updated_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -262,7 +265,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }).eq('id', ticket.id).eq('status', 'in_progress').select();
     if (error) toast.error('Erro: ' + error.message);
     else if (!data || data.length === 0) toast.error('Chamado não está mais em andamento.');
-    else { toast.success('Chamado resolvido.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
+    else { toast.success('Chamado resolvido.'); fetchTickets(); void notifyBot('request_inspection', ticket.id); }
   }
 
   async function direct(ticket: MaintTicket) {
@@ -393,17 +396,19 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   }
 
   // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
-  async function notifyBot(type: string, ticketId: string) {
+  async function notifyBot(type: string, ticketId: string): Promise<boolean> {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) return false;
       const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
       });
-    } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
+      const body = await res.json().catch(() => null);
+      return res.ok && body?.ok !== false;
+    } catch { return false; }
   }
 
   async function resendNotification(ticket: MaintTicket) {
@@ -761,6 +766,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 text-[10px] font-black uppercase">VISTORIA</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase ${ticket.telegram_message_id ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                          {ticket.telegram_message_id ? 'CARD TELEGRAM OK' : 'REENVIAR CARD'}
+                        </span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
@@ -770,6 +778,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     </div>
                     {canAct && (
                       <div className="shrink-0 flex flex-row sm:flex-col gap-2 sm:min-w-[130px]">
+                        <button onClick={async () => { const ok = await notifyBot('request_inspection', ticket.id); ok ? toast.success('Solicitação de vistoria reenviada ao Telegram.') : toast.error('Não foi possível reenviar a vistoria ao Telegram.'); }} className="flex-1 rounded-xl bg-purple-600 px-3 py-2 text-xs font-black text-white hover:bg-purple-500 transition">
+                          🔍 Reenviar
+                        </button>
                         <button onClick={() => approveInspection(ticket)} className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500 transition">
                           ✅ Aprovar
                         </button>

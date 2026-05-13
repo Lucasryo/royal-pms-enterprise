@@ -312,6 +312,21 @@ function OpenTicketCard({ ticket }: { ticket: Ticket }) {
 function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
   const start = ticket.started_at ?? ticket.created_at;
 
+  async function notifyInspectionRequest() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ type: 'request_inspection', ticket_id: ticket.id, actor_name: ticket.status_reason ?? 'Operador' }),
+      });
+    } catch {
+      // Best-effort: the board action should not fail because Telegram is unavailable.
+    }
+  }
+
   async function resolve() {
     const note = prompt('Nota de resolucao (opcional):') ?? '';
     const { data, error } = await supabase
@@ -333,6 +348,8 @@ function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
       alert('Erro ao resolver: ' + error.message);
     } else if (!data || data.length === 0) {
       alert('Chamado não está mais em andamento.');
+    } else {
+      void notifyInspectionRequest();
     }
   }
 

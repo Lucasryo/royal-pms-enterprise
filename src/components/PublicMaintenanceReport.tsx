@@ -188,7 +188,9 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
     setSubmitting(true);
     setError(null);
 
+    const ticketId = crypto.randomUUID();
     const payload: Record<string, any> = {
+      id: ticketId,
       room_number: roomNumber,
       title: title.trim(),
       description: description.trim() || null,
@@ -203,6 +205,16 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       setError('Nao foi possivel enviar: ' + insertError.message);
       setSubmitting(false);
       return;
+    }
+    try {
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'public_report', ticket_id: ticketId }),
+      });
+    } catch {
+      // Best-effort: the PMS board still receives the ticket via realtime.
     }
     setSubmitted(true);
     setSubmitting(false);
