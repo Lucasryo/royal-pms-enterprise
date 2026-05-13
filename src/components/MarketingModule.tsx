@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { UserProfile } from '../types';
-import type { Lead } from '../types/marketing';
 import { SEED_LEADS } from '../constants/marketingSeeds';
 import { FinanceiroTab } from './marketing/FinanceiroTab';
 import { LeadInboxTab } from './marketing/LeadInboxTab';
@@ -15,22 +14,33 @@ import { FlowBuilderTab } from './marketing/FlowBuilderTab';
 import { BroadcastsTab } from './marketing/BroadcastsTab';
 import { IntegracoesTab } from './marketing/IntegracoesTab';
 import {
-  MessageSquare, Instagram, Facebook, Search, CheckCircle2, Clock, Send,
-  Zap, Twitter, Linkedin, Video, Globe, Users, Sparkles, ClipboardList,
-  AlertCircle, Tag, UserPlus, LayoutGrid, Plus, Trash2, Copy, Edit3, Save,
-  X, Star, TrendingUp, BarChart3, Target, Smile, Meh, Frown, ArrowUpRight,
-  Calendar, Bell, Smartphone, Filter, Bookmark, MoreVertical, RefreshCw,
-  Hotel, MapPin, Phone, BedDouble, DollarSign, Mail, Wand2, MessageCircle,
-  ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
-  Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
-  QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
-  CheckCircle, XCircle, Wifi, Key,
+  Send, Zap, Users, BarChart3, Smartphone,
+  Megaphone, Bot, Heart, Layers, Inbox,
+  QrCode, Link2,
 } from 'lucide-react';
 
 interface MarketingModuleDashboardProps {
   profile: UserProfile;
 }
 
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: 'inbox', label: 'Omni-Inbox', icon: Inbox },
+  { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
+  { id: 'broadcasts', label: 'Disparos', icon: Send },
+  { id: 'flows', label: 'Automações', icon: Zap },
+  { id: 'templates', label: 'Templates', icon: Layers },
+  { id: 'crm', label: 'CRM', icon: Users },
+  { id: 'nps', label: 'NPS', icon: Heart },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'simulator', label: 'Simulador', icon: Smartphone },
+  { id: 'training', label: 'Treinamento', icon: Bot },
+  { id: 'financeiro', label: 'Financeiro', icon: QrCode },
+  { id: 'integracoes', label: 'Integrações', icon: Link2 },
+] as const;
+
+type TabId = typeof TABS[number]['id'];
 
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
