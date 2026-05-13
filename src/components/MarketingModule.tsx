@@ -29,6 +29,7 @@ interface Lead {
   id: string;
   guestName: string;
   guestPhone?: string;
+  guestEmail?: string;
   channel: string;
   lastMessage: string;
   lastMessageAt: string;
@@ -41,9 +42,12 @@ interface Lead {
 }
 
 interface Message {
+  id?: string;
   text: string;
   type: 'in' | 'out';
   time: string;
+  subject?: string | null;
+  createdAt?: string;
 }
 
 interface Campaign {
@@ -133,6 +137,66 @@ function timeAgo(iso: string) {
   return `${Math.floor(diff / 86400)}d`;
 }
 
+type InboxMessageRow = {
+  id: string;
+  contact_id: string | null;
+  contact_identifier: string;
+  channel: string;
+  direction: 'in' | 'out';
+  subject: string | null;
+  body: string;
+  read: boolean;
+  created_at: string;
+};
+
+type MarketingContactRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  channel: string;
+  status: Lead['status'] | null;
+  sentiment: Lead['sentiment'] | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  unread_count: number | null;
+  tags: string[] | null;
+  internal_notes: string | null;
+  created_at: string;
+};
+
+function formatMessageTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function mapInboxMessage(row: InboxMessageRow): Message {
+  return {
+    id: row.id,
+    text: row.body,
+    type: row.direction,
+    time: formatMessageTime(row.created_at),
+    subject: row.subject,
+    createdAt: row.created_at,
+  };
+}
+
+function mapContactToLead(row: MarketingContactRow): Lead {
+  return {
+    id: row.id,
+    guestName: row.name || row.email || row.phone || 'Contato sem nome',
+    guestEmail: row.email || undefined,
+    guestPhone: row.phone || undefined,
+    channel: row.channel || 'email',
+    lastMessage: row.last_message || 'Sem mensagens ainda',
+    lastMessageAt: row.last_message_at || row.created_at,
+    status: row.status || 'new',
+    sentiment: row.sentiment || 'neutral',
+    unreadCount: row.unread_count || 0,
+    tags: row.tags || undefined,
+    internalNotes: row.internal_notes || undefined,
+  };
+}
+
 // ─── Pill Badge ───────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: Lead['status'] }) {
@@ -185,6 +249,98 @@ function LeadInboxTab() {
   }, [messages]);
 
   useEffect(() => {
+    let alive = true;
+
+    async function loadContacts() {
+      const { data, error } = await supabase
+        .from('marketing_contacts')
+        .select('*')
+        .order('last_message_at', { ascending: false, nullsFirst: false });
+
+      if (!alive) return;
+      if (error) {
+        console.warn('[omni-inbox] Falha ao carregar contatos:', error.message);
+        return;
+      }
+
+      if (data?.length) {
+        const mapped = (data as MarketingContactRow[]).map(mapContactToLead);
+        setLeads(mapped);
+        setSelectedId(current => current && mapped.some(lead => lead.id === current) ? current : mapped[0].id);
+      }
+    }
+
+    loadContacts();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    let alive = true;
+
+    async function loadMessages() {
+      const { data, error } = await supabase
+        .from('inbox_messages')
+        .select('*')
+        .eq('contact_id', selectedId)
+        .order('created_at', { ascending: true });
+
+      if (!alive) return;
+      if (error) {
+        console.warn('[omni-inbox] Falha ao carregar mensagens:', error.message);
+        return;
+      }
+
+      if (data) {
+        setChatHistory(prev => ({
+          ...prev,
+          [selectedId]: (data as InboxMessageRow[]).map(mapInboxMessage),
+        }));
+      }
+    }
+
+    loadMessages();
+    return () => { alive = false; };
+  }, [selectedId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('inbox_messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'inbox_messages' },
+        payload => {
+          const row = payload.new as InboxMessageRow;
+          if (!row.contact_id) return;
+
+          setChatHistory(prev => {
+            const existing = prev[row.contact_id!] ?? [];
+            if (existing.some(message => message.id === row.id)) return prev;
+            if (existing.some(message =>
+              !message.id &&
+              message.type === row.direction &&
+              message.text === row.body &&
+              message.createdAt &&
+              Math.abs(new Date(message.createdAt).getTime() - new Date(row.created_at).getTime()) < 5000
+            )) return prev;
+            return { ...prev, [row.contact_id!]: [...existing, mapInboxMessage(row)] };
+          });
+
+          setLeads(prev => prev.map(lead => lead.id === row.contact_id ? {
+            ...lead,
+            lastMessage: row.body,
+            lastMessageAt: row.created_at,
+            unreadCount: row.direction === 'in' && row.contact_id !== selectedId ? (lead.unreadCount || 0) + 1 : lead.unreadCount,
+            status: row.direction === 'in' ? 'new' : lead.status,
+          } : lead));
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedId]);
+
+  useEffect(() => {
     if (!selected) return;
     setLoadingAI(true);
     const timer = setTimeout(() => {
@@ -205,12 +361,35 @@ function LeadInboxTab() {
     return true;
   });
 
-  function sendMessage() {
+  async function sendMessage() {
     if (!messageInput.trim() || !selectedId) return;
-    const msg: Message = { text: messageInput, type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+    const text = messageInput.trim();
+    const selectedLead = leads.find(l => l.id === selectedId);
+    const now = new Date().toISOString();
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: messageInput, status: 'ai_responded' as const } : l));
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
+
+    const { error } = await supabase.from('inbox_messages').insert([{
+      contact_id: selectedId,
+      contact_identifier: selectedLead?.guestEmail || selectedLead?.guestPhone || selectedLead?.guestName || selectedId,
+      channel: selectedLead?.channel || 'email',
+      direction: 'out',
+      body: text,
+      read: true,
+    }]);
+
+    if (error) {
+      toast.error('Mensagem exibida, mas não foi salva no histórico.');
+      console.warn('[omni-inbox] Falha ao salvar mensagem enviada:', error.message);
+      return;
+    }
+
+    await supabase
+      .from('marketing_contacts')
+      .update({ last_message: text, last_message_at: now, status: 'ai_responded', unread_count: 0 })
+      .eq('id', selectedId);
   }
 
   function markResolved() {
@@ -1786,7 +1965,15 @@ const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
   { id: 'linkedin', name: 'LinkedIn', description: 'Publicar conteúdo e capturar leads corporativos.', icon: <Linkedin className="w-6 h-6" />, color: 'bg-sky-700', colorHex: '#0369a1', docsUrl: 'https://www.linkedin.com/developers/', field: 'linkedinPage' },
 ];
 
-interface SmtpConfig { host: string; port: string; user: string; pass: string; fromName: string; }
+interface SmtpConfig {
+  host: string;
+  port: string;
+  user: string;
+  pass: string;
+  fromName: string;
+  imapHost?: string;
+  imapPort?: string;
+}
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
 function IntegracoesTab() {
@@ -1797,7 +1984,7 @@ function IntegracoesTab() {
   const [showWebhook, setShowWebhook] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState<SocialIntegration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
-  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '587', user: '', pass: '', fromName: 'Recepção Hotel' });
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '587', user: '', pass: '', fromName: 'Recepção Hotel', imapHost: '', imapPort: '993' });
   const [pmsConfig, setPmsConfig] = useState<Record<string, PmsWebhook>>({
     cloudbeds: { webhookUrl: '', apiKey: '', enabled: false },
     mews: { webhookUrl: '', apiKey: '', enabled: false },
@@ -1825,8 +2012,48 @@ function IntegracoesTab() {
     setTokenInput('');
   }
 
-  function saveSmtp() {
+  useEffect(() => {
+    let alive = true;
+
+    async function loadSmtpConfig() {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('id', 'smtp_config')
+        .maybeSingle();
+
+      if (!alive) return;
+      if (error) {
+        console.warn('[integracoes] Falha ao carregar SMTP:', error.message);
+        return;
+      }
+
+      if (data?.value) {
+        try {
+          setSmtpConfig(current => ({ ...current, ...(JSON.parse(data.value) as Partial<SmtpConfig>) }));
+          setStatuses(s => ({ ...s, email: 'connected' }));
+        } catch {
+          console.warn('[integracoes] smtp_config inválido em app_settings.');
+        }
+      }
+    }
+
+    loadSmtpConfig();
+    return () => { alive = false; };
+  }, []);
+
+  async function saveSmtp() {
     if (!smtpConfig.host || !smtpConfig.user) { toast.error('Host e usuário são obrigatórios'); return; }
+    const { error } = await supabase.from('app_settings').upsert({
+      id: 'smtp_config',
+      value: JSON.stringify(smtpConfig),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      toast.error('Não foi possível salvar a configuração SMTP/IMAP.');
+      console.warn('[integracoes] Falha ao salvar SMTP:', error.message);
+      return;
+    }
     setStatuses(s => ({ ...s, email: 'connected' }));
     setShowSmtp(false);
     toast.success('Servidor de e-mail configurado!');
@@ -2045,6 +2272,19 @@ function IntegracoesTab() {
                   <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Senha / App Password</label>
                   <input type="password" value={smtpConfig.pass} onChange={e => setSmtpConfig(c => ({ ...c, pass: e.target.value }))} placeholder="••••••••••••" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Servidor IMAP</label>
+                    <input value={smtpConfig.imapHost ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, imapHost: e.target.value }))} placeholder="imap.gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Porta IMAP</label>
+                    <input value={smtpConfig.imapPort ?? '993'} onChange={e => setSmtpConfig(c => ({ ...c, imapPort: e.target.value }))} placeholder="993" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                </div>
+                <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-medium leading-relaxed text-amber-800">
+                  Para receber e-mails, preencha o servidor IMAP. Para Gmail: imap.gmail.com / 993.
+                </p>
                 <div>
                   <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Remetente</label>
                   <input value={smtpConfig.fromName} onChange={e => setSmtpConfig(c => ({ ...c, fromName: e.target.value }))} placeholder="Recepção Royal PMS" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />

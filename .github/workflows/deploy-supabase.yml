@@ -83,6 +83,19 @@ jobs:
             sleep 10
           done
 
+      - name: Deploy edge function — poll-email-inbox
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if supabase functions deploy poll-email-inbox \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
+
       - name: Run SQL migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -96,6 +109,33 @@ jobs:
             "query": "create table if not exists public.booking_blocked_dates (id uuid default gen_random_uuid() primary key, category text check (category is null or category in ('executivo','master','suite presidencial')), start_date date not null, end_date date not null, reason text, active boolean not null default true, created_by uuid references auth.users(id), created_at timestamptz not null default timezone('utc',now()), updated_at timestamptz not null default timezone('utc',now()), check (end_date >= start_date)); create index if not exists idx_booking_blocked_dates_active on public.booking_blocked_dates(active,category,start_date,end_date); alter table if exists public.booking_blocked_dates enable row level security; do $$ begin if not exists (select 1 from pg_policies where tablename='booking_blocked_dates' and policyname='booking_blocked_dates_select_staff') then create policy booking_blocked_dates_select_staff on public.booking_blocked_dates for select to authenticated using (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','reservations','manager'))); end if; if not exists (select 1 from pg_policies where tablename='booking_blocked_dates' and policyname='booking_blocked_dates_manage_staff') then create policy booking_blocked_dates_manage_staff on public.booking_blocked_dates for all to authenticated using (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','reservations','manager'))) with check (exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','reservations','manager'))); end if; end $$; create table if not exists public.push_subscriptions (id uuid default gen_random_uuid() primary key, user_id uuid references auth.users(id) on delete cascade not null, endpoint text not null, subscription jsonb not null, created_at timestamptz not null default timezone('utc',now()), updated_at timestamptz not null default timezone('utc',now()), unique(user_id,endpoint)); create index if not exists idx_push_subscriptions_user on public.push_subscriptions(user_id); alter table if exists public.push_subscriptions enable row level security; do $$ begin if not exists (select 1 from pg_policies where tablename='push_subscriptions' and policyname='push_subscriptions_own') then create policy push_subscriptions_own on public.push_subscriptions for all to authenticated using (auth.uid()=user_id) with check (auth.uid()=user_id); end if; end $$;"
           }
           SQL
+
+      - name: Run inbox_messages migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          python - <<'PY' > /tmp/inbox_payload.json
+          import json
+          import os
+          from pathlib import Path
+
+          migration = Path("supabase/migrations/20260514_inbox_messages.sql").read_text()
+          supabase_url = f"https://{os.environ['SUPABASE_PROJECT_REF']}.supabase.co"
+          service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          query = (
+              f"select set_config('app.supabase_url', {json.dumps(supabase_url)}, false); "
+              f"select set_config('app.service_role_key', {json.dumps(service_role_key)}, false); "
+              + migration
+          )
+          print(json.dumps({"query": query}))
+          PY
+          curl -sf -X POST \
+            "https://api.supabase.com/v1/projects/${{ secrets.SUPABASE_PROJECT_REF }}/database/query" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/inbox_payload.json
 
       - name: Run event items migration
         env:
