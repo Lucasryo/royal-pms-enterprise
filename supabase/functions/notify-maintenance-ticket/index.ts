@@ -1327,6 +1327,46 @@ async function handleReply(message: Record<string, unknown>) {
     }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
 
     if (!resolvedCount || resolvedCount === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("created_at,title,room_number,status,status_reason,telegram_user_id,resolution_notes,inspection_requested_at")
+        .eq("id", ticketId)
+        .single();
+
+      const alreadyResolvedBySameTech =
+        current?.status === "resolved" &&
+        Number(current.telegram_user_id) === fromId &&
+        String(current.resolution_notes ?? "") === solutionText;
+
+      if (alreadyResolvedBySameTech) {
+        const resolvedMins = current.created_at
+          ? Math.round((Date.now() - new Date(current.created_at as string).getTime()) / 60000)
+          : null;
+        const duration = resolvedMins !== null ? ` em *${esc(formatDuration(resolvedMins))}*` : "";
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `✅ Chamado já concluído${duration} por *${esc(current.status_reason as string ?? name)}*\\.\n📝 ${esc(solutionText)}`,
+          parse_mode: "MarkdownV2",
+        });
+
+        if (!current.inspection_requested_at) {
+          const requestedAt = new Date().toISOString();
+          await db.from("maintenance_tickets").update({
+            inspection_requested_at: requestedAt,
+            updated_at: requestedAt,
+          }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
+          await sendInspectionRequest(
+            CHAT_ID, ticketId,
+            (current.status_reason as string) ?? name,
+            current.title ?? "",
+            current.room_number ?? null,
+            duration,
+            solutionText,
+          );
+        }
+        return { ok: true, skipped: "already-resolved" };
+      }
+
       await tg("sendMessage", {
         chat_id: chatId,
         text: `⚠️ Chamado já foi alterado por outra ação e não pôde ser concluído\\.`,
