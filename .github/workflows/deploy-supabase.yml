@@ -96,6 +96,19 @@ jobs:
             sleep 10
           done
 
+      - name: Deploy edge function — send-email
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if supabase functions deploy send-email \
+              --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}; then
+              break
+            fi
+            echo "Retry $i failed, waiting 10s..."
+            sleep 10
+          done
+
       - name: Run SQL migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

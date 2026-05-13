@@ -231,6 +231,7 @@ function LeadInboxTab() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
   const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
     '1': [
       { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
@@ -373,11 +374,52 @@ function LeadInboxTab() {
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
 
   async function sendMessage() {
-    if (!messageInput.trim() || !selectedId) return;
+    if (!messageInput.trim() || !selectedId || sendingMessage) return;
     const text = messageInput.trim();
     const selectedLead = leads.find(l => l.id === selectedId);
+    if (!selectedLead) return;
+    setSendingMessage(true);
+
+    try {
+      const lastIncomingSubject = [...messages].reverse().find(message => message.type === 'in' && message.subject)?.subject;
+      const subject = lastIncomingSubject
+        ? (lastIncomingSubject.toLowerCase().startsWith('re:') ? lastIncomingSubject : `Re: ${lastIncomingSubject}`)
+        : 'Resposta Royal PMS';
+
+      if (selectedLead.channel === 'email') {
+        if (!selectedLead.guestEmail) {
+          toast.error('Este contato não possui e-mail para resposta.');
+          return;
+        }
+
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) {
+          toast.error('Sessão expirada. Entre novamente para enviar e-mails.');
+          return;
+        }
+
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: selectedLead.guestEmail,
+            subject,
+            body: text,
+          }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.sent) {
+          throw new Error(result.error || 'Falha ao enviar e-mail.');
+        }
+      }
+
     const now = new Date().toISOString();
-    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now };
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
@@ -387,6 +429,7 @@ function LeadInboxTab() {
       contact_identifier: selectedLead?.guestEmail || selectedLead?.guestPhone || selectedLead?.guestName || selectedId,
       channel: selectedLead?.channel || 'email',
       direction: 'out',
+      subject: selectedLead.channel === 'email' ? subject : null,
       body: text,
       read: true,
     }]);
@@ -401,6 +444,15 @@ function LeadInboxTab() {
       .from('marketing_contacts')
       .update({ last_message: text, last_message_at: now, status: 'ai_responded', unread_count: 0 })
       .eq('id', selectedId);
+
+      toast.success(selectedLead.channel === 'email' ? 'E-mail enviado' : 'Mensagem enviada');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível enviar a mensagem.';
+      toast.error(message);
+      console.warn('[omni-inbox] Falha ao enviar mensagem:', message);
+    } finally {
+      setSendingMessage(false);
+    }
   }
 
   function markResolved() {
@@ -563,15 +615,16 @@ function LeadInboxTab() {
               onChange={e => setMessageInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
               placeholder="Escreva uma mensagem..."
+              disabled={sendingMessage}
               rows={2}
               className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
             <button
               onClick={sendMessage}
-              disabled={!messageInput.trim()}
+              disabled={!messageInput.trim() || sendingMessage}
               className="p-3 bg-neutral-900 text-white rounded-2xl hover:bg-neutral-800 disabled:opacity-40 transition-all"
             >
-              <Send className="w-4 h-4" />
+              {sendingMessage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
         </div>
