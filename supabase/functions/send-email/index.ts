@@ -50,9 +50,47 @@ serve(async (req) => {
       return json({ error: "SMTP nao esta configurado." }, 400);
     }
 
+    const messageId = await sendWithRetry({
+      smtpConfig,
+      to,
+      subject,
+      message,
+      inReplyTo,
+      references,
+    });
+    return json({ sent: true, messageId });
+  } catch (error) {
+    const message = formatPublicError(error);
+    return json({ error: message }, 500);
+  }
+});
+
+async function loadSmtpConfig() {
+  const { data, error } = await adminClient
+    .from("app_settings")
+    .select("value")
+    .eq("id", "smtp_config")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data?.value) return null;
+  return JSON.parse(data.value) as SmtpConfig;
+}
+
+async function sendWithRetry({ smtpConfig, to, subject, message, inReplyTo, references }: {
+  smtpConfig: SmtpConfig;
+  to: string;
+  subject: string;
+  message: string;
+  inReplyTo: string | null;
+  references: string | null;
+}) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     const smtp = new SmtpClient(smtpConfig.host, Number(smtpConfig.port || 587));
-    await smtp.connect();
     try {
+      await smtp.connect();
       await smtp.ehlo();
       if (Number(smtpConfig.port || 587) !== 465) {
         await smtp.startTls();
@@ -70,26 +108,17 @@ serve(async (req) => {
         references,
       });
       await smtp.quit();
-      return json({ sent: true, messageId });
+      return messageId;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSmtpError(error) || attempt === 3) break;
+      await delay(attempt * 1500);
     } finally {
       smtp.close();
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    return json({ error: message }, 500);
   }
-});
 
-async function loadSmtpConfig() {
-  const { data, error } = await adminClient
-    .from("app_settings")
-    .select("value")
-    .eq("id", "smtp_config")
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data?.value) return null;
-  return JSON.parse(data.value) as SmtpConfig;
+  throw lastError instanceof Error ? lastError : new Error("Unexpected SMTP error.");
 }
 
 class SmtpClient {
@@ -198,7 +227,7 @@ class SmtpClient {
       if (/^\d{3} /.test(last)) {
         const code = Number(last.slice(0, 3));
         if (!expectedCodes.includes(code)) {
-          throw new Error(`SMTP error ${code}: ${last.slice(4) || response.trim()}`);
+          throw new SmtpError(code, last.slice(4) || response.trim());
         }
         return response;
       }
@@ -206,6 +235,28 @@ class SmtpClient {
 
     throw new Error("SMTP connection closed unexpectedly.");
   }
+}
+
+class SmtpError extends Error {
+  constructor(public code: number, message: string) {
+    super(`SMTP error ${code}: ${message}`);
+    this.name = "SmtpError";
+  }
+}
+
+function isTransientSmtpError(error: unknown) {
+  return error instanceof SmtpError && error.code >= 400 && error.code < 500;
+}
+
+function formatPublicError(error: unknown) {
+  if (error instanceof SmtpError && error.code >= 400 && error.code < 500) {
+    return `O servidor SMTP recusou temporariamente o envio (${error.code}). Tente novamente em alguns minutos. Detalhe: ${error.message}`;
+  }
+  return error instanceof Error ? error.message : "Unexpected error";
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function cleanEmail(value: unknown) {
