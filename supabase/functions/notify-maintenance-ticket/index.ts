@@ -624,15 +624,13 @@ async function handleCallback(query: Record<string, unknown>) {
   const action   = data.slice(0, colonIdx);
   const rest     = data.slice(colonIdx + 1);
 
-  // Immediately acknowledge callback to prevent Telegram retries
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
-
   // ── Rating ──────────────────────────────────────────────────────────────
   if (action === "rate") {
     const parts    = rest.split(":");
     const ticketId = parts[0];
     const rating   = Number(parts[1]);
     if (!ticketId || !rating || rating < 1 || rating > 5) {
+      await tg("answerCallbackQuery", { callback_query_id: cbId, text: "Avaliação inválida.", show_alert: true });
       return { ok: true };
     }
 
@@ -646,21 +644,38 @@ async function handleCallback(query: Record<string, unknown>) {
     if (!ratingCount || ratingCount === 0) {
       const { data: tk } = await db
         .from("maintenance_tickets").select("rating").eq("id", ticketId).single();
+      await tg("answerCallbackQuery", {
+        callback_query_id: cbId,
+        text: `Este chamado já foi avaliado com ${tk?.rating ?? "?"}/5 estrelas.`,
+        show_alert: true,
+      });
+      if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
       await tg("sendMessage", {
         chat_id: chatId,
         text: `✅ Este chamado já foi avaliado com ${tk?.rating ?? "?"}/5 estrelas.`,
-        parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
+    await tg("answerCallbackQuery", {
+      callback_query_id: cbId,
+      text: `Avaliação ${rating}/5 registrada. Obrigado!`,
+      show_alert: false,
+    });
     if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
+    if (msgId) await tg("editMessageText", {
+      chat_id: chatId,
+      message_id: msgId,
+      text: `⭐ Atendimento avaliado em ${rating}/5 por ${name}`,
+    });
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `⭐ Atendimento avaliado em *${rating}/5* por *${esc(name)}*`,
-      parse_mode: "MarkdownV2",
+      text: `⭐ Atendimento avaliado em ${rating}/5 por ${name}`,
     });
     return { ok: true };
   }
+
+  // Immediately acknowledge non-rating callbacks to prevent Telegram retries.
+  await tg("answerCallbackQuery", { callback_query_id: cbId });
 
   // ── Inspection: assume vistoria (somente moderadores) ───────────────────
   if (action === "insp_assume") {
