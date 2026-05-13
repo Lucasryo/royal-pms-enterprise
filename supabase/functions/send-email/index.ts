@@ -38,8 +38,6 @@ serve(async (req) => {
     const to = cleanEmail(body?.to);
     const subject = cleanSubject(body?.subject);
     const message = cleanBody(body?.body);
-    const inReplyTo = cleanMessageId(body?.inReplyTo);
-    const references = cleanReferences(body?.references, inReplyTo);
 
     if (!to || !subject || !message) {
       return json({ error: "Destinatario, assunto e mensagem sao obrigatorios." }, 400);
@@ -55,8 +53,6 @@ serve(async (req) => {
       to,
       subject,
       message,
-      inReplyTo,
-      references,
     });
     return json({ sent: true, messageId: null });
   } catch (error) {
@@ -77,13 +73,11 @@ async function loadSmtpConfig() {
   return JSON.parse(data.value) as SmtpConfig;
 }
 
-async function sendWithRetry({ smtpConfig, to, subject, message, inReplyTo, references }: {
+async function sendWithRetry({ smtpConfig, to, subject, message }: {
   smtpConfig: SmtpConfig;
   to: string;
   subject: string;
   message: string;
-  inReplyTo: string | null;
-  references: string | null;
 }) {
   let lastError: unknown;
 
@@ -104,8 +98,6 @@ async function sendWithRetry({ smtpConfig, to, subject, message, inReplyTo, refe
         subject,
         body: message,
         html: buildHtmlEmail(message, smtpConfig),
-        inReplyTo,
-        references,
       });
       await smtp.quit();
       return;
@@ -151,7 +143,7 @@ class SmtpClient {
     await this.command(base64(pass), [235], false);
   }
 
-  async sendMail({ fromEmail, fromName, to, subject, body, html, inReplyTo, references }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string; inReplyTo: string | null; references: string | null }) {
+  async sendMail({ fromEmail, fromName, to, subject, body, html }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string }) {
     await this.command(`MAIL FROM:<${fromEmail}>`, [250]);
     await this.command(`RCPT TO:<${to}>`, [250, 251]);
     await this.command("DATA", [354]);
@@ -161,8 +153,6 @@ class SmtpClient {
       `From: ${encodeAddress(fromName, fromEmail)}`,
       `To: <${to}>`,
       `Subject: ${encodeHeader(subject)}`,
-      ...(inReplyTo ? [foldHeader("In-Reply-To", inReplyTo)] : []),
-      ...(references ? [foldHeader("References", references)] : []),
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       `Date: ${new Date().toUTCString()}`,
@@ -171,15 +161,15 @@ class SmtpClient {
     const mimeBody = [
       `--${boundary}`,
       "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
+      "Content-Transfer-Encoding: 8bit",
       "",
-      base64Mime(body),
+      body,
       "",
       `--${boundary}`,
       "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
+      "Content-Transfer-Encoding: 8bit",
       "",
-      base64Mime(html),
+      html,
       "",
       `--${boundary}--`,
     ].join("\r\n");
@@ -269,44 +259,11 @@ function cleanBody(value: unknown) {
   return String(value ?? "").replace(/\r\n/g, "\n").trim().slice(0, 12000);
 }
 
-function cleanMessageId(value: unknown) {
-  const match = String(value ?? "").match(/<[^<>\s]+@[^<>\s]+>/);
-  return match?.[0] ?? null;
-}
-
-function cleanReferences(value: unknown, inReplyTo: string | null) {
-  const refs = String(value ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
-  if (inReplyTo && !refs.includes(inReplyTo)) refs.push(inReplyTo);
-  return refs.length ? refs.slice(-12).join(" ") : null;
-}
-
-function foldHeader(name: string, value: string) {
-  const words = value.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let current = `${name}:`;
-
-  for (const word of words) {
-    if (`${current} ${word}`.length > 76) {
-      lines.push(current);
-      current = ` ${word}`;
-    } else {
-      current = `${current} ${word}`;
-    }
-  }
-
-  lines.push(current);
-  return lines.join("\r\n");
-}
-
 function base64(value: string) {
   const bytes = new TextEncoder().encode(value);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
-}
-
-function base64Mime(value: string) {
-  return base64(value).replace(/.{1,76}/g, "$&\r\n").trim();
 }
 
 function encodeHeader(value: string) {
