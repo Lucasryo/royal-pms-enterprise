@@ -20,6 +20,12 @@ type SmtpConfig = {
   user: string;
   pass: string;
   fromName: string;
+  signatureName?: string;
+  signatureRole?: string;
+  signaturePhone?: string;
+  signatureWebsite?: string;
+  signatureAddress?: string;
+  signatureLogoUrl?: string;
 };
 
 serve(async (req) => {
@@ -57,6 +63,7 @@ serve(async (req) => {
         to,
         subject,
         body: message,
+        html: buildHtmlEmail(message, smtpConfig),
       });
       await smtp.quit();
     } finally {
@@ -112,22 +119,38 @@ class SmtpClient {
     await this.command(base64(pass), [235], false);
   }
 
-  async sendMail({ fromEmail, fromName, to, subject, body }: { fromEmail: string; fromName: string; to: string; subject: string; body: string }) {
+  async sendMail({ fromEmail, fromName, to, subject, body, html }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string }) {
     await this.command(`MAIL FROM:<${fromEmail}>`, [250]);
     await this.command(`RCPT TO:<${to}>`, [250, 251]);
     await this.command("DATA", [354]);
 
+    const boundary = `royal-pms-${crypto.randomUUID()}`;
     const headers = [
       `From: ${encodeAddress(fromName, fromEmail)}`,
       `To: <${to}>`,
       `Subject: ${encodeHeader(subject)}`,
       "MIME-Version: 1.0",
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 8bit",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
       `Date: ${new Date().toUTCString()}`,
     ];
 
-    await this.write(`${headers.join("\r\n")}\r\n\r\n${dotStuff(body)}\r\n.\r\n`);
+    const mimeBody = [
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      body,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      html,
+      "",
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    await this.write(`${headers.join("\r\n")}\r\n\r\n${dotStuff(mimeBody)}\r\n.\r\n`);
     await this.readResponse([250]);
   }
 
@@ -208,6 +231,63 @@ function encodeAddress(name: string, email: string) {
 
 function dotStuff(value: string) {
   return value.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n").replace(/^\./gm, "..");
+}
+
+function buildHtmlEmail(message: string, config: SmtpConfig) {
+  const lines = escapeHtml(message).replace(/\n/g, "<br>");
+  const signatureName = escapeHtml(config.signatureName || config.fromName || "Royal Macaé Palace Hotel");
+  const signatureRole = escapeHtml(config.signatureRole || "Reservas");
+  const phone = escapeHtml(config.signaturePhone || "");
+  const website = escapeHtml(config.signatureWebsite || "");
+  const address = escapeHtml(config.signatureAddress || "");
+  const logo = String(config.signatureLogoUrl || "").trim();
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f6f5f2;font-family:Arial,Helvetica,sans-serif;color:#171717;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f5f2;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:94%;background:#ffffff;border:1px solid #e7e5e4;border-radius:8px;">
+            <tr>
+              <td style="padding:28px 32px;font-size:15px;line-height:1.65;color:#262626;">
+                ${lines}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 30px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" style="border-top:1px solid #e7e5e4;padding-top:18px;width:100%;">
+                  <tr>
+                    ${logo ? `<td style="width:68px;vertical-align:top;padding-right:14px;"><img src="${escapeAttribute(logo)}" width="54" height="54" alt="" style="display:block;object-fit:contain;border-radius:6px;border:1px solid #eee;background:#fff;"></td>` : ""}
+                    <td style="vertical-align:top;">
+                      <div style="font-size:15px;font-weight:700;color:#171717;margin-bottom:2px;">${signatureName}</div>
+                      <div style="font-size:13px;font-weight:700;color:#b7791f;margin-bottom:8px;">${signatureRole}</div>
+                      ${phone ? `<div style="font-size:12px;color:#525252;margin-bottom:2px;">${phone}</div>` : ""}
+                      ${website ? `<div style="font-size:12px;color:#525252;margin-bottom:2px;"><a href="${escapeAttribute(website)}" style="color:#a16207;text-decoration:none;">${website}</a></div>` : ""}
+                      ${address ? `<div style="font-size:12px;color:#737373;">${address}</div>` : ""}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeAttribute(value: string) {
+  return escapeHtml(value).replace(/'/g, "&#39;");
 }
 
 function json(body: unknown, status = 200) {

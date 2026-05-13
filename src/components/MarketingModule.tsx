@@ -232,6 +232,7 @@ function LeadInboxTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [refreshingInbox, setRefreshingInbox] = useState(false);
   const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
     '1': [
       { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
@@ -372,6 +373,35 @@ function LeadInboxTab() {
 
   const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
+
+  async function refreshEmailInbox() {
+    setRefreshingInbox(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        toast.error('Sessão expirada. Entre novamente para atualizar e-mails.');
+        return;
+      }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/poll-email-inbox`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Não foi possível atualizar a caixa de entrada.');
+      toast.success(result.processed ? `${result.processed} e-mail(s) recebido(s)` : 'Caixa de entrada atualizada');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível atualizar e-mails.';
+      toast.error(message);
+    } finally {
+      setRefreshingInbox(false);
+    }
+  }
 
   async function sendMessage() {
     if (!messageInput.trim() || !selectedId || sendingMessage) return;
@@ -563,6 +593,11 @@ function LeadInboxTab() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {selected.channel === 'email' && (
+                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> Atualizar
+                </button>
+              )}
               {selected.status !== 'resolved' && (
                 <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Resolver
@@ -614,10 +649,10 @@ function LeadInboxTab() {
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Escreva uma mensagem..."
+              placeholder={selected.channel === 'email' ? 'Escreva a resposta por e-mail...' : 'Escreva uma mensagem...'}
               disabled={sendingMessage}
               rows={2}
-              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-sans"
             />
             <button
               onClick={sendMessage}
@@ -2069,6 +2104,12 @@ interface SmtpConfig {
   fromName: string;
   imapHost?: string;
   imapPort?: string;
+  signatureName?: string;
+  signatureRole?: string;
+  signaturePhone?: string;
+  signatureWebsite?: string;
+  signatureAddress?: string;
+  signatureLogoUrl?: string;
 }
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
@@ -2080,7 +2121,21 @@ function IntegracoesTab() {
   const [showWebhook, setShowWebhook] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState<SocialIntegration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
-  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({ host: '', port: '587', user: '', pass: '', fromName: 'Recepção Hotel', imapHost: '', imapPort: '993' });
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({
+    host: '',
+    port: '587',
+    user: '',
+    pass: '',
+    fromName: 'Recepção Hotel',
+    imapHost: '',
+    imapPort: '993',
+    signatureName: 'Royal Macaé Palace Hotel',
+    signatureRole: 'Reservas',
+    signaturePhone: '',
+    signatureWebsite: 'https://royalmacae.com.br',
+    signatureAddress: '',
+    signatureLogoUrl: '',
+  });
   const [pmsConfig, setPmsConfig] = useState<Record<string, PmsWebhook>>({
     cloudbeds: { webhookUrl: '', apiKey: '', enabled: false },
     mews: { webhookUrl: '', apiKey: '', enabled: false },
@@ -2384,6 +2439,51 @@ function IntegracoesTab() {
                 <div>
                   <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Remetente</label>
                   <input value={smtpConfig.fromName} onChange={e => setSmtpConfig(c => ({ ...c, fromName: e.target.value }))} placeholder="Recepção Royal PMS" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                </div>
+                <div className="rounded-2xl border border-neutral-200 bg-white p-4 space-y-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-neutral-500">Assinatura profissional</p>
+                    <p className="text-xs text-neutral-500">Usada automaticamente nas respostas enviadas pelo Omni-Inbox.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome / Empresa</label>
+                      <input value={smtpConfig.signatureName ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureName: e.target.value }))} placeholder="Royal Macaé Palace Hotel" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Departamento</label>
+                      <input value={smtpConfig.signatureRole ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureRole: e.target.value }))} placeholder="Reservas" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Telefone</label>
+                      <input value={smtpConfig.signaturePhone ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signaturePhone: e.target.value }))} placeholder="+55 22 0000-0000" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Site</label>
+                      <input value={smtpConfig.signatureWebsite ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureWebsite: e.target.value }))} placeholder="https://royalmacae.com.br" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Endereço</label>
+                    <input value={smtpConfig.signatureAddress ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureAddress: e.target.value }))} placeholder="Av. Atlântica, Macaé - RJ" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Logo URL</label>
+                    <input value={smtpConfig.signatureLogoUrl ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureLogoUrl: e.target.value }))} placeholder="https://..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                  </div>
+                  <div className="rounded-xl bg-neutral-50 p-4">
+                    <div className="flex items-center gap-3">
+                      {smtpConfig.signatureLogoUrl ? <img src={smtpConfig.signatureLogoUrl} alt="" className="h-10 w-10 rounded-lg object-contain bg-white border border-neutral-200" /> : <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center"><Hotel className="h-5 w-5 text-amber-700" /></div>}
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-neutral-900">{smtpConfig.signatureName || smtpConfig.fromName || 'Royal Macaé Palace Hotel'}</p>
+                        <p className="text-xs font-bold text-amber-700">{smtpConfig.signatureRole || 'Reservas'}</p>
+                        <p className="text-[11px] text-neutral-500 truncate">{[smtpConfig.signaturePhone, smtpConfig.signatureWebsite].filter(Boolean).join(' · ')}</p>
+                        {smtpConfig.signatureAddress && <p className="text-[11px] text-neutral-400 truncate">{smtpConfig.signatureAddress}</p>}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setShowSmtp(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
