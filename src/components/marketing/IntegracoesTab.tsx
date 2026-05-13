@@ -166,19 +166,22 @@ export function IntegracoesTab() {
         <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
         <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
           <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
-          {['whatsapp', 'instagram', 'facebook'].map(ch => (
-            <div key={ch} className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
-                <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
-                  <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
+          {(['whatsapp', 'instagram', 'facebook'] as const).map(ch => {
+            const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/webhook-meta`;
+            return (
+              <div key={ch} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
+                  <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
+                    <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{webhookUrl}</p>
+                    <button onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
