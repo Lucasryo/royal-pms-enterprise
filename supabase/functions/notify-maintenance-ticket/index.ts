@@ -836,57 +836,21 @@ async function handleCallback(query: Record<string, unknown>) {
   if (!ticket) return { ok: true };
 
   if (action === "assume") {
-    // Fix A+10: atomic update with status guard to prevent double-assume
-    const { count } = await db.from("maintenance_tickets").update({
-      status: "in_progress",
-      started_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      status_reason: name,
-      telegram_user_id: fromId,
-    }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
-
-    if (!count || count === 0) {
-      const { data: current } = await db
-        .from("maintenance_tickets")
-        .select("status,telegram_user_id,status_reason")
-        .eq("id", ticketId)
-        .single();
-
-      if (current?.status === "in_progress" && Number(current.telegram_user_id) === fromId) {
-        if (msgId) await tg("editMessageReplyMarkup", {
-          chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
-        });
-        await tg("sendMessage", {
-          chat_id: chatId,
-          text: `✅ Chamado já está assumido por você\\. Use os botões abaixo para concluir ou registrar peças\\.`,
-          parse_mode: "MarkdownV2",
-          reply_markup: inProgressKb(ticketId, fromId),
-        });
-        return { ok: true };
-      }
-
+    if (ticket.status !== "open") {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `⚠️ Este chamado já foi assumido por ${esc(current?.status_reason ?? "outro técnico")}\\.`,
+        text: `⚠️ Este chamado não está aberto \\(status: ${esc(ticket.status as string)}\\)\\.`,
         parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
 
-    if (msgId) await tg("editMessageReplyMarkup", {
-      chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
-    });
-    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}`,
+      text: `👷 Responda para confirmar que você vai assumir este chamado \\[assume:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title as string)}_`,
       parse_mode: "MarkdownV2",
-    });
-    // 3C: audit
-    await logEvent({
-      ticketId, actorType: "telegram_user",
-      actorId: String(fromId), actorName: name,
-      event: "assumed", prevStatus: "open", newStatus: "in_progress",
+      reply_to_message_id: msgId,
+      reply_markup: { force_reply: true, input_field_placeholder: "Digite OK para assumir..." },
     });
 
   } else if (action === "parts_ok") {
@@ -942,7 +906,7 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
+      text: `🔩 Quais peças são necessárias? \\[parts:${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
       reply_markup: { force_reply: true, input_field_placeholder: "Descreva as peças necessárias..." },
@@ -1052,6 +1016,85 @@ async function handleReply(message: Record<string, unknown>) {
         });
       }
     }
+    return { ok: true };
+  }
+
+  // ── Ticket assume confirmation [assume:UUID|USER_ID] ─────────────────────
+  const assumeMatch = replyText.match(/\[assume:([0-9a-f-]{36})\|(\d+)\]/i);
+  if (assumeMatch) {
+    const ticketId = assumeMatch[1];
+    const ownerId  = Number(assumeMatch[2]);
+    if (ownerId !== fromId) return { ok: true };
+
+    const confirmation = userText.trim();
+    if (!confirmation) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Responda com uma confirmação para assumir o chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("title,room_number,status,telegram_user_id,status_reason")
+      .eq("id", ticketId)
+      .single();
+    if (!ticket) return { ok: true };
+
+    if (ticket.status === "in_progress" && Number(ticket.telegram_user_id) === fromId) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Chamado já está assumido por você\\. Use os botões abaixo para concluir ou registrar peças\\.`,
+        parse_mode: "MarkdownV2",
+        reply_markup: inProgressKb(ticketId, fromId),
+      });
+      return { ok: true };
+    }
+
+    const now = new Date().toISOString();
+    const { count } = await db.from("maintenance_tickets").update({
+      status: "in_progress",
+      started_at: now,
+      updated_at: now,
+      status_reason: name,
+      telegram_user_id: fromId,
+      awaiting_parts: false,
+    }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
+
+    if (!count || count === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("status,status_reason,telegram_user_id")
+        .eq("id", ticketId)
+        .single();
+      const alreadyMine = current?.status === "in_progress" && Number(current.telegram_user_id) === fromId;
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: alreadyMine
+          ? `✅ Chamado já está assumido por você\\.`
+          : `⚠️ Este chamado já foi alterado por ${esc(current?.status_reason ?? "outra ação")}\\.`,
+        parse_mode: "MarkdownV2",
+        ...(alreadyMine ? { reply_markup: inProgressKb(ticketId, fromId) } : {}),
+      });
+      return { ok: true };
+    }
+
+    await logEvent({
+      ticketId, actorType: "telegram_user",
+      actorId: String(fromId), actorName: name,
+      event: "assumed", prevStatus: "open", newStatus: "in_progress",
+      notes: confirmation.slice(0, 500),
+    });
+
+    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}`,
+      parse_mode: "MarkdownV2",
+      reply_markup: inProgressKb(ticketId, fromId),
+    });
     return { ok: true };
   }
 
@@ -1262,10 +1305,11 @@ async function handleReply(message: Record<string, unknown>) {
   const legacyResolveMatch = !resolveMatch && replyText.startsWith("✍️")
     ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
     : null;
-  const partsMatch = replyText.startsWith("🔩")
+  const partsMatch = replyText.match(/\[parts:([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  const legacyPartsMatch = !partsMatch && replyText.startsWith("🔩")
     ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
     : null;
-  const match = resolveMatch ?? legacyResolveMatch ?? partsMatch;
+  const match = resolveMatch ?? legacyResolveMatch ?? partsMatch ?? legacyPartsMatch;
   if (!match) return { ok: true };
   const ticketId       = match[1];
   const lockedTgUserId = match[2] ? Number(match[2]) : null;
@@ -1283,7 +1327,7 @@ async function handleReply(message: Record<string, unknown>) {
   }
 
   const isResolve = !!(resolveMatch ?? legacyResolveMatch);
-  const isParts   = !!partsMatch;
+  const isParts   = !!(partsMatch ?? legacyPartsMatch);
 
   if (isResolve) {
     if (!solutionText) {
@@ -1401,6 +1445,16 @@ async function handleReply(message: Record<string, unknown>) {
       solutionText,
     );
   } else if (isParts) {
+    const partsText = userText.trim();
+    if (!partsText) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Descreva quais peças são necessárias antes de registrar falta de peças\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
     const { data: ticket } = await db
       .from("maintenance_tickets").select("status").eq("id", ticketId).single();
 
@@ -1417,11 +1471,11 @@ async function handleReply(message: Record<string, unknown>) {
     await db.from("maintenance_tickets").update({
       updated_at: new Date().toISOString(),
       awaiting_parts: true,
-      resolution_notes: `⚠️ Aguardando pecas: ${userText} (${name})`,
+      resolution_notes: `⚠️ Aguardando pecas: ${partsText} (${name})`,
     }).eq("id", ticketId);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 *Falta de peças registrada* por *${esc(name)}*\n\n📦 ${esc(userText)}\n\n_O chamado foi sinalizado no PMS como aguardando material\\._`,
+      text: `🔩 *Falta de peças registrada* por *${esc(name)}*\n\n📦 ${esc(partsText)}\n\n_O chamado foi sinalizado no PMS como aguardando material\\._`,
       parse_mode: "MarkdownV2",
       reply_markup: partsReceivedKb(ticketId, lockedTgUserId ?? undefined),
     });
