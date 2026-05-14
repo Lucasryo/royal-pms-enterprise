@@ -105,6 +105,8 @@ type MaintTicket = {
   inspected_at: string | null;
   awaiting_parts: boolean | null;
   telegram_user_id: number | null;
+  telegram_message_id: number | null;
+  telegram_card_updated_at: string | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -157,6 +159,8 @@ type BotHealth = {
   open_count: number;
   in_progress_count: number;
   pending_inspection_count: number;
+  missing_card_count: number;
+  missing_card_ticket_ids: string[];
   recent_logs: TelegramLog[];
 };
 
@@ -212,6 +216,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [botHealth, setBotHealth] = useState<BotHealth | null>(null);
   const [botHealthLoading, setBotHealthLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [reconcilingCards, setReconcilingCards] = useState(false);
+  const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -244,7 +250,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_message_id,telegram_card_updated_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
@@ -482,7 +488,37 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     finally { setResendingId(null); }
   }
 
-  // Reincidência: UHs com 2+ chamados (não cancelados) nos últimos 30 dias
+  async function recreateTelegramCard(ticket: MaintTicket) {
+    if (!canDirect) return;
+    setRecreatingCardId(ticket.id);
+    try {
+      const data = await callBotFunction({ type: 'recreate_card', ticket_id: ticket.id });
+      if (data?.ok) toast.success('Card do Telegram recriado.');
+      else toast.error('Nao foi possivel recriar o card.');
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao recriar card.');
+    } finally {
+      setRecreatingCardId(null);
+    }
+  }
+
+  async function reconcileTelegramCards() {
+    if (!canDirect) return;
+    setReconcilingCards(true);
+    try {
+      const data = await callBotFunction({ type: 'reconcile_cards' });
+      toast.success(`Reconciliacao concluida: ${data.repaired ?? 0}/${data.checked ?? 0} cards ajustados.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao reconciliar cards.');
+    } finally {
+      setReconcilingCards(false);
+    }
+  }
+
   async function cleanupTestTickets() {
     if (!canDirect) return;
     const ok = confirm('Limpar chamados de teste das ultimas 24h e apagar cards rastreados no Telegram? Esta acao remove os registros de teste do PMS/Supabase.');
@@ -500,6 +536,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }
   }
 
+  // Reincidencia: UHs com 2+ chamados (nao cancelados) nos ultimos 30 dias
   const reincidentUHs = useMemo(() => {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const counts: Record<string, number> = {};
@@ -591,6 +628,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                 ? `${botHealth.failures_24h} falhas nas ultimas 24h · ${botHealth.pending_inspection_count} vistorias pendentes`
                 : 'Clique em atualizar para consultar o status da funcao Telegram.'}
             </p>
+            {botHealth && (
+              <p className="mt-1 text-xs font-bold text-blue-700">
+                {botHealth.missing_card_count ?? 0} chamados ativos sem card rastreado no Telegram.
+              </p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button
@@ -601,13 +643,22 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
               {botHealthLoading ? 'Atualizando...' : 'Atualizar status'}
             </button>
             {canDirect && (
-              <button
-                onClick={cleanupTestTickets}
-                disabled={cleanupLoading}
-                className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
-              >
-                {cleanupLoading ? 'Limpando...' : 'Limpar testes'}
-              </button>
+              <>
+                <button
+                  onClick={reconcileTelegramCards}
+                  disabled={reconcilingCards}
+                  className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 transition hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {reconcilingCards ? 'Reconciliando...' : 'Reconciliar cards'}
+                </button>
+                <button
+                  onClick={cleanupTestTickets}
+                  disabled={cleanupLoading}
+                  className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  {cleanupLoading ? 'Limpando...' : 'Limpar testes'}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -703,6 +754,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                        {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                         {breached && <span className="flex items-center gap-1 text-[10px] font-bold text-orange-600"><AlertCircle className="w-3 h-3" />SLA</span>}
                         {ticket.room_number && reincidentUHs.has(ticket.room_number) && (
                           <span className="rounded-full bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase">🔁 Reincidente</span>
@@ -735,6 +787,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       >
                         {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                       </button>
+                      {canDirect && (
+                        <button
+                          onClick={() => recreateTelegramCard(ticket)}
+                          disabled={recreatingCardId === ticket.id}
+                          className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                        >
+                          {recreatingCardId === ticket.id ? '...' : 'Card'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -777,6 +838,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
                       {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                      {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                     </div>
                     <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                     {ticket.awaiting_parts && (
@@ -804,6 +866,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     >
                       {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                     </button>
+                    {canDirect && (
+                      <button
+                        onClick={() => recreateTelegramCard(ticket)}
+                        disabled={recreatingCardId === ticket.id}
+                        className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                      >
+                        {recreatingCardId === ticket.id ? '...' : 'Card'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -878,6 +949,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 text-[10px] font-black uppercase">VISTORIA</span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                        {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                       {ticket.status_reason && <p className="mt-1 text-xs text-neutral-500">👷 Resolvido por: {ticket.status_reason}</p>}
@@ -891,6 +963,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                         </button>
                         <button onClick={() => rejectInspection(ticket)} className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white hover:bg-red-400 transition">
                           ❌ Reprovar
+                        </button>
+                        <button
+                          onClick={() => recreateTelegramCard(ticket)}
+                          disabled={recreatingCardId === ticket.id}
+                          className="flex-1 rounded-xl bg-white px-3 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                        >
+                          {recreatingCardId === ticket.id ? '...' : 'Card'}
                         </button>
                       </div>
                     )}

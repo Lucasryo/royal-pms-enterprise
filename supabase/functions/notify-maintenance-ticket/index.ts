@@ -332,6 +332,27 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
   return await sendTicketCard(record, fallbackChatId);
 }
 
+async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT_ID): Promise<boolean> {
+  const record = await fetchTicket(ticketId);
+  if (!record) return false;
+  const chatId = record.telegram_chat_id ?? fallbackChatId;
+  const messageId = Number(record.telegram_message_id);
+  if (messageId) {
+    const deleted = await deleteChatMessage(chatId, messageId);
+    await logTelegramNotification("ticket_card_delete", deleted ? "deleted" : "failed", {
+      ticketId,
+      payload: { chat_id: chatId, message_id: messageId },
+    });
+  }
+  await db.from("maintenance_tickets").update({
+    telegram_chat_id: null,
+    telegram_message_id: null,
+    telegram_card_updated_at: null,
+  }).eq("id", ticketId);
+  const freshRecord = await fetchTicket(ticketId);
+  return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId) : false;
+}
+
 async function rememberCallbackCard(ticketId: string, chatId: unknown, messageId: unknown) {
   const numericMessageId = Number(messageId);
   if (!ticketId || !numericMessageId) return;
@@ -591,7 +612,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets"];
+  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "reconcile_cards", "recreate_card"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -607,6 +628,8 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       openRes,
       progressRes,
       pendingInspectionRes,
+      openCardRes,
+      pendingCardRes,
     ] = await Promise.all([
       db.from("maintenance_notification_logs")
         .select("id,ticket_id,event_type,status,payload,created_at")
@@ -616,8 +639,23 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "resolved").eq("inspection_status", "pending"),
+      db.from("maintenance_tickets")
+        .select("id")
+        .in("status", ["open", "in_progress"])
+        .is("telegram_message_id", null)
+        .limit(200),
+      db.from("maintenance_tickets")
+        .select("id")
+        .eq("status", "resolved")
+        .eq("inspection_status", "pending")
+        .is("telegram_message_id", null)
+        .limit(200),
     ]);
     const logs = logsRes.data ?? [];
+    const missingCardIds = [
+      ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
+      ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
+    ];
     return {
       ok: true,
       bot_configured: Boolean(BOT_TOKEN && CHAT_ID),
@@ -627,8 +665,51 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       open_count: openRes.count ?? 0,
       in_progress_count: progressRes.count ?? 0,
       pending_inspection_count: pendingInspectionRes.count ?? 0,
+      missing_card_count: missingCardIds.length,
+      missing_card_ticket_ids: missingCardIds.slice(0, 25),
       recent_logs: logs,
     };
+  }
+
+  if ((body.type as string) === "recreate_card") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const ok = await recreateTicketCard(ticketId, CHAT_ID);
+    return { ok, ticket_id: ticketId };
+  }
+
+  if ((body.type as string) === "reconcile_cards") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    const [openCardRes, pendingCardRes] = await Promise.all([
+      db.from("maintenance_tickets")
+        .select("id")
+        .in("status", ["open", "in_progress"])
+        .is("telegram_message_id", null)
+        .order("created_at", { ascending: true })
+        .limit(50),
+      db.from("maintenance_tickets")
+        .select("id")
+        .eq("status", "resolved")
+        .eq("inspection_status", "pending")
+        .is("telegram_message_id", null)
+        .order("created_at", { ascending: true })
+        .limit(50),
+    ]);
+    const ids = Array.from(new Set([
+      ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
+      ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
+    ])).slice(0, 50);
+    let repaired = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      const ok = await updateTicketCard(id, CHAT_ID);
+      if (ok) repaired++;
+      else failed.push(id);
+    }
+    return { ok: true, checked: ids.length, repaired, failed_count: failed.length, failed_ticket_ids: failed.slice(0, 25) };
   }
 
   if ((body.type as string) === "cleanup_test_tickets") {
