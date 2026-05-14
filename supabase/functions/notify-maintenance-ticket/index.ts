@@ -7,6 +7,7 @@ const CHAT_ID        = Deno.env.get("TELEGRAM_CHAT_ID")           ?? "";
 const SUPA_URL       = Deno.env.get("SUPABASE_URL")               ?? "";
 const SUPA_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")  ?? "";
 const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET")    ?? "";
+const BOT_MAINTENANCE_SECRET = Deno.env.get("BOT_MAINTENANCE_SECRET") ?? "";
 
 const db = createClient(SUPA_URL, SUPA_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -62,6 +63,7 @@ async function isAuthorizedInternal(authHeader: string | null): Promise<boolean>
   if (!authHeader?.startsWith("Bearer ")) return false;
   const token = authHeader.slice(7);
   if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return true;
+  if (BOT_MAINTENANCE_SECRET && token === BOT_MAINTENANCE_SECRET) return true;
 
   const { data, error } = await db.auth.getUser(token);
   return !error && !!data.user;
@@ -71,6 +73,7 @@ async function getInternalUser(authHeader: string | null) {
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
   if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return { id: "system", role: "admin", name: "Sistema" };
+  if (BOT_MAINTENANCE_SECRET && token === BOT_MAINTENANCE_SECRET) return { id: "system", role: "admin", name: "Sistema" };
 
   const { data, error } = await db.auth.getUser(token);
   if (error || !data.user) return null;
@@ -467,6 +470,18 @@ async function runBotMaintenance(limit = 50) {
   return { ok: true, ...summary };
 }
 
+function extractTelegramLogReason(payload: unknown): string | null {
+  const value = payload as Record<string, unknown> | null;
+  if (!value) return null;
+  const error = value.telegram_error as Record<string, unknown> | undefined;
+  const description = error?.description ?? value.error ?? value.reason;
+  if (description) return String(description).slice(0, 180);
+  if (Array.isArray(value.failed_ticket_ids) && value.failed_ticket_ids.length > 0) {
+    return `${value.failed_ticket_ids.length} chamados ainda com falha`;
+  }
+  return null;
+}
+
 async function rememberCallbackCard(ticketId: string, chatId: unknown, messageId: unknown) {
   const numericMessageId = Number(messageId);
   if (!ticketId || !numericMessageId) return;
@@ -770,12 +785,28 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
       ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
     ];
+    const maintenanceLogs = logs.filter(log => log.event_type === "bot_maintenance");
+    const lastMaintenance = maintenanceLogs[0] ?? null;
+    const persistentFailures = logs
+      .filter(log => log.status === "failed" && String(log.created_at) >= since)
+      .slice(0, 8)
+      .map(log => ({
+        id: log.id,
+        ticket_id: log.ticket_id,
+        event_type: log.event_type,
+        status: log.status,
+        created_at: log.created_at,
+        reason: extractTelegramLogReason(log.payload),
+      }));
     return {
       ok: true,
       bot_configured: Boolean(BOT_TOKEN && CHAT_ID),
       webhook_secret_configured: Boolean(WEBHOOK_SECRET),
       last_event_at: logs[0]?.created_at ?? null,
       failures_24h: logs.filter(log => log.status === "failed" && String(log.created_at) >= since).length,
+      last_bot_maintenance_at: lastMaintenance?.created_at ?? null,
+      last_bot_maintenance: lastMaintenance?.payload ?? null,
+      persistent_failures: persistentFailures,
       open_count: openRes.count ?? 0,
       in_progress_count: progressRes.count ?? 0,
       pending_inspection_count: pendingInspectionRes.count ?? 0,

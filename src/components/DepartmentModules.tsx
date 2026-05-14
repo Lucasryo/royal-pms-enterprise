@@ -155,6 +155,9 @@ type BotHealth = {
   bot_configured: boolean;
   webhook_secret_configured: boolean;
   last_event_at: string | null;
+  last_bot_maintenance_at: string | null;
+  last_bot_maintenance: BotMaintenancePayload | null;
+  persistent_failures: BotPersistentFailure[];
   failures_24h: number;
   open_count: number;
   in_progress_count: number;
@@ -169,6 +172,19 @@ type BotMaintenanceResult = {
   repaired: number;
   retry_failed: number;
   persistent_failures: number;
+};
+type BotPersistentFailure = {
+  id: string;
+  ticket_id: string | null;
+  event_type: string;
+  status: string;
+  created_at: string;
+  reason: string | null;
+};
+type BotMaintenancePayload = Partial<BotMaintenanceResult> & {
+  failed_ticket_ids?: string[];
+  missing_cards_checked?: number;
+  recent_failures_checked?: number;
 };
 
 function BoardTab() {
@@ -642,6 +658,12 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                 {botHealth.missing_card_count ?? 0} chamados ativos sem card rastreado no Telegram.
               </p>
             )}
+            {botHealth?.last_bot_maintenance_at && (
+              <p className="mt-1 text-xs font-bold text-neutral-500">
+                Blindagem automatica: {new Date(botHealth.last_bot_maintenance_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                {botHealth.last_bot_maintenance ? ` · ${botHealth.last_bot_maintenance.repaired ?? 0}/${botHealth.last_bot_maintenance.checked ?? 0} recuperados` : ''}
+              </p>
+            )}
             {lastBotMaintenance && (
               <p className="mt-1 text-xs font-bold text-emerald-700">
                 Ultima verificacao: {lastBotMaintenance.repaired}/{lastBotMaintenance.checked} recuperados, {lastBotMaintenance.persistent_failures} falhas persistentes.
@@ -676,6 +698,25 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             )}
           </div>
         </div>
+        {botHealth && (botHealth.failures_24h > 0 || botHealth.missing_card_count > 0) && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+            Atencao: {botHealth.failures_24h} falhas nas ultimas 24h e {botHealth.missing_card_count} chamados ativos sem card. Use Verificar agora se precisar recuperar imediatamente.
+          </div>
+        )}
+        {botHealth?.persistent_failures?.length ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Falhas persistentes</p>
+            <div className="mt-2 space-y-2">
+              {botHealth.persistent_failures.slice(0, 4).map(failure => (
+                <div key={failure.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
+                  <span className="font-black text-red-800">{failure.event_type}</span>
+                  <span className="text-red-700">{failure.reason ?? 'Sem detalhe retornado pelo Telegram'}</span>
+                  <span className="font-mono text-[10px] text-red-500">{failure.ticket_id ?? '-'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {botHealth?.recent_logs?.length ? (
           <div className="mt-4 max-w-full overflow-x-auto">
             <table className="min-w-[620px] w-full text-left text-xs">
@@ -702,6 +743,32 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
         ) : null}
       </div>
 
+      <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Manual rapido do fluxo</p>
+            <p className="mt-1 text-sm font-bold text-neutral-700">QR abre o chamado, Telegram opera o card e PMS audita tudo.</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">Grupo limpo</span>
+        </div>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+            <p className="font-black text-neutral-900">1. Abertura</p>
+            <p className="mt-1 text-neutral-500">Hospede ou equipe abre pelo QR. O bot cria um card unico no grupo.</p>
+          </div>
+          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+            <p className="font-black text-neutral-900">2. Operacao</p>
+            <p className="mt-1 text-neutral-500">Assumir, pecas, concluir, transferir e vistoria atualizam o mesmo card.</p>
+          </div>
+          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+            <p className="font-black text-neutral-900">3. Auditoria</p>
+            <p className="mt-1 text-neutral-500">PMS guarda status, notificacoes e falhas para conferencia da gerencia.</p>
+          </div>
+        </div>
+        <p className="mt-3 text-[11px] font-bold text-neutral-500">
+          Mensagens no grupo ficam reservadas para eventos operacionais: assumiu, concluiu, pecas, transferencia e vistoria. Erros simples aparecem como alerta no proprio botao.
+        </p>
+      </div>
       {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
       {tickets.length >= 100 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
