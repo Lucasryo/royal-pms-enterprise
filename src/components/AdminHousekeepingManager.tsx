@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { Plus, Trash2, Edit2, Key, Users, AlertTriangle, CheckCircle, X, ChevronDown, ChevronUp, Phone, FileText, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, Edit2, Key, Users, AlertTriangle, CheckCircle, X, ChevronDown, ChevronUp, Phone, FileText, ClipboardList, BarChart3, Printer } from 'lucide-react';
 
 type StaffMember = {
   id: string;
@@ -44,7 +44,41 @@ async function sha256(text: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+type HousekeepingView = 'roster' | 'performance';
+
 export default function AdminHousekeepingManager() {
+  const [view, setView] = useState<HousekeepingView>('roster');
+
+  return (
+    <div className="p-4 sm:p-6">
+      <div className="flex max-w-full overflow-x-auto gap-2 mb-6 border-b border-gray-200">
+        {([
+          { id: 'roster' as const, label: 'Cadastro', icon: Users },
+          { id: 'performance' as const, label: 'Desempenho', icon: BarChart3 },
+        ]).map(tab => {
+          const active = view === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setView(tab.id)}
+              className={`shrink-0 inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition ${
+                active ? 'border-amber-500 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {view === 'roster' && <HousekeepingRosterTab />}
+      {view === 'performance' && <HousekeepingPerformanceTab />}
+    </div>
+  );
+}
+
+function HousekeepingRosterTab() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [ticketsByStaff, setTicketsByStaff] = useState<Record<string, StaffTicket[]>>({});
   const [loading, setLoading] = useState(true);
@@ -179,7 +213,7 @@ export default function AdminHousekeepingManager() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -448,4 +482,494 @@ export default function AdminHousekeepingManager() {
       )}
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Performance / Bonus tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+type BonusReport = {
+  id: string;
+  status_reason: string | null;
+  created_at: string;
+  rating: number | null;
+};
+
+type BonusView = 'monthly' | 'weekly';
+
+function extractCamareiraName(statusReason: string | null): string | null {
+  if (!statusReason) return null;
+  const m = statusReason.match(/^Reportado por:\s*(.+?)(\s*\(|$)/);
+  return m?.[1]?.trim() ?? null;
+}
+
+function HousekeepingPerformanceTab() {
+  const [reports, setReports] = useState<BonusReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<BonusView>('monthly');
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    setLoading(true);
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+    const { data, error } = await supabase
+      .from('maintenance_tickets')
+      .select('id, status_reason, created_at, rating')
+      .ilike('status_reason', 'Reportado por:%')
+      .gte('created_at', yearStart)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (error) {
+      console.error('Erro carregando desempenho:', error);
+      setLoading(false);
+      return;
+    }
+    setReports((data ?? []) as BonusReport[]);
+    setLoading(false);
+  }
+
+  const monthlyData = useMemo(() => {
+    const monthSet = new Set<string>();
+    const byPerson: Record<string, Record<string, number>> = {};
+    const ratingsByPerson: Record<string, number[]> = {};
+
+    for (const r of reports) {
+      const name = extractCamareiraName(r.status_reason);
+      if (!name) continue;
+      const date = new Date(r.created_at);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      monthSet.add(key);
+      if (!byPerson[name]) byPerson[name] = {};
+      byPerson[name][key] = (byPerson[name][key] ?? 0) + 1;
+      if (r.rating) {
+        if (!ratingsByPerson[name]) ratingsByPerson[name] = [];
+        ratingsByPerson[name].push(r.rating);
+      }
+    }
+
+    const months = Array.from(monthSet).sort();
+    const PT_MONTHS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const monthLabels = months.map(m => {
+      const [y, mo] = m.split('-');
+      return `${PT_MONTHS[Number(mo) - 1]}/${y.slice(2)}`;
+    });
+
+    const people = Object.keys(byPerson).sort((a, b) => {
+      const ta = Object.values(byPerson[a]).reduce((s, v) => s + v, 0);
+      const tb = Object.values(byPerson[b]).reduce((s, v) => s + v, 0);
+      return tb - ta;
+    });
+
+    return { months, monthLabels, byPerson, people, ratingsByPerson };
+  }, [reports]);
+
+  const weeklyData = useMemo(() => {
+    function isoWeek(date: Date): string {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+    }
+
+    const weekSet = new Set<string>();
+    const byPerson: Record<string, Record<string, number>> = {};
+
+    for (const r of reports) {
+      const name = extractCamareiraName(r.status_reason);
+      if (!name) continue;
+      const wk = isoWeek(new Date(r.created_at));
+      weekSet.add(wk);
+      if (!byPerson[name]) byPerson[name] = {};
+      byPerson[name][wk] = (byPerson[name][wk] ?? 0) + 1;
+    }
+
+    const weeks = Array.from(weekSet).sort().slice(-12);
+    const people = Object.keys(byPerson).sort((a, b) => {
+      const ta = weeks.reduce((s, w) => s + (byPerson[a]?.[w] ?? 0), 0);
+      const tb = weeks.reduce((s, w) => s + (byPerson[b]?.[w] ?? 0), 0);
+      return tb - ta;
+    });
+
+    return { weeks, byPerson, people };
+  }, [reports]);
+
+  const grandTotal = reports.filter(r => extractCamareiraName(r.status_reason)).length;
+
+  if (loading) {
+    return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">Carregando relatório...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Relatório de bonificação</p>
+          <p className="text-lg font-black text-gray-900">{grandTotal} chamados reportados em {new Date().getFullYear()}</p>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex max-w-full overflow-x-auto gap-2">
+            {(['monthly', 'weekly'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black transition ${view === v ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                {v === 'monthly' ? 'Mensal' : 'Semanal'}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => printHousekeepingPerformanceReport(view, grandTotal, monthlyData, weeklyData)}
+            className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500 transition"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Imprimir
+          </button>
+        </div>
+      </div>
+
+      {view === 'monthly' && (
+        monthlyData.people.length > 0 ? (
+          <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+            <table className="min-w-[500px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="sticky left-0 bg-gray-50 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-400 min-w-[140px]">Camareira</th>
+                  {monthlyData.monthLabels.map(m => (
+                    <th key={m} className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 min-w-[60px]">{m}</th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600 min-w-[60px]">TOTAL</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-amber-600 min-w-[70px]">Avaliação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyData.people.map((name, i) => {
+                  const total = Object.values(monthlyData.byPerson[name]).reduce((s, v) => s + v, 0);
+                  const ratings = monthlyData.ratingsByPerson[name] ?? [];
+                  const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+                  return (
+                    <tr key={name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="sticky left-0 bg-inherit px-4 py-3 font-bold text-gray-900 text-sm">{name}</td>
+                      {monthlyData.months.map(m => {
+                        const count = monthlyData.byPerson[name][m] ?? 0;
+                        return (
+                          <td key={m} className="px-3 py-3 text-center">
+                            {count > 0 ? (
+                              <span className="inline-block min-w-[28px] rounded-lg bg-emerald-100 text-emerald-800 font-black text-xs px-2 py-0.5">{count}</span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{total}</td>
+                      <td className="px-4 py-3 text-center font-bold text-amber-600">{avgRating ? `⭐ ${avgRating}` : '—'}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-gray-200 bg-gray-100 font-black">
+                  <td className="sticky left-0 bg-gray-100 px-4 py-3 text-xs uppercase tracking-widest text-gray-500">TOTAL</td>
+                  {monthlyData.months.map(m => {
+                    const total = monthlyData.people.reduce((s, name) => s + (monthlyData.byPerson[name][m] ?? 0), 0);
+                    return <td key={m} className="px-3 py-3 text-center font-black text-gray-700">{total || '—'}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{grandTotal}</td>
+                  <td className="px-4 py-3" />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
+            Nenhum chamado reportado neste ano.
+          </div>
+        )
+      )}
+
+      {view === 'weekly' && (
+        weeklyData.people.length > 0 ? (
+          <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+            <table className="min-w-[500px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="sticky left-0 bg-gray-50 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-400 min-w-[140px]">Camareira</th>
+                  {weeklyData.weeks.map(w => (
+                    <th key={w} className="px-2 py-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 min-w-[52px]">{w.replace(/\d{4}-/, '')}</th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600 min-w-[60px]">TOTAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyData.people.map((name, i) => {
+                  const total = weeklyData.weeks.reduce((s, w) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+                  return (
+                    <tr key={name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="sticky left-0 bg-inherit px-4 py-3 font-bold text-gray-900 text-sm">{name}</td>
+                      {weeklyData.weeks.map(w => {
+                        const count = weeklyData.byPerson[name]?.[w] ?? 0;
+                        return (
+                          <td key={w} className="px-2 py-3 text-center">
+                            {count > 0 ? (
+                              <span className="inline-block min-w-[24px] rounded-lg bg-emerald-100 text-emerald-800 font-black text-xs px-1.5 py-0.5">{count}</span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{total}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-gray-200 bg-gray-100 font-black">
+                  <td className="sticky left-0 bg-gray-100 px-4 py-3 text-xs uppercase tracking-widest text-gray-500">TOTAL</td>
+                  {weeklyData.weeks.map(w => {
+                    const total = weeklyData.people.reduce((s, name) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+                    return <td key={w} className="px-2 py-3 text-center font-black text-gray-700">{total || '—'}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center font-black text-emerald-700 text-base">{weeklyData.people.reduce((s, name) => s + weeklyData.weeks.reduce((ws, w) => ws + (weeklyData.byPerson[name]?.[w] ?? 0), 0), 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
+            Nenhum chamado reportado nas últimas 12 semanas.
+          </div>
+        )
+      )}
+
+      <p className="text-center text-[10px] text-gray-400 uppercase tracking-widest">
+        Base: chamados reportados via portal PIN · {new Date().getFullYear()}
+      </p>
+    </div>
+  );
+}
+
+function printHousekeepingPerformanceReport(
+  view: BonusView,
+  grandTotal: number,
+  monthlyData: { months: string[]; monthLabels: string[]; byPerson: Record<string, Record<string, number>>; people: string[]; ratingsByPerson: Record<string, number[]> },
+  weeklyData: { weeks: string[]; byPerson: Record<string, Record<string, number>>; people: string[] },
+) {
+  const year = new Date().getFullYear();
+  const now = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  let tableHTML = '';
+
+  if (view === 'monthly') {
+    const headerCols = monthlyData.monthLabels
+      .map(m => `<th style="padding:8px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:52px">${m}</th>`)
+      .join('');
+
+    const bodyRows = monthlyData.people.map((name, i) => {
+      const total = Object.values(monthlyData.byPerson[name]).reduce((s, v) => s + v, 0);
+      const ratings = monthlyData.ratingsByPerson[name] ?? [];
+      const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = monthlyData.months.map(m => {
+        const count = monthlyData.byPerson[name][m] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 10px;text-align:center"><span style="display:inline-block;min-width:24px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 6px">${count}</span></td>`
+          : `<td style="padding:8px 10px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+        <td style="padding:8px 10px;text-align:center;font-weight:700;color:#d97706">${avgRating ? `★ ${avgRating}` : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const totalRow = monthlyData.months.map(m => {
+      const t = monthlyData.people.reduce((s, name) => s + (monthlyData.byPerson[name][m] ?? 0), 0);
+      return `<td style="padding:8px 10px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Camareira</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d97706;min-width:64px">Avaliação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${grandTotal}</td>
+            <td style="padding:8px 10px"></td>
+          </tr>
+        </tbody>
+      </table>`;
+  } else {
+    const headerCols = weeklyData.weeks
+      .map(w => `<th style="padding:8px 8px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#737373;min-width:44px">${w.replace(/\d{4}-/, '')}</th>`)
+      .join('');
+
+    const bodyRows = weeklyData.people.map((name, i) => {
+      const total = weeklyData.weeks.reduce((s, w) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';
+      const dataCols = weeklyData.weeks.map(w => {
+        const count = weeklyData.byPerson[name]?.[w] ?? 0;
+        return count > 0
+          ? `<td style="padding:8px 8px;text-align:center"><span style="display:inline-block;min-width:20px;border-radius:6px;background:#dcfce7;color:#166534;font-weight:900;font-size:11px;padding:2px 5px">${count}</span></td>`
+          : `<td style="padding:8px 8px;text-align:center;color:#d4d4d4;font-size:11px">—</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 12px;font-weight:700;font-size:12px;color:#0a0a0a;border-right:1px solid #e5e5e5">${name}</td>
+        ${dataCols}
+        <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${total}</td>
+      </tr>`;
+    }).join('');
+
+    const weeklyGrandTotal = weeklyData.people.reduce((s, name) => s + weeklyData.weeks.reduce((ws, w) => ws + (weeklyData.byPerson[name]?.[w] ?? 0), 0), 0);
+    const totalRow = weeklyData.weeks.map(w => {
+      const t = weeklyData.people.reduce((s, name) => s + (weeklyData.byPerson[name]?.[w] ?? 0), 0);
+      return `<td style="padding:8px 8px;text-align:center;font-weight:900;color:#404040">${t || '—'}</td>`;
+    }).join('');
+
+    tableHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f5f5f5;border-bottom:2px solid #e5e5e5">
+            <th style="padding:10px 12px;text-align:left;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;min-width:140px;border-right:1px solid #e5e5e5">Camareira</th>
+            ${headerCols}
+            <th style="padding:10px 10px;text-align:center;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#16a34a;min-width:56px">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:#f5f5f5;border-top:2px solid #d4d4d4">
+            <td style="padding:8px 12px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#737373;border-right:1px solid #e5e5e5">TOTAL</td>
+            ${totalRow}
+            <td style="padding:8px 10px;text-align:center;font-weight:900;color:#15803d;font-size:14px">${weeklyGrandTotal}</td>
+          </tr>
+        </tbody>
+      </table>`;
+  }
+
+  const contentHTML = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;padding:0;margin:0">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #0a0a0a">
+        <div>
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.28em;color:#d97706;margin:0 0 4px">Royal PMS Enterprise</p>
+          <h1 style="font-size:20px;font-weight:900;color:#0a0a0a;margin:0 0 2px">Relatório de Desempenho — Camareiras</h1>
+          <p style="font-size:11px;color:#737373;margin:0">${view === 'monthly' ? `Matriz mensal · ${year}` : `Últimas 12 semanas · ${year}`}</p>
+        </div>
+        <div style="text-align:right">
+          <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373;margin:0">Emitido em</p>
+          <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin:2px 0 0">${now}</p>
+          <p style="font-size:9px;color:#737373;margin:4px 0 0">${grandTotal} chamados reportados no ano</p>
+        </div>
+      </div>
+      <div style="border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+        ${tableHTML}
+      </div>
+      <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
+        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados reportados via portal PIN · ${year}</p>
+        <p style="font-size:9px;color:#d4d4d4;margin:0">Royal PMS Enterprise</p>
+      </div>
+    </div>`;
+
+  const fullHTML = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Relatório de Desempenho — Camareiras ${year}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { padding: 24px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0a0a0a; }
+    @page { size: A4 landscape; margin: 12mm; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>${contentHTML}</body>
+</html>`;
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream;
+
+  if (!isIOS) {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!doc) {
+      iframe.remove();
+      return;
+    }
+    doc.open();
+    doc.write(fullHTML);
+    doc.close();
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.error('Print failed:', e);
+      }
+      setTimeout(() => iframe.remove(), 2000);
+    };
+
+    if (iframe.contentWindow?.document.readyState === 'complete') {
+      setTimeout(triggerPrint, 200);
+    } else {
+      iframe.onload = () => setTimeout(triggerPrint, 200);
+      setTimeout(triggerPrint, 800);
+    }
+    return;
+  }
+
+  const OVERLAY_ID = 'royal-hk-perf-print-overlay';
+  const STYLE_ID = 'royal-hk-perf-print-style';
+  document.getElementById(OVERLAY_ID)?.remove();
+  document.getElementById(STYLE_ID)?.remove();
+
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    #${OVERLAY_ID} { display: none; }
+    @page { size: A4 landscape; margin: 12mm; }
+    @media print {
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+      body > *:not(#${OVERLAY_ID}) { display: none !important; }
+      #${OVERLAY_ID} {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  `;
+
+  const overlay = document.createElement('div');
+  overlay.id = OVERLAY_ID;
+  overlay.innerHTML = contentHTML;
+
+  document.head.appendChild(style);
+  document.body.appendChild(overlay);
+
+  setTimeout(() => window.print(), 100);
+
+  const cleanup = () => {
+    document.getElementById(OVERLAY_ID)?.remove();
+    document.getElementById(STYLE_ID)?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 60000);
 }
