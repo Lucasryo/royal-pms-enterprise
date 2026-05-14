@@ -378,9 +378,9 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
               <span className="text-[10px] font-bold uppercase tracking-widest text-amber-200">UH</span>
               <span className="text-base sm:text-lg font-black">{roomNumber}</span>
             </div>
-            <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1.5">
-              <Hash className="w-3 h-3 text-amber-200" />
-              <span className="text-sm font-bold">{staffName}</span>
+            <div className="inline-flex items-center gap-2 bg-amber-400 rounded-full px-3 py-1.5">
+              <Hash className="w-3 h-3 text-neutral-800" />
+              <span className="text-sm font-black text-neutral-900">{staffName}</span>
             </div>
           </div>
         </div>
