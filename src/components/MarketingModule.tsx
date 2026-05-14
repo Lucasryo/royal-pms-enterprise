@@ -275,6 +275,17 @@ function LeadInboxTab() {
   }, [messages]);
 
   useEffect(() => {
+    function handleTemplate(e: Event) {
+      const detail = (e as CustomEvent<{ body: string; subject?: string }>).detail;
+      if (!detail?.body) return;
+      setMessageInput(detail.body);
+      toast.success('Template carregado no campo de mensagem');
+    }
+    window.addEventListener('marketing:insert-template', handleTemplate);
+    return () => window.removeEventListener('marketing:insert-template', handleTemplate);
+  }, []);
+
+  useEffect(() => {
     let alive = true;
 
     async function loadContacts() {
@@ -1137,32 +1148,85 @@ function CampaignsTab() {
 // ─── Templates Tab ────────────────────────────────────────────────────────────
 
 function TemplatesTab() {
-  const [templates, setTemplates] = useState<Template[]>(SEED_TEMPLATES);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);
   const [form, setForm] = useState({ name: '', text: '', category: 'Saudação', channel: 'WhatsApp' });
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
 
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const { data, error } = await supabase
+        .from('marketing_templates')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (!alive) return;
+      if (error) {
+        toast.error('Falha ao carregar templates');
+        console.warn('[templates] load error:', error.message);
+      } else if (data) {
+        setTemplates(data.map(row => ({
+          id: row.id,
+          name: row.name,
+          text: row.body,
+          category: row.category,
+          channel: row.channel,
+          created_at: row.created_at,
+        })));
+      }
+      setLoading(false);
+    }
+    load();
+    const channel = supabase
+      .channel('marketing_templates_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_templates' }, () => { load(); })
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(channel); };
+  }, []);
+
   function openCreate() { setEditing(null); setForm({ name: '', text: '', category: 'Saudação', channel: 'WhatsApp' }); setShowForm(true); }
   function openEdit(t: Template) { setEditing(t); setForm({ name: t.name, text: t.text, category: t.category, channel: t.channel }); setShowForm(true); }
 
-  function saveTemplate() {
+  async function saveTemplate() {
     if (!form.name.trim() || !form.text.trim()) { toast.error('Nome e texto são obrigatórios'); return; }
-    if (editing) {
-      setTemplates(prev => prev.map(t => t.id === editing.id ? { ...t, ...form } : t));
-      toast.success('Template atualizado!');
-    } else {
-      setTemplates(prev => [{ id: Math.random().toString(36).slice(2), ...form }, ...prev]);
-      toast.success('Template criado!');
+    setSaving(true);
+    try {
+      if (editing) {
+        const { error } = await supabase
+          .from('marketing_templates')
+          .update({ name: form.name.trim(), body: form.text, category: form.category, channel: form.channel })
+          .eq('id', editing.id);
+        if (error) throw error;
+        toast.success('Template atualizado');
+      } else {
+        const { error } = await supabase
+          .from('marketing_templates')
+          .insert([{ name: form.name.trim(), body: form.text, category: form.category, channel: form.channel }]);
+        if (error) throw error;
+        toast.success('Template criado');
+      }
+      setShowForm(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao salvar template');
+    } finally {
+      setSaving(false);
     }
-    setShowForm(false);
   }
 
-  function deleteTemplate(id: string) {
+  async function deleteTemplate(id: string) {
     if (!confirm('Excluir este template?')) return;
-    setTemplates(prev => prev.filter(t => t.id !== id));
+    const { error } = await supabase.from('marketing_templates').delete().eq('id', id);
+    if (error) { toast.error('Falha ao remover'); return; }
     toast.success('Removido');
+  }
+
+  function useInChat(t: Template) {
+    window.dispatchEvent(new CustomEvent('marketing:insert-template', { detail: { body: t.text, subject: t.name } }));
+    toast.success('Template carregado. Abra a Inbox para editar e enviar.');
   }
 
   const filtered = templates.filter(t =>
@@ -1196,10 +1260,16 @@ function TemplatesTab() {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-16 rounded-2xl border border-dashed border-neutral-200">
+          <RefreshCw className="w-8 h-8 text-neutral-300 mx-auto mb-3 animate-spin" />
+          <p className="text-sm text-neutral-400">Carregando templates...</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-16 rounded-2xl border border-dashed border-neutral-200">
           <MessageSquare className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-          <p className="font-bold text-neutral-400">Nenhum template encontrado</p>
+          <p className="font-semibold text-neutral-400">Nenhum template encontrado</p>
+          <p className="text-xs text-neutral-400 mt-1">Clique em "Novo template" para criar o primeiro.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1216,11 +1286,16 @@ function TemplatesTab() {
                 </div>
               </div>
               <p className="text-xs text-neutral-500 line-clamp-3 leading-relaxed mb-4">{t.text}</p>
-              <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
-                <span className="text-[9px] font-bold text-neutral-400">{t.channel}</span>
-                <button onClick={() => { navigator.clipboard.writeText(t.text); toast.success('Copiado!'); }} className="flex items-center gap-1 text-[9px] font-semibold text-amber-600 uppercase hover:text-amber-800">
-                  <Copy className="w-3 h-3" /> Copiar
-                </button>
+              <div className="flex items-center justify-between pt-3 border-t border-neutral-100 gap-2">
+                <span className="text-[9px] font-semibold text-neutral-400">{t.channel}</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { navigator.clipboard.writeText(t.text); toast.success('Copiado'); }} className="flex items-center gap-1 text-[9px] font-semibold text-neutral-500 uppercase hover:text-neutral-700">
+                    <Copy className="w-3 h-3" /> Copiar
+                  </button>
+                  <button onClick={() => useInChat(t)} className="flex items-center gap-1 text-[9px] font-semibold text-amber-700 uppercase hover:text-amber-900">
+                    <ArrowUpRight className="w-3 h-3" /> Usar no chat
+                  </button>
+                </div>
               </div>
             </motion.article>
           ))}
@@ -1260,8 +1335,11 @@ function TemplatesTab() {
                   </select>
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowForm(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600">Cancelar</button>
-                  <button onClick={saveTemplate} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Salvar</button>
+                  <button onClick={() => setShowForm(false)} disabled={saving} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-semibold text-neutral-600 disabled:opacity-50">Cancelar</button>
+                  <button onClick={saveTemplate} disabled={saving} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-semibold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                    {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -2817,39 +2895,129 @@ function IntegracoesTab() {
   );
 }
 
+// ─── Sub-tab strip helper ────────────────────────────────────────────────────
+
+type SubTabItem<T extends string> = { id: T; label: string; icon?: typeof Inbox };
+function SubTabStrip<T extends string>({ items, active, onChange }: { items: SubTabItem<T>[]; active: T; onChange: (id: T) => void }) {
+  return (
+    <div className="flex gap-1 mb-5 border-b border-neutral-200 overflow-x-auto scrollbar-none">
+      {items.map(item => {
+        const isActive = active === item.id;
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            onClick={() => onChange(item.id)}
+            className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              isActive
+                ? 'text-amber-700 border-amber-600'
+                : 'text-neutral-500 border-transparent hover:text-neutral-700 hover:border-neutral-300'
+            }`}
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Umbrella tabs (consolidação) ────────────────────────────────────────────
+
+function ContatosShell() {
+  const [sub, setSub] = useState<'list' | 'nps'>('list');
+  return (
+    <div>
+      <SubTabStrip
+        items={[
+          { id: 'list', label: 'Contatos & CRM', icon: Users },
+          { id: 'nps', label: 'NPS', icon: Heart },
+        ]}
+        active={sub}
+        onChange={setSub}
+      />
+      {sub === 'list' && <CRMTab />}
+      {sub === 'nps' && <NPSTab />}
+    </div>
+  );
+}
+
+function CampanhasShell() {
+  const [sub, setSub] = useState<'campaigns' | 'broadcasts' | 'templates'>('campaigns');
+  return (
+    <div>
+      <SubTabStrip
+        items={[
+          { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
+          { id: 'broadcasts', label: 'Disparos', icon: Send },
+          { id: 'templates', label: 'Templates', icon: Layers },
+        ]}
+        active={sub}
+        onChange={setSub}
+      />
+      {sub === 'campaigns' && <CampaignsTab />}
+      {sub === 'broadcasts' && <BroadcastsTab />}
+      {sub === 'templates' && <TemplatesTab />}
+    </div>
+  );
+}
+
+function AutomacoesShell() {
+  const [sub, setSub] = useState<'flows' | 'simulator' | 'training'>('flows');
+  return (
+    <div>
+      <SubTabStrip
+        items={[
+          { id: 'flows', label: 'Fluxos', icon: Zap },
+          { id: 'simulator', label: 'Simulador', icon: Smartphone },
+          { id: 'training', label: 'Treinamento IA', icon: Bot },
+        ]}
+        active={sub}
+        onChange={setSub}
+      />
+      {sub === 'flows' && <FlowBuilderTab />}
+      {sub === 'simulator' && <SimulatorTab />}
+      {sub === 'training' && <BotTrainingTab />}
+    </div>
+  );
+}
+
+function ConfigsShell() {
+  const [sub, setSub] = useState<'integracoes' | 'financeiro'>('integracoes');
+  return (
+    <div>
+      <SubTabStrip
+        items={[
+          { id: 'integracoes', label: 'Integrações', icon: Link2 },
+          { id: 'financeiro', label: 'Financeiro', icon: QrCode },
+        ]}
+        active={sub}
+        onChange={setSub}
+      />
+      {sub === 'integracoes' && <IntegracoesTab />}
+      {sub === 'financeiro' && <FinanceiroTab />}
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
   {
-    label: 'Atendimento',
+    label: 'Workspace',
     items: [
-      { id: 'inbox', label: 'Omni-Inbox', icon: Inbox, description: 'Conversas unificadas de todos os canais' },
-      { id: 'crm', label: 'CRM', icon: Users, description: 'Contatos, segmentos e histórico' },
-      { id: 'nps', label: 'NPS', icon: Heart, description: 'Pesquisas de satisfação e feedback' },
+      { id: 'inbox', label: 'Inbox', icon: Inbox, description: 'Conversas unificadas de todos os canais' },
+      { id: 'contatos', label: 'Contatos', icon: Users, description: 'Base de contatos, segmentação e NPS' },
+      { id: 'campanhas', label: 'Campanhas', icon: Megaphone, description: 'Campanhas, disparos em massa e templates' },
+      { id: 'automacoes', label: 'Automações', icon: Zap, description: 'Fluxos, simulador e treinamento da IA' },
     ],
   },
   {
-    label: 'Engajamento',
+    label: 'Sistema',
     items: [
-      { id: 'campaigns', label: 'Campanhas', icon: Megaphone, description: 'Campanhas multicanal ativas' },
-      { id: 'broadcasts', label: 'Disparos', icon: Send, description: 'Envios em massa programados' },
-      { id: 'flows', label: 'Automações', icon: Zap, description: 'Fluxos e gatilhos automáticos' },
-      { id: 'templates', label: 'Templates', icon: Layers, description: 'Modelos de mensagem reutilizáveis' },
-    ],
-  },
-  {
-    label: 'Inteligência',
-    items: [
-      { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'Métricas de performance' },
-      { id: 'simulator', label: 'Simulador', icon: Smartphone, description: 'Teste fluxos antes de publicar' },
-      { id: 'training', label: 'Treinamento', icon: Bot, description: 'Base de conhecimento da IA' },
-    ],
-  },
-  {
-    label: 'Configurações',
-    items: [
-      { id: 'financeiro', label: 'Financeiro', icon: QrCode, description: 'Pagamentos e cobranças' },
-      { id: 'integracoes', label: 'Integrações', icon: Link2, description: 'Canais e serviços conectados' },
+      { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'Métricas e relatórios' },
+      { id: 'configs', label: 'Configurações', icon: Settings, description: 'Integrações e financeiro' },
     ],
   },
 ] as const;
@@ -2973,17 +3141,11 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
           {/* Content area */}
           <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
             {activeTab === 'inbox' && <LeadInboxTab />}
-            {activeTab === 'campaigns' && <CampaignsTab />}
-            {activeTab === 'broadcasts' && <BroadcastsTab />}
-            {activeTab === 'flows' && <FlowBuilderTab />}
-            {activeTab === 'templates' && <TemplatesTab />}
-            {activeTab === 'crm' && <CRMTab />}
-            {activeTab === 'nps' && <NPSTab />}
+            {activeTab === 'contatos' && <ContatosShell />}
+            {activeTab === 'campanhas' && <CampanhasShell />}
+            {activeTab === 'automacoes' && <AutomacoesShell />}
             {activeTab === 'analytics' && <AnalyticsTab />}
-            {activeTab === 'simulator' && <SimulatorTab />}
-            {activeTab === 'training' && <BotTrainingTab />}
-            {activeTab === 'financeiro' && <FinanceiroTab />}
-            {activeTab === 'integracoes' && <IntegracoesTab />}
+            {activeTab === 'configs' && <ConfigsShell />}
           </main>
         </div>
       </div>
