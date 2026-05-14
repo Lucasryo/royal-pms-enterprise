@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -1005,58 +1005,171 @@ function LeadInboxTab() {
 
 // ─── Campaigns Tab ───────────────────────────────────────────────────────────
 
-function CampaignsTab() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(SEED_CAMPAIGNS);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', channel: 'WhatsApp', audience: '', message: '', scheduledAt: '' });
+type CampaignRow = {
+  id: string;
+  name: string;
+  channel: string;
+  status: 'draft' | 'scheduled' | 'running' | 'completed' | 'paused' | 'failed';
+  template_id: string | null;
+  subject: string | null;
+  body: string | null;
+  audience_filter: { channel?: string; status?: string; tags?: string[] };
+  scheduled_at: string | null;
+  total_recipients: number;
+  delivered_count: number;
+  read_count: number;
+  reply_count: number;
+  failed_count: number;
+  created_at: string;
+};
 
-  function saveCampaign() {
+function CampaignsTab() {
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState<string | null>(null);
+  const [audiencePreview, setAudiencePreview] = useState<number | null>(null);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [form, setForm] = useState({
+    name: '',
+    channel: 'email',
+    audience_channel: 'email',
+    audience_status: '',
+    template_id: '',
+    subject: '',
+    body: '',
+    schedule_now: true,
+    scheduled_at: '',
+  });
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const [c, t] = await Promise.all([
+        supabase.from('marketing_campaigns').select('*').order('created_at', { ascending: false }),
+        supabase.from('marketing_templates').select('id, name, body, category, channel').order('updated_at', { ascending: false }),
+      ]);
+      if (!alive) return;
+      if (c.error) console.warn('[campaigns]', c.error.message);
+      else if (c.data) setCampaigns(c.data as CampaignRow[]);
+      if (t.data) setTemplates(t.data.map(r => ({ id: r.id, name: r.name, text: r.body, category: r.category, channel: r.channel })));
+      setLoading(false);
+    }
+    load();
+    const ch = supabase
+      .channel('marketing_campaigns_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_campaigns' }, () => load())
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, []);
+
+  async function previewAudience() {
+    let query = supabase.from('marketing_contacts').select('id', { count: 'exact', head: true });
+    if (form.audience_channel) query = query.eq('channel', form.audience_channel);
+    if (form.audience_status) query = query.eq('status', form.audience_status);
+    const { count } = await query;
+    setAudiencePreview(count ?? 0);
+  }
+
+  useEffect(() => {
+    if (step === 1) previewAudience();
+  }, [step, form.audience_channel, form.audience_status]);
+
+  function openCreate() {
+    setForm({ name: '', channel: 'email', audience_channel: 'email', audience_status: '', template_id: '', subject: '', body: '', schedule_now: true, scheduled_at: '' });
+    setStep(1);
+    setShowForm(true);
+  }
+
+  async function saveCampaign() {
     if (!form.name.trim()) { toast.error('Nome é obrigatório'); return; }
-    const newC: Campaign = {
-      id: Math.random().toString(36).slice(2),
-      name: form.name,
-      status: form.scheduledAt ? 'scheduled' : 'draft',
-      reach: '0',
-      conv: '0%',
-      channel: form.channel,
-      scheduledAt: form.scheduledAt || undefined,
-      targetAudience: form.audience,
-      messageTemplate: form.message,
-    };
-    setCampaigns(prev => [newC, ...prev]);
-    setShowForm(false);
-    setForm({ name: '', channel: 'WhatsApp', audience: '', message: '', scheduledAt: '' });
-    toast.success('Campanha criada!');
+    if (!form.template_id && (!form.subject.trim() || !form.body.trim())) { toast.error('Escolha um template ou preencha assunto e mensagem'); return; }
+
+    setSaving(true);
+    try {
+      const status = form.schedule_now ? 'running' : 'scheduled';
+      const payload = {
+        name: form.name.trim(),
+        channel: form.channel,
+        status,
+        template_id: form.template_id || null,
+        subject: form.subject || null,
+        body: form.body || null,
+        audience_filter: {
+          channel: form.audience_channel || undefined,
+          status: form.audience_status || undefined,
+        },
+        scheduled_at: form.schedule_now ? null : (form.scheduled_at || null),
+      };
+      const { data, error } = await supabase.from('marketing_campaigns').insert([payload]).select().single();
+      if (error) throw error;
+
+      if (form.schedule_now && data) {
+        await dispatchCampaign(data.id);
+      } else {
+        toast.success('Campanha agendada');
+      }
+      setShowForm(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao criar campanha');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function dispatchCampaign(id: string) {
+    setDispatching(id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/dispatch-campaign`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Falha ao disparar');
+      toast.success(`Disparada para ${result.dispatched ?? 0} contato(s)`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao disparar');
+    } finally {
+      setDispatching(null);
+    }
   }
 
   const statusMap = {
-    active: { label: 'Ativa', cls: 'bg-emerald-100 text-emerald-700' },
+    draft: { label: 'Rascunho', cls: 'bg-neutral-100 text-neutral-600' },
     scheduled: { label: 'Agendada', cls: 'bg-blue-100 text-blue-700' },
-    completed: { label: 'Concluída', cls: 'bg-neutral-100 text-neutral-600' },
-    draft: { label: 'Rascunho', cls: 'bg-amber-100 text-amber-700' },
-  };
+    running: { label: 'Em curso', cls: 'bg-amber-100 text-amber-700' },
+    completed: { label: 'Concluída', cls: 'bg-emerald-100 text-emerald-700' },
+    paused: { label: 'Pausada', cls: 'bg-neutral-100 text-neutral-500' },
+    failed: { label: 'Falhou', cls: 'bg-red-100 text-red-700' },
+  } as const;
+
+  const totalDelivered = campaigns.reduce((s, c) => s + (c.delivered_count || 0), 0);
+  const totalRecipients = campaigns.reduce((s, c) => s + (c.total_recipients || 0), 0);
+  const deliveryRate = totalRecipients > 0 ? Math.round((totalDelivered / totalRecipients) * 100) : 0;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Campanhas</p>
-          <h2 className="text-xl font-semibold text-neutral-950">{campaigns.length} campanhas</h2>
+          <h2 className="text-xl font-semibold text-neutral-950">{campaigns.length} {campaigns.length === 1 ? 'campanha' : 'campanhas'}</h2>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors"
-        >
+        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-semibold hover:bg-neutral-800 transition-colors">
           <Plus className="w-4 h-4" /> Nova campanha
         </button>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Ativas', value: campaigns.filter(c => c.status === 'active').length.toString(), icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Alcance Total', value: '8.858', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Conversão Média', value: '13.1%', icon: Target, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Em curso', value: campaigns.filter(c => c.status === 'running').length.toString(), icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Alcance Total', value: totalRecipients.toLocaleString('pt-BR'), icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Taxa Entrega', value: `${deliveryRate}%`, icon: Target, color: 'text-amber-600', bg: 'bg-amber-50' },
           { label: 'Agendadas', value: campaigns.filter(c => c.status === 'scheduled').length.toString(), icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
@@ -1069,73 +1182,173 @@ function CampaignsTab() {
         ))}
       </div>
 
-      {/* Campaign list */}
-      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
-        {campaigns.map((c, idx) => (
-          <div key={c.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < campaigns.length - 1 ? 'border-b border-neutral-100' : ''}`}>
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
-              <Megaphone className="w-5 h-5 text-amber-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <p className="font-bold text-sm text-neutral-900 truncate">{c.name}</p>
-                <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${statusMap[c.status].cls}`}>{statusMap[c.status].label}</span>
+      {loading ? (
+        <div className="text-center py-16 rounded-2xl border border-dashed border-neutral-200">
+          <RefreshCw className="w-8 h-8 text-neutral-300 mx-auto mb-3 animate-spin" />
+          <p className="text-sm text-neutral-400">Carregando campanhas...</p>
+        </div>
+      ) : campaigns.length === 0 ? (
+        <div className="text-center py-16 rounded-2xl border border-dashed border-neutral-200">
+          <Megaphone className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
+          <p className="font-semibold text-neutral-500">Nenhuma campanha ainda</p>
+          <p className="text-xs text-neutral-400 mt-1">Clique em "Nova campanha" para criar a primeira.</p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+          {campaigns.map((c, idx) => (
+            <div key={c.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < campaigns.length - 1 ? 'border-b border-neutral-100' : ''}`}>
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
+                <Megaphone className="w-5 h-5 text-amber-600" />
               </div>
-              <p className="text-xs text-neutral-500">{c.channel} {c.scheduledAt ? `· ${c.scheduledAt}` : ''}</p>
-            </div>
-            <div className="hidden sm:flex items-center gap-6 text-right">
-              <div>
-                <p className="text-sm font-semibold text-neutral-900">{c.reach}</p>
-                <p className="text-[10px] text-neutral-400">Alcance</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <p className="font-semibold text-sm text-neutral-900 truncate">{c.name}</p>
+                  <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${statusMap[c.status].cls}`}>{statusMap[c.status].label}</span>
+                </div>
+                <p className="text-xs text-neutral-500">{c.channel} {c.scheduled_at ? `· agendada ${new Date(c.scheduled_at).toLocaleString('pt-BR')}` : ''}</p>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-emerald-600">{c.conv}</p>
-                <p className="text-[10px] text-neutral-400">Conversão</p>
+              <div className="hidden sm:flex items-center gap-6 text-right">
+                <div>
+                  <p className="text-sm font-semibold text-neutral-900 tabular-nums">{c.total_recipients}</p>
+                  <p className="text-[10px] text-neutral-400">Destinatários</p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-emerald-600 tabular-nums">{c.delivered_count}</p>
+                  <p className="text-[10px] text-neutral-400">Entregues</p>
+                </div>
               </div>
+              {(c.status === 'draft' || c.status === 'scheduled' || c.status === 'paused') && (
+                <button onClick={() => dispatchCampaign(c.id)} disabled={dispatching === c.id} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50">
+                  {dispatching === c.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Disparar
+                </button>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* Create form modal */}
       <AnimatePresence>
         {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowForm(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold text-neutral-950">Nova Campanha</h3>
-                <button onClick={() => setShowForm(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500 hover:bg-neutral-200"><X className="w-4 h-4" /></button>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !saving && setShowForm(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-base font-semibold text-neutral-900">Nova campanha</h3>
+                  <span className="text-xs text-neutral-400">passo {step} de 3</span>
+                </div>
+                <button onClick={() => setShowForm(false)} disabled={saving} className="p-1.5 rounded-lg text-neutral-500 hover:bg-neutral-100"><X className="w-4 h-4" /></button>
               </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome</label>
-                  <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Promoção Julho" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Canal</label>
-                    <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium">
-                      {['WhatsApp', 'Instagram', 'Facebook', 'E-mail'].map(c => <option key={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Agendar para</label>
-                    <input type="date" value={form.scheduledAt} onChange={e => setForm({ ...form, scheduledAt: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Público-alvo</label>
-                  <input value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })} placeholder="Ex: Hóspedes dos últimos 6 meses" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem</label>
-                  <textarea value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Use [NOME] para personalizar..." rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium resize-none" />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowForm(false)} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-600 hover:bg-neutral-200 transition-colors">Cancelar</button>
-                  <button onClick={saveCampaign} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors">Criar Campanha</button>
-                </div>
+
+              <div className="px-6 py-2 border-b border-neutral-100 flex gap-1">
+                {[1,2,3].map(n => (
+                  <div key={n} className={`flex-1 h-1 rounded-full ${n <= step ? 'bg-amber-500' : 'bg-neutral-200'}`} />
+                ))}
+              </div>
+
+              <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                {step === 1 && (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Nome da campanha</label>
+                      <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Promoção feriado" className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Canal de envio</label>
+                        <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value, audience_channel: e.target.value })} className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none">
+                          <option value="email">E-mail</option>
+                          <option value="whatsapp" disabled>WhatsApp (em breve)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Status do contato</label>
+                        <select value={form.audience_status} onChange={e => setForm({ ...form, audience_status: e.target.value })} className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none">
+                          <option value="">Todos</option>
+                          <option value="new">Novos</option>
+                          <option value="ai_responded">Respondidos pela IA</option>
+                          <option value="needs_human">Aguardando humano</option>
+                          <option value="resolved">Resolvidos</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 flex items-center gap-2 text-xs text-amber-800">
+                      <Users className="w-4 h-4" />
+                      <span><strong>{audiencePreview ?? '...'}</strong> contato(s) atendem aos critérios</span>
+                    </div>
+                  </>
+                )}
+
+                {step === 2 && (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Template (opcional)</label>
+                      <select
+                        value={form.template_id}
+                        onChange={e => {
+                          const t = templates.find(tt => tt.id === e.target.value);
+                          setForm(f => ({ ...f, template_id: e.target.value, subject: t?.name ?? f.subject, body: t?.text ?? f.body }));
+                        }}
+                        className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none"
+                      >
+                        <option value="">— Escrever do zero —</option>
+                        {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Assunto</label>
+                      <input value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Ex: Oferta exclusiva para você" className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Mensagem</label>
+                      <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={8} placeholder="Use [NOME] para personalizar..." className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
+                    </div>
+                  </>
+                )}
+
+                {step === 3 && (
+                  <>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 p-3 rounded-xl border border-neutral-200 cursor-pointer hover:bg-neutral-50">
+                        <input type="radio" checked={form.schedule_now} onChange={() => setForm({ ...form, schedule_now: true })} className="accent-amber-600" />
+                        <div>
+                          <p className="text-sm font-semibold text-neutral-900">Disparar agora</p>
+                          <p className="text-xs text-neutral-500">A campanha será enviada imediatamente após confirmar</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-2 p-3 rounded-xl border border-neutral-200 cursor-pointer hover:bg-neutral-50">
+                        <input type="radio" checked={!form.schedule_now} onChange={() => setForm({ ...form, schedule_now: false })} className="accent-amber-600" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-neutral-900">Agendar</p>
+                          {!form.schedule_now && (
+                            <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm({ ...form, scheduled_at: e.target.value })} className="mt-2 w-full px-3 py-2 bg-white rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none" />
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                    <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200 text-xs text-neutral-600 space-y-1">
+                      <p><strong>Nome:</strong> {form.name || '—'}</p>
+                      <p><strong>Canal:</strong> {form.channel}</p>
+                      <p><strong>Destinatários:</strong> {audiencePreview ?? '—'}</p>
+                      <p><strong>Assunto:</strong> {form.subject || '—'}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between px-6 py-3 border-t border-neutral-200 bg-neutral-50">
+                <button onClick={() => step > 1 ? setStep((step - 1) as 1 | 2 | 3) : setShowForm(false)} disabled={saving} className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 rounded-lg">
+                  {step === 1 ? 'Cancelar' : 'Voltar'}
+                </button>
+                {step < 3 ? (
+                  <button onClick={() => setStep((step + 1) as 1 | 2 | 3)} className="px-4 py-2 text-xs font-semibold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800">Próximo</button>
+                ) : (
+                  <button onClick={saveCampaign} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                    {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    {form.schedule_now ? 'Disparar agora' : 'Agendar'}
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
@@ -2513,7 +2726,6 @@ function IntegracoesTab() {
     Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
   );
   const [showSmtp, setShowSmtp] = useState(false);
-  const [showWebhook, setShowWebhook] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState<SocialIntegration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
   const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({
