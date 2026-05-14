@@ -812,16 +812,25 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
-    if (msgId) await tg("editMessageReplyMarkup", {
-      chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
-    });
+    // Edita a mensagem original substituindo o teclado pelo de "em andamento"
+    let editOk = true;
+    if (msgId) {
+      const editRes = await tg("editMessageReplyMarkup", {
+        chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
+      });
+      editOk = editRes.ok === true;
+      if (!editOk) {
+        console.error(`[assume] editMessageReplyMarkup failed ticket=${ticketId} chat=${chatId} msg=${msgId}:`, JSON.stringify(editRes));
+      }
+    }
     const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
-    // Fallback: send fresh message with action keyboard in case editMessageReplyMarkup failed
+    // Confirmação curta (mantém design original com poucas mensagens).
+    // Se o edit falhou, anexa o teclado aqui para o técnico não ficar sem ação.
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}\n\nEscolha a próxima ação:`,
+      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}`,
       parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(ticketId, fromId),
+      ...(editOk ? {} : { reply_markup: inProgressKb(ticketId, fromId) }),
     });
     // 3C: audit
     await logEvent({
