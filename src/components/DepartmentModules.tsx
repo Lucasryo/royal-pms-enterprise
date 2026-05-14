@@ -138,6 +138,27 @@ function resolutionMins(t: { created_at: string; resolved_at: string | null }): 
 }
 
 type Collaborator = { id: string; name: string; role: string };
+type TelegramLog = {
+  id: string;
+  ticket_id: string | null;
+  recipient_name: string | null;
+  channel: string;
+  event_type: string;
+  status: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+type BotHealth = {
+  ok: boolean;
+  bot_configured: boolean;
+  webhook_secret_configured: boolean;
+  last_event_at: string | null;
+  failures_24h: number;
+  open_count: number;
+  in_progress_count: number;
+  pending_inspection_count: number;
+  recent_logs: TelegramLog[];
+};
 
 function BoardTab() {
   function openFullscreen() {
@@ -187,7 +208,10 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [filterUH, setFilterUH] = useState('');
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [notifExpandedId, setNotifExpandedId] = useState<string | null>(null);
-  const [notifLogs, setNotifLogs] = useState<Record<string, { id: string; recipient_name: string; sent_at: string; event: string }[]>>({});
+  const [notifLogs, setNotifLogs] = useState<Record<string, TelegramLog[]>>({});
+  const [botHealth, setBotHealth] = useState<BotHealth | null>(null);
+  const [botHealthLoading, setBotHealthLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -198,6 +222,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     fetchTickets();
+    void fetchBotHealth();
     if (canDirect) loadCollaborators();
     const ch = supabase
       .channel('maint-tickets-module')
@@ -225,6 +250,32 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
     setTickets((data ?? []) as MaintTicket[]);
     setLoading(false);
+  }
+
+  async function callBotFunction(body: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sessao invalida.');
+    const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.ok === false) throw new Error(data?.error ?? 'Falha ao chamar bot.');
+    return data;
+  }
+
+  async function fetchBotHealth() {
+    setBotHealthLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'bot_health' });
+      setBotHealth(data as BotHealth);
+    } catch {
+      setBotHealth(null);
+    } finally {
+      setBotHealthLoading(false);
+    }
   }
 
   async function assume(ticket: MaintTicket) {
@@ -378,24 +429,18 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     if (notifLogs[ticketId]) return;
     const { data } = await supabase
       .from('maintenance_notification_logs')
-      .select('id,recipient_name,sent_at,event')
+      .select('id,recipient_name,channel,event_type,status,payload,created_at')
       .eq('ticket_id', ticketId)
-      .order('sent_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(20);
-    setNotifLogs(prev => ({ ...prev, [ticketId]: data ?? [] }));
+    setNotifLogs(prev => ({ ...prev, [ticketId]: (data ?? []) as TelegramLog[] }));
   }
 
   // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
   async function notifyBot(type: string, ticketId: string) {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
-      });
+      await callBotFunction({ type, ticket_id: ticketId, actor_name: profile.name });
+      void fetchBotHealth();
     } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
   }
 
@@ -424,23 +469,37 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
       // Notifica o bot Telegram com contexto de reenvio manual
       // Se reaberto → bot direciona para alguém assumir; se em andamento → lembrete para o técnico
-      const tgRes = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          type: 'manual_resend',
-          ticket_id: ticket.id,
-          actor_name: profile.name,
-        }),
+      const tgData = await callBotFunction({
+        type: 'manual_resend',
+        ticket_id: ticket.id,
+        actor_name: profile.name,
       });
 
-      if (phoneRes.ok || tgRes.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
+      if (phoneRes.ok || tgData?.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
       else toast.error('Falha ao reenviar notificacao.');
+      void fetchBotHealth();
     } catch { toast.error('Erro ao reenviar notificacao.'); }
     finally { setResendingId(null); }
   }
 
   // Reincidência: UHs com 2+ chamados (não cancelados) nos últimos 30 dias
+  async function cleanupTestTickets() {
+    if (!canDirect) return;
+    const ok = confirm('Limpar chamados de teste das ultimas 24h e apagar cards rastreados no Telegram? Esta acao remove os registros de teste do PMS/Supabase.');
+    if (!ok) return;
+    setCleanupLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'cleanup_test_tickets', hours: 24 });
+      toast.success(`Limpeza concluida: ${data.tickets_deleted ?? 0} chamados e ${data.telegram_cards_deleted ?? 0} cards removidos.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao limpar testes.');
+    } finally {
+      setCleanupLoading(false);
+    }
+  }
+
   const reincidentUHs = useMemo(() => {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const counts: Record<string, number> = {};
@@ -497,7 +556,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Abertos</p>
           <p className="mt-1 text-3xl font-black text-amber-800">{open.length}</p>
@@ -506,12 +565,76 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Em andamento</p>
           <p className="mt-1 text-3xl font-black text-blue-800">{inProgress.length}</p>
         </div>
-        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 col-span-2 sm:col-span-1">
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">SLA estourado</p>
           <p className="mt-1 text-3xl font-black text-neutral-800">
             {open.filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60_000 > SLA_MIN[t.priority]).length}
           </p>
         </div>
+        <div className={`rounded-2xl border px-4 py-3 ${botHealth?.bot_configured ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+          <p className={`text-[10px] font-black uppercase tracking-widest ${botHealth?.bot_configured ? 'text-emerald-600' : 'text-red-600'}`}>Bot Telegram</p>
+          <p className={`mt-1 text-xl sm:text-2xl font-black ${botHealth?.bot_configured ? 'text-emerald-800' : 'text-red-800'}`}>
+            {botHealthLoading ? '...' : botHealth?.bot_configured ? 'Online' : 'Verificar'}
+          </p>
+          <p className="mt-1 text-[10px] font-bold text-neutral-500">
+            {botHealth?.last_event_at ? `Ultimo: ${new Date(botHealth.last_event_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}` : 'Sem eventos recentes'}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Saude do bot</p>
+            <p className="mt-1 text-sm font-bold text-neutral-700">
+              {botHealth
+                ? `${botHealth.failures_24h} falhas nas ultimas 24h · ${botHealth.pending_inspection_count} vistorias pendentes`
+                : 'Clique em atualizar para consultar o status da funcao Telegram.'}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={fetchBotHealth}
+              disabled={botHealthLoading}
+              className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black text-white transition hover:bg-neutral-700 disabled:opacity-50"
+            >
+              {botHealthLoading ? 'Atualizando...' : 'Atualizar status'}
+            </button>
+            {canDirect && (
+              <button
+                onClick={cleanupTestTickets}
+                disabled={cleanupLoading}
+                className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
+              >
+                {cleanupLoading ? 'Limpando...' : 'Limpar testes'}
+              </button>
+            )}
+          </div>
+        </div>
+        {botHealth?.recent_logs?.length ? (
+          <div className="mt-4 max-w-full overflow-x-auto">
+            <table className="min-w-[620px] w-full text-left text-xs">
+              <thead className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                <tr>
+                  <th className="py-2 pr-3">Quando</th>
+                  <th className="py-2 pr-3">Evento</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">Chamado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {botHealth.recent_logs.slice(0, 5).map(log => (
+                  <tr key={log.id}>
+                    <td className="py-2 pr-3 text-neutral-500">{new Date(log.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
+                    <td className="py-2 pr-3 font-bold text-neutral-700">{log.event_type}</td>
+                    <td className={`py-2 pr-3 font-black ${log.status === 'failed' ? 'text-red-600' : 'text-emerald-700'}`}>{log.status}</td>
+                    <td className="py-2 pr-3 font-mono text-[10px] text-neutral-400">{log.ticket_id ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </div>
 
       {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
@@ -830,9 +953,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                         <div className="space-y-1">
                           {notifLogs[ticket.id].map(log => (
                             <div key={log.id} className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-bold text-neutral-700">{log.recipient_name}</span>
-                              <span className="text-neutral-400">{log.event}</span>
-                              <span className="text-neutral-400 shrink-0">{new Date(log.sent_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                              <span className="font-bold text-neutral-700">{log.recipient_name ?? log.channel}</span>
+                              <span className={log.status === 'failed' ? 'text-red-600' : 'text-neutral-400'}>{log.event_type} · {log.status}</span>
+                              <span className="text-neutral-400 shrink-0">{new Date(log.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
                             </div>
                           ))}
                         </div>

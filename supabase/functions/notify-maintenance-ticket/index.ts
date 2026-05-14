@@ -67,6 +67,41 @@ async function isAuthorizedInternal(authHeader: string | null): Promise<boolean>
   return !error && !!data.user;
 }
 
+async function getInternalUser(authHeader: string | null) {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return { id: "system", role: "admin", name: "Sistema" };
+
+  const { data, error } = await db.auth.getUser(token);
+  if (error || !data.user) return null;
+
+  const { data: profile } = await db
+    .from("profiles")
+    .select("id,name,role")
+    .eq("id", data.user.id)
+    .single();
+  return profile ?? null;
+}
+
+async function logTelegramNotification(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  opts: { ticketId?: string | null; payload?: Record<string, unknown> } = {},
+) {
+  try {
+    await db.from("maintenance_notification_logs").insert({
+      ticket_id: opts.ticketId ?? null,
+      recipient_name: "Telegram",
+      channel: "telegram",
+      event_type: eventType,
+      status,
+      payload: opts.payload ?? null,
+    });
+  } catch (e) {
+    console.error("[logTelegramNotification] failed:", e);
+  }
+}
+
 // 3B: cache com TTL de 5 min para evitar rate limit do Telegram
 const modCache = new Map<string, { result: boolean; expiresAt: number }>();
 
@@ -254,6 +289,14 @@ async function sendTicketCard(record: Record<string, unknown>, chatId: unknown =
     reply_markup: ticketCardKb(record),
   });
   if (result?.ok) await saveTicketCardRef(record.id as string, chatId, result.result?.message_id);
+  await logTelegramNotification("ticket_card_send", result?.ok ? "sent" : "failed", {
+    ticketId: record.id as string,
+    payload: {
+      chat_id: chatId,
+      message_id: result?.result?.message_id ?? null,
+      telegram_error: result?.ok ? null : result,
+    },
+  });
   return result?.ok === true;
 }
 
@@ -275,8 +318,16 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
       await db.from("maintenance_tickets").update({
         telegram_card_updated_at: new Date().toISOString(),
       }).eq("id", ticketId);
+      await logTelegramNotification("ticket_card_edit", "edited", {
+        ticketId,
+        payload: { chat_id: chatId, message_id: messageId },
+      });
       return true;
     }
+    await logTelegramNotification("ticket_card_edit", "failed", {
+      ticketId,
+      payload: { chat_id: chatId, message_id: messageId, telegram_error: edited },
+    });
   }
   return await sendTicketCard(record, fallbackChatId);
 }
@@ -540,7 +591,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection"];
+  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -548,6 +599,73 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+
+  if ((body.type as string) === "bot_health") {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [
+      logsRes,
+      openRes,
+      progressRes,
+      pendingInspectionRes,
+    ] = await Promise.all([
+      db.from("maintenance_notification_logs")
+        .select("id,ticket_id,event_type,status,payload,created_at")
+        .eq("channel", "telegram")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "resolved").eq("inspection_status", "pending"),
+    ]);
+    const logs = logsRes.data ?? [];
+    return {
+      ok: true,
+      bot_configured: Boolean(BOT_TOKEN && CHAT_ID),
+      webhook_secret_configured: Boolean(WEBHOOK_SECRET),
+      last_event_at: logs[0]?.created_at ?? null,
+      failures_24h: logs.filter(log => log.status === "failed" && String(log.created_at) >= since).length,
+      open_count: openRes.count ?? 0,
+      in_progress_count: progressRes.count ?? 0,
+      pending_inspection_count: pendingInspectionRes.count ?? 0,
+      recent_logs: logs,
+    };
+  }
+
+  if ((body.type as string) === "cleanup_test_tickets") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+
+    const hours = Math.min(Math.max(Number(body.hours ?? 24), 1), 72);
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    const { data: tickets } = await db
+      .from("maintenance_tickets")
+      .select("id,title,status_reason,resolution_notes,telegram_chat_id,telegram_message_id")
+      .gte("created_at", since)
+      .or("title.ilike.%teste%,status_reason.eq.Reset solicitado no PMS,resolution_notes.ilike.%Reset em%");
+
+    let deletedCards = 0;
+    const ids = (tickets ?? []).map(ticket => ticket.id as string);
+    for (const ticket of tickets ?? []) {
+      if (!ticket.telegram_message_id) continue;
+      const ok = await deleteChatMessage(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (ok) deletedCards++;
+      await logTelegramNotification("ticket_card_delete", ok ? "deleted" : "failed", {
+        ticketId: ticket.id as string,
+        payload: {
+          chat_id: ticket.telegram_chat_id ?? CHAT_ID,
+          message_id: ticket.telegram_message_id,
+        },
+      });
+    }
+
+    if (ids.length > 0) {
+      await db.from("maintenance_notification_logs").delete().in("ticket_id", ids);
+      await db.from("maintenance_ticket_events").delete().in("ticket_id", ids);
+      await db.from("maintenance_tickets").delete().in("id", ids);
+    }
+
+    return { ok: true, tickets_deleted: ids.length, telegram_cards_deleted: deletedCards, hours };
+  }
 
   if ((body.type as string) === "public_report") {
     const ticketId = body.ticket_id as string;
