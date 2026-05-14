@@ -23,7 +23,6 @@ import CheckInOutDashboard from './components/CheckInOutDashboard';
 import HousekeepingDashboard from './components/HousekeepingDashboard';
 import OperationsDashboard from './components/OperationsDashboard';
 import POSDashboard from './components/POSDashboard';
-import ProfessionalPMSDashboard from './components/ProfessionalPMSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
 import ReportsDashboard from './components/ReportsDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -81,7 +80,6 @@ const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   finance: { section: 'revenue', description: 'Faturas, bancos e cobranca' },
   'prio-billing': { section: 'revenue', description: 'Geracao e conferencia Prio' },
   tariffs: { section: 'revenue', description: 'Tarifario corporativo' },
-  professional: { section: 'revenue', description: 'Revenue, fiscal, CRM e estoque' },
   reports: { section: 'revenue', description: 'Indicadores e exportacoes' },
   'admin-control': { section: 'management', description: 'Usuarios, permissoes e cadastros' },
   companies: { section: 'management', description: 'Clientes corporativos' },
@@ -324,7 +322,7 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     if (!canAccessView(profile, currentView)) {
-      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'tariffs', 'admin-control', 'professional', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
+      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'tariffs', 'admin-control', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
       const next = order.find(v => canAccessView(profile, v));
       if (next && next !== currentView) setCurrentView(next);
     }
@@ -364,7 +362,6 @@ export default function App() {
       { id: 'housekeeping' as ViewType, label: 'Governança', icon: BedDouble },
       { id: 'operations' as ViewType, label: 'Operações', icon: ClipboardList },
       { id: 'pos' as ViewType, label: 'POS Restaurante', icon: Utensils },
-      { id: 'professional' as ViewType, label: 'Gestão Pro', icon: BarChart3 },
       { id: 'events' as ViewType, label: 'Eventos', icon: Globe },
       { id: 'guests' as ViewType, label: 'Hóspedes', icon: UserCircle },
       { id: 'companies' as ViewType, label: 'Empresas', icon: Building2 },
@@ -382,7 +379,7 @@ export default function App() {
       { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
-    const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'professional', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
+    const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
@@ -463,23 +460,22 @@ export default function App() {
       case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
       case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsModuleDashboard profile={profile} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
-      case 'maintenance': return <MaintenanceModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager' || profile.role === 'maintenance'} />;
+      case 'maintenance': return <MaintenanceModuleDashboard profile={profile} />;
       case 'checkin': return <CheckInOutDashboard profile={profile} />;
       case 'housekeeping': return <HousekeepingDashboard profile={profile} />;
       case 'operations': return <OperationsDashboard profile={profile} />;
       case 'pos': return <RestaurantModuleDashboard profile={profile} />;
-      case 'professional': return <ProfessionalPMSDashboard profile={profile} />;
       case 'guests': return <AdminDashboard profile={profile} initialTab="guests" />;
       case 'tracking': return <AdminDashboard profile={profile} initialTab="tracking" />;
       case 'tariffs': return <AdminDashboard profile={profile} initialTab="tariffs" />;
       case 'registration': return <AdminDashboard profile={profile} initialTab="registration" />;
       case 'events': return <EventsModuleDashboard profile={profile} />;
-      case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance'} /> : <ClientDashboard profile={profile} initialTab="active" />;
+      case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} /> : <ClientDashboard profile={profile} initialTab="active" />;
       case 'prio-billing': return <PrioBillingGenerator profile={profile} />;
       case 'reports': return <ReportsDashboard profile={profile} />;
       case 'companies': return <AdminDashboard profile={profile} initialTab="companies" />;
       case 'staff': return <AdminDashboard profile={profile} initialTab="users" />;
-      case 'admin-control': return <AdminControlModuleDashboard profile={profile} canManage={profile.role === 'admin' || profile.role === 'manager'} />;
+      case 'admin-control': return <AdminControlModuleDashboard profile={profile} />;
       case 'audit': return <AuditDashboard profile={profile} />;
       case 'maintenance-qr': return <MaintenanceQRPrint />;
       case 'housekeeping-staff': return <AdminHousekeepingManager />;
