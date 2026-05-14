@@ -12,8 +12,8 @@ import AdminDashboard from './AdminDashboard';
 import AuditDashboard from './AuditDashboard';
 import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
-import ProfessionalPMSDashboard from './ProfessionalPMSDashboard';
-import EnterpriseExtensionsDashboard, { EnterpriseTab } from './EnterpriseExtensionsDashboard';
+import RevenuePanelDashboard from './RevenuePanelDashboard';
+import FiscalPanelDashboard from './FiscalPanelDashboard';
 import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQueue';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
@@ -43,7 +43,7 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
         { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
         { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
         { id: 'tariffs', label: 'Tarifas corporativas', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="tariffs" /> },
-        { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} allowedTabs={['revenue']} /> },
+        { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <RevenuePanelDashboard profile={profile} /> },
       ]}
     />
   );
@@ -59,7 +59,6 @@ export function ReceptionModuleDashboard({ profile }: { profile: UserProfile }) 
       queueDepartment="reception"
       tabs={[
         { id: 'checkin', label: 'Check-in/out', icon: KeyRound, render: () => <CheckInOutDashboard profile={profile} /> },
-        { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'housekeeping', label: 'Governanca e UHs', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
         { id: 'shift', label: 'Turno e ocorrencias', icon: ClipboardList, render: () => <OperationsDashboard profile={profile} /> },
       ]}
@@ -67,7 +66,7 @@ export function ReceptionModuleDashboard({ profile }: { profile: UserProfile }) 
   );
 }
 
-export function MaintenanceModuleDashboard({ profile, canManage }: { profile: UserProfile; canManage: boolean }) {
+export function MaintenanceModuleDashboard({ profile }: { profile: UserProfile }) {
   return (
     <ModuleShell
       eyebrow="Modulo Manutencao"
@@ -82,12 +81,6 @@ export function MaintenanceModuleDashboard({ profile, canManage }: { profile: Us
         { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
-        {
-          id: 'preventive',
-          label: 'Preventiva',
-          icon: ClipboardList,
-          render: () => <ScopedEnterprise profile={profile} canManage={canManage} initialTab="preventive" allowedTabs={['preventive', 'room-map']} />,
-        },
       ]}
     />
   );
@@ -1379,7 +1372,7 @@ function MaintenancePerformanceTab() {
   );
 }
 
-export function FinanceBillingModuleDashboard({ profile, canManage }: { profile: UserProfile; canManage: boolean }) {
+export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfile }) {
   return (
     <ModuleShell
       eyebrow="Modulo Financeiro/Faturamento"
@@ -1391,13 +1384,7 @@ export function FinanceBillingModuleDashboard({ profile, canManage }: { profile:
         { id: 'finance', label: 'Financeiro', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="finance" /> },
         { id: 'documents', label: 'Faturas e documentos', icon: FileText, render: () => <AdminDashboard profile={profile} initialTab="documents" /> },
         { id: 'tracking', label: 'Rastreio e cobranca', icon: ClipboardList, render: () => <AdminDashboard profile={profile} initialTab="tracking" /> },
-        {
-          id: 'receivables',
-          label: 'AR e pagamentos',
-          icon: BarChart3,
-          render: () => <ScopedEnterprise profile={profile} canManage={canManage} initialTab="receivables" allowedTabs={['receivables', 'forecast']} />,
-        },
-        { id: 'fiscal', label: 'Fiscal/NFS-e', icon: ShieldCheck, render: () => <ProfessionalPMSDashboard profile={profile} allowedTabs={['fiscal']} /> },
+        { id: 'fiscal', label: 'Fiscal/NFS-e', icon: ShieldCheck, render: () => <FiscalPanelDashboard profile={profile} /> },
       ]}
     />
   );
@@ -1433,40 +1420,24 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
   );
 }
 
-export function AdminControlModuleDashboard({ profile, canManage }: { profile: UserProfile; canManage: boolean }) {
+export function AdminControlModuleDashboard({ profile }: { profile: UserProfile }) {
   return (
     <ModuleShell
       eyebrow="Modulo Admin"
       title="Controle geral do PMS"
-      description="Admin controla tudo: usuarios, permissoes, empresas, auditoria, Gestao Pro e operacao enterprise."
+      description="Admin controla tudo: usuarios, permissoes, empresas e auditoria."
       profile={profile}
       queueDepartment="admin"
       adminQueue
       tabs={[
-        { id: 'overview', label: 'Gestao Pro', icon: BarChart3, render: () => <ProfessionalPMSDashboard profile={profile} /> },
-        { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
-        { id: 'enterprise', label: 'Enterprise', icon: Building2, render: () => <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} /> },
         { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
       ]}
     />
   );
 }
 
-function ScopedEnterprise({
-  profile,
-  canManage,
-  initialTab,
-  allowedTabs,
-}: {
-  profile: UserProfile;
-  canManage: boolean;
-  initialTab: EnterpriseTab;
-  allowedTabs: EnterpriseTab[];
-}) {
-  return <EnterpriseExtensionsDashboard profile={profile} canManage={canManage} initialTab={initialTab} allowedTabs={allowedTabs} />;
-}
 
 function ModuleShell<T extends string>({
   eyebrow,

@@ -16,7 +16,6 @@ export type ViewType =
   | 'housekeeping'
   | 'operations'
   | 'pos'
-  | 'professional'
   | 'audit'
   | 'profile'
   | 'prio-billing'
