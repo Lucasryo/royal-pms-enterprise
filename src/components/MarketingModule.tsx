@@ -50,7 +50,10 @@ interface Message {
   createdAt?: string;
   emailMessageId?: string | null;
   emailReferences?: string | null;
+  folder?: 'inbox' | 'spam' | 'trash';
 }
+
+type EmailFolder = 'inbox' | 'spam' | 'trash';
 
 interface Campaign {
   id: string;
@@ -150,6 +153,7 @@ type InboxMessageRow = {
   body: string;
   email_message_id: string | null;
   email_references: string | null;
+  folder: EmailFolder | null;
   read: boolean;
   created_at: string;
 };
@@ -189,6 +193,7 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     createdAt: row.created_at,
     emailMessageId: row.email_message_id,
     emailReferences: row.email_references,
+    folder: (row.folder ?? 'inbox') as EmailFolder,
   };
 }
 
@@ -235,6 +240,9 @@ function LeadInboxTab() {
   const [selectedId, setSelectedId] = useState<string | null>('1');
   const [activeChannel, setActiveChannel] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
+  const [emailFolder, setEmailFolder] = useState<EmailFolder>('inbox');
+  const [folderCounts, setFolderCounts] = useState<Record<string, { inbox: number; spam: number; trash: number }>>({});
+  const [folderActionLoading, setFolderActionLoading] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -285,7 +293,25 @@ function LeadInboxTab() {
       }
     }
 
+    async function loadFolderCounts() {
+      const { data, error } = await supabase
+        .from('inbox_messages')
+        .select('contact_id, folder')
+        .eq('channel', 'email')
+        .eq('direction', 'in');
+      if (!alive || error || !data) return;
+      const counts: Record<string, { inbox: number; spam: number; trash: number }> = {};
+      for (const row of data as { contact_id: string | null; folder: EmailFolder | null }[]) {
+        if (!row.contact_id) continue;
+        const f = (row.folder ?? 'inbox') as EmailFolder;
+        if (!counts[row.contact_id]) counts[row.contact_id] = { inbox: 0, spam: 0, trash: 0 };
+        counts[row.contact_id][f] += 1;
+      }
+      setFolderCounts(counts);
+    }
+
     loadContacts();
+    loadFolderCounts();
     return () => { alive = false; };
   }, []);
 
@@ -348,6 +374,14 @@ function LeadInboxTab() {
             unreadCount: row.direction === 'in' && row.contact_id !== selectedId ? (lead.unreadCount || 0) + 1 : lead.unreadCount,
             status: row.direction === 'in' ? 'new' : lead.status,
           } : lead));
+
+          if (row.channel === 'email' && row.direction === 'in') {
+            const f = (row.folder ?? 'inbox') as EmailFolder;
+            setFolderCounts(prev => {
+              const current = prev[row.contact_id!] ?? { inbox: 0, spam: 0, trash: 0 };
+              return { ...prev, [row.contact_id!]: { ...current, [f]: current[f] + 1 } };
+            });
+          }
         },
       )
       .subscribe();
@@ -370,12 +404,23 @@ function LeadInboxTab() {
     return () => clearTimeout(timer);
   }, [selectedId]);
 
+  const isEmailChannel = activeChannel === 'email';
+
   const filteredLeads = leads.filter(l => {
     if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
     if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (isEmailChannel && l.channel === 'email') {
+      const counts = folderCounts[l.id];
+      if (!counts) return emailFolder === 'inbox';
+      if ((counts[emailFolder] || 0) === 0) return false;
+    }
     return true;
   });
+
+  const visibleMessages = selected?.channel === 'email'
+    ? messages.filter(m => m.type === 'out' || (m.folder ?? 'inbox') === emailFolder)
+    : messages;
 
   const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
@@ -500,6 +545,59 @@ function LeadInboxTab() {
     }
   }
 
+  async function performFolderAction(message: Message, action: 'spam' | 'trash' | 'inbox' | 'delete') {
+    if (!message.id || !selectedId) return;
+    setFolderActionLoading(message.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/imap-folder-action`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: message.id, action }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Falha ao executar ação.');
+
+      const previousFolder = (message.folder ?? 'inbox') as EmailFolder;
+      setChatHistory(prev => {
+        const list = prev[selectedId] ?? [];
+        if (action === 'delete') {
+          return { ...prev, [selectedId]: list.filter(m => m.id !== message.id) };
+        }
+        return {
+          ...prev,
+          [selectedId]: list.map(m => m.id === message.id ? { ...m, folder: action as EmailFolder } : m),
+        };
+      });
+
+      if (message.type === 'in') {
+        setFolderCounts(prev => {
+          const current = prev[selectedId] ?? { inbox: 0, spam: 0, trash: 0 };
+          const next = { ...current };
+          next[previousFolder] = Math.max(0, next[previousFolder] - 1);
+          if (action !== 'delete') next[action as EmailFolder] += 1;
+          return { ...prev, [selectedId]: next };
+        });
+      }
+
+      const labels: Record<typeof action, string> = {
+        spam: 'Movido para Spam',
+        trash: 'Movido para Lixeira',
+        inbox: 'Restaurado para Caixa de Entrada',
+        delete: 'Excluído permanentemente',
+      };
+      toast.success(labels[action]);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Não foi possível executar a ação.';
+      toast.error(msg);
+    } finally {
+      setFolderActionLoading(null);
+    }
+  }
+
   function markResolved() {
     if (!selectedId) return;
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'resolved' as const, unreadCount: 0 } : l));
@@ -553,6 +651,29 @@ function LeadInboxTab() {
               </button>
             ))}
           </div>
+          {isEmailChannel && (
+            <div className="flex gap-1 border-t border-neutral-100 pt-3">
+              {(['inbox', 'spam', 'trash'] as const).map(f => {
+                const total = Object.values(folderCounts).reduce<number>((sum, c) => sum + (c?.[f] || 0), 0);
+                const labels = { inbox: 'Entrada', spam: 'Spam', trash: 'Lixeira' } as const;
+                const icons = { inbox: Inbox, spam: AlertCircle, trash: Trash2 } as const;
+                const Icon = icons[f];
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setEmailFolder(f)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-neutral-500 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    <span>{labels[f]}</span>
+                    {total > 0 && (
+                      <span className={`text-[9px] px-1 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredLeads.map(lead => {
@@ -623,20 +744,57 @@ function LeadInboxTab() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-5 space-y-3">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : selected?.channel === 'email' ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
-                  {selected?.channel === 'email' && msg.subject && (
-                    <div className="mb-2 border-b border-neutral-100 pb-2">
-                      <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
-                      <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
-                    </div>
-                  )}
-                  <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                  <p className={`text-[9px] mt-2 ${msg.type === 'out' ? 'text-neutral-400' : 'text-neutral-400'}`}>{msg.time}</p>
+            {visibleMessages.map((msg, i) => {
+              const isEmail = selected?.channel === 'email';
+              const canAct = isEmail && msg.type === 'in' && !!msg.id;
+              const inSpam = (msg.folder ?? 'inbox') === 'spam';
+              const inTrash = (msg.folder ?? 'inbox') === 'trash';
+              const busy = folderActionLoading === msg.id;
+              return (
+                <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`relative max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
+                    {isEmail && msg.subject && (
+                      <div className="mb-2 border-b border-neutral-100 pb-2">
+                        <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
+                        <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                    <p className="text-[9px] mt-2 text-neutral-400">{msg.time}</p>
+                    {canAct && (
+                      <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-0.5 bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+                        {!inSpam && !inTrash && (
+                          <button onClick={() => performFolderAction(msg, 'spam')} disabled={busy} title="Marcar como spam" className="p-1.5 text-neutral-500 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {!inTrash && (
+                          <button onClick={() => performFolderAction(msg, 'trash')} disabled={busy} title="Mover para lixeira" className="p-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {(inSpam || inTrash) && (
+                          <button onClick={() => performFolderAction(msg, 'inbox')} disabled={busy} title="Restaurar" className="p-1.5 text-neutral-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50">
+                            <ArrowUpRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {inTrash && (
+                          <button onClick={() => performFolderAction(msg, 'delete')} disabled={busy} title="Excluir permanentemente" className="p-1.5 text-neutral-500 hover:bg-red-100 hover:text-red-700 disabled:opacity-50">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+              );
+            })}
+            {visibleMessages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-neutral-400">
+                <Inbox className="w-10 h-10 mb-2 opacity-30" />
+                <p className="text-xs">Nenhuma mensagem nesta pasta</p>
               </div>
-            ))}
+            )}
             <div ref={bottomRef} />
           </div>
 
