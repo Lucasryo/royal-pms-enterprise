@@ -58,6 +58,15 @@ async function cleanupPromptAndReply(message: Record<string, unknown>): Promise<
   await deleteChatMessage(chatId, replyTo.message_id);
 }
 
+async function isAuthorizedInternal(authHeader: string | null): Promise<boolean> {
+  if (!authHeader?.startsWith("Bearer ")) return false;
+  const token = authHeader.slice(7);
+  if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return true;
+
+  const { data, error } = await db.auth.getUser(token);
+  return !error && !!data.user;
+}
+
 // 3B: cache com TTL de 5 min para evitar rate limit do Telegram
 const modCache = new Map<string, { result: boolean; expiresAt: number }>();
 
@@ -533,14 +542,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   // Fix L: validate Authorization for internal trigger types
   const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection"];
   if (internalTypes.includes(body.type as string)) {
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return { ok: false, error: "unauthorized" };
-    }
-    // Validate actual token value against WEBHOOK_SECRET
-    const token = authHeader.slice(7);
-    if (WEBHOOK_SECRET && token !== WEBHOOK_SECRET) {
-      return { ok: false, error: "invalid token" };
-    }
+    if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
 
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
