@@ -449,6 +449,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspection_notes: note,
       inspected_at: new Date().toISOString(),
       resolved_at: null,
+      awaiting_parts: false,
+      inspector_tg_id: null,
+      inspection_requested_at: null,
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);

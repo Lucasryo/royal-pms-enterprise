@@ -522,6 +522,86 @@ async function logEvent(opts: {
 }
 
 // ── sla alert ───────────────────────────────────────────────────────────────
+async function rejectInspectionAndReturnToTech(
+  ticketId: string,
+  actorTgId: number,
+  actorName: string,
+  chatId: unknown,
+  note?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanNote = note?.trim() || "Reprovado pela vistoria. O tecnico deve corrigir e concluir novamente.";
+  const { data: ticket } = await db
+    .from("maintenance_tickets")
+    .select("title,room_number,status,status_reason,telegram_user_id,inspection_status,inspector_tg_id")
+    .eq("id", ticketId)
+    .single();
+
+  if (!ticket) return { ok: false, error: "ticket_not_found" };
+  if (ticket.status !== "resolved" || ticket.inspection_status !== "pending") {
+    await updateTicketCard(ticketId, chatId);
+    return { ok: false, error: `not_pending_inspection:${ticket.status ?? "unknown"}` };
+  }
+  if (ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== actorTgId) {
+    return { ok: false, error: "locked_to_other_inspector" };
+  }
+
+  const now = new Date().toISOString();
+  const { count } = await db.from("maintenance_tickets").update({
+    status: "in_progress",
+    inspection_status: "rejected",
+    inspection_notes: cleanNote,
+    inspected_at: now,
+    resolved_at: null,
+    awaiting_parts: false,
+    inspector_tg_id: null,
+    inspection_requested_at: null,
+    updated_at: now,
+  })
+    .eq("id", ticketId)
+    .eq("status", "resolved")
+    .eq("inspection_status", "pending")
+    .select("id", { count: "exact", head: true });
+
+  if (!count || count === 0) {
+    await updateTicketCard(ticketId, chatId);
+    return { ok: false, error: "stale_ticket" };
+  }
+
+  await logEvent({
+    ticketId,
+    actorType: "telegram_user",
+    actorId: String(actorTgId),
+    actorName,
+    event: "inspection_rejected",
+    prevStatus: "resolved",
+    newStatus: "in_progress",
+    notes: cleanNote.slice(0, 500),
+  });
+
+  await updateTicketCard(ticketId, chatId);
+
+  const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+  const techMention = ticket.telegram_user_id
+    ? `[${ticket.status_reason ?? "Tecnico"}](tg://user?id=${ticket.telegram_user_id})`
+    : `*${esc(ticket.status_reason ?? "Tecnico")}*`;
+
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: [
+      `*Vistoria reprovada* por *${esc(actorName)}*`,
+      `Chamado: *${esc(ticket.title)}*${uhPart}`,
+      "",
+      `Motivo: _${esc(cleanNote)}_`,
+      "",
+      `${techMention}\\, o chamado voltou para em andamento\\. Por favor corrija e conclua novamente\\.`,
+    ].join("\n"),
+    parse_mode: "MarkdownV2",
+    reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ?? undefined),
+  });
+
+  return { ok: true };
+}
+
 async function sendSlaAlert() {
   const SLA: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
   const now = Date.now();
@@ -1168,23 +1248,17 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
-    const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,inspector_tg_id").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
-
-    // DB-level lock check
-    if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
+    const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId);
+    if (result.ok) {
+      await callbackAlert("Vistoria reprovada. O chamado voltou para o tecnico corrigir.");
+    } else if (result.error === "locked_to_other_inspector") {
       await callbackAlert("Apenas o vistoriador que assumiu pode reprovar este chamado.");
-      return { ok: true };
+    } else if (result.error?.startsWith("not_pending_inspection")) {
+      await callbackAlert("Este chamado nao esta mais aguardando vistoria.");
+    } else {
+      await callbackAlert("Nao consegui reprovar a vistoria agora. Tente novamente.");
     }
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
-      parse_mode: "MarkdownV2",
-      reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, input_field_placeholder: "Descreva o problema encontrado..." },
-    });
+    void msgId;
     return { ok: true };
   }
 
@@ -1430,48 +1504,16 @@ async function handleReply(message: Record<string, unknown>) {
       return { ok: true };
     }
 
-    const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,status_reason,telegram_user_id,status").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
-
-    // Fix 11: only reject if ticket is still resolved (awaiting inspection)
-    if (ticket.status !== "resolved") {
+    const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId, userText);
+    if (result.ok) {
+      await cleanupPromptAndReply(message);
+    } else if (result.error?.startsWith("not_pending_inspection")) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `⚠️ Este chamado não está mais aguardando vistoria \\(status atual: ${esc(ticket.status)}\\)\\.`,
+        text: `⚠️ Este chamado não está mais aguardando vistoria\\.`,
         parse_mode: "MarkdownV2",
       });
-      return { ok: true };
     }
-
-    await db.from("maintenance_tickets").update({
-      status: "in_progress",
-      inspection_status: "rejected",
-      inspection_notes: userText,
-      inspected_at: new Date().toISOString(),
-      resolved_at: null,
-      awaiting_parts: false,
-      updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
-
-    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
-    const techMention = ticket.telegram_user_id
-      ? `[${ticket.status_reason ?? "Técnico"}](tg://user?id=${ticket.telegram_user_id})`
-      : `*${esc(ticket.status_reason ?? "Técnico")}*`;
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: [
-        `❌ *Vistoria reprovada* por *${esc(name)}*`,
-        `📋 ${esc(ticket.title)}${uhPart}`,
-        ``,
-        `📝 Motivo: _${esc(userText)}_`,
-        ``,
-        `👷 ${techMention}\\, o chamado voltou para em andamento\\. Por favor corrija e conclua novamente\\.`,
-      ].join("\n"),
-      parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ?? undefined),
-    });
     return { ok: true };
   }
 
