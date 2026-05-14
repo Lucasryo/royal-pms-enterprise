@@ -8,12 +8,15 @@
 
   /* Editorial luxo palette — used by MarketingLanding only */
   --color-paper: oklch(0.975 0.012 85);
+  --color-paper-soft: oklch(0.962 0.014 82);
   --color-ink: oklch(0.16 0.012 60);
   --color-gold: oklch(0.72 0.12 75);
   --color-gold-soft: oklch(0.92 0.05 85);
   --color-moss: oklch(0.36 0.04 145);
+  --color-moss-soft: oklch(0.92 0.03 145);
 
   --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
 }
 
 /* ─── Mobile-first foundations ──────────────────────────────────────────────── */
@@ -87,6 +90,24 @@
 
 
 /* Editorial animations */
+@keyframes tickIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-tick-in { animation: tickIn 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes loginOverlay {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes loginSheet {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html { scroll-behavior: smooth; }
+
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.3); }
