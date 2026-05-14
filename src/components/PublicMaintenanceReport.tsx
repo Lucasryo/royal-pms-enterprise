@@ -198,11 +198,19 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
     };
     if (photoUrl) payload.resolution_notes = `Foto: ${photoUrl}`;
 
-    const { error: insertError } = await supabase.from('maintenance_tickets').insert([payload]);
+    const { data: ticket, error: insertError } = await supabase.from('maintenance_tickets').insert([payload]).select('id').single();
     if (insertError) {
       setError('Nao foi possivel enviar: ' + insertError.message);
       setSubmitting(false);
       return;
+    }
+    if (ticket?.id) {
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      void fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'public_report', ticket_id: ticket.id }),
+      }).catch(() => undefined);
     }
     setSubmitted(true);
     setSubmitting(false);
