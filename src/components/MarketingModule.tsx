@@ -2517,90 +2517,188 @@ function IntegracoesTab() {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-const TABS = [
-  { id: 'inbox', label: 'Omni-Inbox', icon: Inbox },
-  { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
-  { id: 'broadcasts', label: 'Disparos', icon: Send },
-  { id: 'flows', label: 'Automações', icon: Zap },
-  { id: 'templates', label: 'Templates', icon: Layers },
-  { id: 'crm', label: 'CRM', icon: Users },
-  { id: 'nps', label: 'NPS', icon: Heart },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'simulator', label: 'Simulador', icon: Smartphone },
-  { id: 'training', label: 'Treinamento', icon: Bot },
-  { id: 'financeiro', label: 'Financeiro', icon: QrCode },
-  { id: 'integracoes', label: 'Integrações', icon: Link2 },
+const NAV_SECTIONS = [
+  {
+    label: 'Atendimento',
+    items: [
+      { id: 'inbox', label: 'Omni-Inbox', icon: Inbox, description: 'Conversas unificadas de todos os canais' },
+      { id: 'crm', label: 'CRM', icon: Users, description: 'Contatos, segmentos e histórico' },
+      { id: 'nps', label: 'NPS', icon: Heart, description: 'Pesquisas de satisfação e feedback' },
+    ],
+  },
+  {
+    label: 'Engajamento',
+    items: [
+      { id: 'campaigns', label: 'Campanhas', icon: Megaphone, description: 'Campanhas multicanal ativas' },
+      { id: 'broadcasts', label: 'Disparos', icon: Send, description: 'Envios em massa programados' },
+      { id: 'flows', label: 'Automações', icon: Zap, description: 'Fluxos e gatilhos automáticos' },
+      { id: 'templates', label: 'Templates', icon: Layers, description: 'Modelos de mensagem reutilizáveis' },
+    ],
+  },
+  {
+    label: 'Inteligência',
+    items: [
+      { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'Métricas de performance' },
+      { id: 'simulator', label: 'Simulador', icon: Smartphone, description: 'Teste fluxos antes de publicar' },
+      { id: 'training', label: 'Treinamento', icon: Bot, description: 'Base de conhecimento da IA' },
+    ],
+  },
+  {
+    label: 'Configurações',
+    items: [
+      { id: 'financeiro', label: 'Financeiro', icon: QrCode, description: 'Pagamentos e cobranças' },
+      { id: 'integracoes', label: 'Integrações', icon: Link2, description: 'Canais e serviços conectados' },
+    ],
+  },
 ] as const;
 
-type TabId = typeof TABS[number]['id'];
+type NavItem = { id: string; label: string; icon: typeof Inbox; description: string };
+const TABS: NavItem[] = NAV_SECTIONS.flatMap(s => s.items as readonly NavItem[]);
+
+type TabId = typeof NAV_SECTIONS[number]['items'][number]['id'];
 
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
+  const [navOpen, setNavOpen] = useState(false);
 
   const totalLeads = SEED_LEADS.length;
   const newLeads = SEED_LEADS.filter(l => l.status === 'new').length;
   const needsHuman = SEED_LEADS.filter(l => l.status === 'needs_human').length;
 
+  const activeItem = TABS.find(t => t.id === activeTab)!;
+  const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === activeTab))!;
+
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <header className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-amber-600">Marketing & CRM</p>
-            <h1 className="mt-1 text-xl sm:text-2xl font-black text-neutral-950">HospedaAI — Central de Marketing</h1>
-            <p className="mt-1 text-xs sm:text-sm text-neutral-500">
-              Omni-inbox, campanhas, automações, NPS e IA para maximizar conversões.
-            </p>
-          </div>
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex flex-col items-center px-4 py-2 rounded-2xl bg-amber-50">
-              <span className="text-lg font-black text-amber-700">{newLeads}</span>
-              <span className="text-[9px] font-bold text-amber-600 uppercase">Novos</span>
-            </div>
-            <div className="flex flex-col items-center px-4 py-2 rounded-2xl bg-red-50">
-              <span className="text-lg font-black text-red-700">{needsHuman}</span>
-              <span className="text-[9px] font-bold text-red-600 uppercase">Humano</span>
-            </div>
-            <div className="flex flex-col items-center px-4 py-2 rounded-2xl bg-neutral-50">
-              <span className="text-lg font-black text-neutral-700">{totalLeads}</span>
-              <span className="text-[9px] font-bold text-neutral-500 uppercase">Total</span>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="overflow-x-clip">
+      <div className="flex min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
 
-      {/* Tab navigation */}
-      <nav className="max-w-full overflow-x-auto scrollbar-none">
-        <div className="flex gap-2 pb-1">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}
-            >
-              <tab.icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+        {/* ── Sidebar (desktop) ─────────────────────────────────────────── */}
+        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50/60">
+          <div className="px-5 py-5 border-b border-neutral-200">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">Royal PMS</p>
+            <h2 className="mt-0.5 text-base font-semibold text-neutral-900">Marketing & CRM</h2>
+          </div>
+          <nav className="flex-1 overflow-y-auto py-3">
+            {NAV_SECTIONS.map(section => (
+              <div key={section.label} className="px-3 mb-4">
+                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
+                <div className="space-y-0.5">
+                  {section.items.map(item => {
+                    const active = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
+                          active
+                            ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200'
+                            : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
+                        }`}
+                      >
+                        <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
+        </aside>
 
-      {/* Tab content */}
-      <div>
-        {activeTab === 'inbox' && <LeadInboxTab />}
-        {activeTab === 'campaigns' && <CampaignsTab />}
-        {activeTab === 'broadcasts' && <BroadcastsTab />}
-        {activeTab === 'flows' && <FlowBuilderTab />}
-        {activeTab === 'templates' && <TemplatesTab />}
-        {activeTab === 'crm' && <CRMTab />}
-        {activeTab === 'nps' && <NPSTab />}
-        {activeTab === 'analytics' && <AnalyticsTab />}
-        {activeTab === 'simulator' && <SimulatorTab />}
-        {activeTab === 'training' && <BotTrainingTab />}
-        {activeTab === 'financeiro' && <FinanceiroTab />}
-        {activeTab === 'integracoes' && <IntegracoesTab />}
+        {/* ── Main column ───────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 flex flex-col">
+
+          {/* Top bar */}
+          <header className="border-b border-neutral-200 bg-white">
+            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Mobile menu toggle */}
+                <button
+                  onClick={() => setNavOpen(v => !v)}
+                  className="lg:hidden p-2 -ml-1 rounded-lg text-neutral-600 hover:bg-neutral-100"
+                  aria-label="Abrir menu"
+                >
+                  <LayoutGrid className="w-5 h-5" />
+                </button>
+                <div className="min-w-0">
+                  <p className="text-[11px] text-neutral-400 truncate">
+                    {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
+                  </p>
+                  <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
+                    <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
+                    {activeItem.label}
+                  </h1>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-2">
+                <KpiChip label="Novos" value={newLeads} tone="amber" />
+                <KpiChip label="Humano" value={needsHuman} tone="red" />
+                <KpiChip label="Total" value={totalLeads} tone="neutral" />
+              </div>
+            </div>
+            <p className="px-4 sm:px-6 pb-3 -mt-1 text-xs text-neutral-500 truncate">{activeItem.description}</p>
+          </header>
+
+          {/* Mobile nav drawer (inline collapsible) */}
+          {navOpen && (
+            <div className="lg:hidden border-b border-neutral-200 bg-neutral-50/60 px-3 py-3 max-h-[60vh] overflow-y-auto">
+              {NAV_SECTIONS.map(section => (
+                <div key={section.label} className="mb-3">
+                  <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {section.items.map(item => {
+                      const active = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => { setActiveTab(item.id); setNavOpen(false); }}
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
+                            active ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200' : 'bg-white/60 text-neutral-600 border border-transparent'
+                          }`}
+                        >
+                          <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Content area */}
+          <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
+            {activeTab === 'inbox' && <LeadInboxTab />}
+            {activeTab === 'campaigns' && <CampaignsTab />}
+            {activeTab === 'broadcasts' && <BroadcastsTab />}
+            {activeTab === 'flows' && <FlowBuilderTab />}
+            {activeTab === 'templates' && <TemplatesTab />}
+            {activeTab === 'crm' && <CRMTab />}
+            {activeTab === 'nps' && <NPSTab />}
+            {activeTab === 'analytics' && <AnalyticsTab />}
+            {activeTab === 'simulator' && <SimulatorTab />}
+            {activeTab === 'training' && <BotTrainingTab />}
+            {activeTab === 'financeiro' && <FinanceiroTab />}
+            {activeTab === 'integracoes' && <IntegracoesTab />}
+          </main>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function KpiChip({ label, value, tone }: { label: string; value: number; tone: 'amber' | 'red' | 'neutral' }) {
+  const tones = {
+    amber: 'text-amber-700 bg-amber-50 border-amber-100',
+    red: 'text-red-700 bg-red-50 border-red-100',
+    neutral: 'text-neutral-700 bg-neutral-100 border-neutral-200',
+  } as const;
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${tones[tone]}`}>
+      <span className="font-semibold tabular-nums">{value}</span>
+      <span className="text-[10px] uppercase tracking-wide opacity-80">{label}</span>
     </div>
   );
 }
