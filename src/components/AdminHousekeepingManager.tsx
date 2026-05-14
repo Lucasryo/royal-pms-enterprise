@@ -646,7 +646,7 @@ function HousekeepingPerformanceTab() {
               </thead>
               <tbody>
                 {monthlyData.people.map((name, i) => {
-                  const total = Object.values(monthlyData.byPerson[name]).reduce((s, v) => s + v, 0);
+                  const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v) => s + Number(v), 0);
                   const ratings = monthlyData.ratingsByPerson[name] ?? [];
                   const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
                   return (
@@ -765,7 +765,7 @@ function printHousekeepingPerformanceReport(
       .join('');
 
     const bodyRows = monthlyData.people.map((name, i) => {
-      const total = Object.values(monthlyData.byPerson[name]).reduce((s, v) => s + v, 0);
+      const total = Object.values(monthlyData.byPerson[name]).reduce((s: number, v) => s + Number(v), 0);
       const ratings = monthlyData.ratingsByPerson[name] ?? [];
       const avgRating = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null;
       const bg = i % 2 === 0 ? '#ffffff' : '#fafafa';

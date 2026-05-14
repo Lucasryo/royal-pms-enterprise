@@ -24,6 +24,10 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
     slug: ''
   });
 
+  function normalizeCompanyStatus(status: Company['status']): 'ACTIVE' | 'INACTIVE' {
+    return status === 'inactive' || status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+  }
+
   useEffect(() => {
     fetchCompanies();
   }, []);
@@ -110,7 +114,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       email: company.email || '',
       phone: company.phone || '',
       address: company.address || '',
-      status: company.status || 'ACTIVE',
+      status: normalizeCompanyStatus(company.status),
       slug: company.slug || ''
     });
     setIsModalOpen(true);

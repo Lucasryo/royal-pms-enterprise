@@ -1,16 +1,16 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import React from 'react';
+import { Component, ErrorInfo, PropsWithChildren } from 'react';
 import App from './App.tsx';
 import './index.css';
 
 interface EBState { hasError: boolean; message: string; stack: string }
-class RootErrorBoundary extends React.Component<React.PropsWithChildren, EBState> {
+class RootErrorBoundary extends Component<PropsWithChildren, EBState> {
   state: EBState = { hasError: false, message: '', stack: '' };
   static getDerivedStateFromError(e: Error): EBState {
     return { hasError: true, message: e.message, stack: e.stack || '' };
   }
-  componentDidCatch(e: Error, info: React.ErrorInfo) {
+  componentDidCatch(e: Error, info: ErrorInfo) {
     console.error('[RootErrorBoundary]', e, info);
   }
   render() {

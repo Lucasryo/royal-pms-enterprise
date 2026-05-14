@@ -300,9 +300,6 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       guest_name: existingRes.guest_name,
       check_in: newCheckIn,
       check_out: newCheckOut,
-      status: 'REQUESTED',
-      company_id: profile.company_id!,
-      total_amount: existingRes.total_amount,
       cost_center: existingRes.cost_center || '',
       tariff: existingRes.tariff || 0,
       category: existingRes.category || 'executivo',
@@ -1694,11 +1691,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   <p className="text-sm text-red-900">{viewingDispute.disputeReason}</p>
                   <p className="text-[10px] text-red-400 mt-2">Enviado em: {new Date(viewingDispute.disputeAt || '').toLocaleString('pt-BR')}</p>
                   
-                  {viewingDispute.disputeImages && viewingDispute.disputeImages.length > 0 && (
+                  {viewingDispute.dispute_images && viewingDispute.dispute_images.length > 0 && (
                     <div className="mt-4">
                       <p className="text-xs font-bold text-red-600 uppercase mb-2">Imagens Anexadas</p>
                       <div className="flex flex-wrap gap-2">
-                        {viewingDispute.disputeImages.map((img, i) => (
+                        {viewingDispute.dispute_images.map((img, i) => (
                           <a key={i} href={img} target="_blank" rel="noreferrer" className="w-16 h-16 rounded-lg overflow-hidden border border-red-200 hover:opacity-80 transition-opacity">
                             <img src={img} alt={`Anexo ${i+1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           </a>

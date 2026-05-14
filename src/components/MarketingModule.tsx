@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { ReactElement, useState, useEffect, useRef } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
@@ -2352,7 +2352,7 @@ function FinanceiroTab() {
             {tokenSaved ? 'Token configurado' : 'Configurar token'}
           </button>
           <button
-            onClick={() => { setForm({ guestName: '', guestEmail: '', amount: '', description: '' }); setShowForm(true); }}
+            onClick={() => { setForm({ guestName: '', guestEmail: '', amount: '', description: '', guestCpf: '' }); setShowForm(true); }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors"
           >
             <QrCode className="w-4 h-4" /> Cobrança avulsa
@@ -2622,7 +2622,7 @@ interface SocialIntegration {
   id: string;
   name: string;
   description: string;
-  icon: JSX.Element;
+  icon: ReactElement;
   color: string;
   colorHex: string;
   docsUrl: string;
@@ -3075,7 +3075,7 @@ function ContatosShell() {
   const [sub, setSub] = useState<'list' | 'nps'>('list');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'list' | 'nps'>
         items={[
           { id: 'list', label: 'Contatos & CRM', icon: Users },
           { id: 'nps', label: 'NPS', icon: Heart },
@@ -3093,7 +3093,7 @@ function CampanhasShell() {
   const [sub, setSub] = useState<'campaigns' | 'broadcasts' | 'templates'>('campaigns');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'campaigns' | 'broadcasts' | 'templates'>
         items={[
           { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
           { id: 'broadcasts', label: 'Disparos', icon: Send },
@@ -3113,7 +3113,7 @@ function AutomacoesShell() {
   const [sub, setSub] = useState<'flows' | 'simulator' | 'training'>('flows');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'flows' | 'simulator' | 'training'>
         items={[
           { id: 'flows', label: 'Fluxos', icon: Zap },
           { id: 'simulator', label: 'Simulador', icon: Smartphone },
@@ -3133,7 +3133,7 @@ function ConfigsShell() {
   const [sub, setSub] = useState<'integracoes' | 'financeiro'>('integracoes');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'integracoes' | 'financeiro'>
         items={[
           { id: 'integracoes', label: 'Integrações', icon: Link2 },
           { id: 'financeiro', label: 'Financeiro', icon: QrCode },

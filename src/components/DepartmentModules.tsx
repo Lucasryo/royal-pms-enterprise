@@ -242,6 +242,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [botMaintenanceLoading, setBotMaintenanceLoading] = useState(false);
   const [lastBotMaintenance, setLastBotMaintenance] = useState<BotMaintenanceResult | null>(null);
   const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
+  const [showBotManual, setShowBotManual] = useState(false);
+  const [botLogMode, setBotLogMode] = useState<'all' | 'failures'>('failures');
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -610,6 +612,10 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       .filter(t => (t.status === 'resolved' && t.inspection_status !== 'pending') || t.status === 'cancelled')
       .slice(0, 15),
   [filtered]);
+  const botRecentLogs = useMemo(() => {
+    const logs = botHealth?.recent_logs ?? [];
+    return botLogMode === 'failures' ? logs.filter(log => log.status === 'failed') : logs;
+  }, [botHealth, botLogMode]);
 
   // 1E: apenas admin/manager podem aprovar/reprovar vistorias
   const canInspect = () => profile.role === 'admin' || profile.role === 'manager';
@@ -719,6 +725,23 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
         ) : null}
         {botHealth?.recent_logs?.length ? (
           <div className="mt-4 max-w-full overflow-x-auto">
+            <div className="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Historico do bot</p>
+              <div className="inline-flex rounded-xl bg-neutral-100 p-1 text-[10px] font-black uppercase text-neutral-500">
+                <button
+                  onClick={() => setBotLogMode('failures')}
+                  className={`rounded-lg px-3 py-1.5 transition ${botLogMode === 'failures' ? 'bg-white text-red-600 shadow-sm' : 'hover:text-neutral-800'}`}
+                >
+                  Falhas
+                </button>
+                <button
+                  onClick={() => setBotLogMode('all')}
+                  className={`rounded-lg px-3 py-1.5 transition ${botLogMode === 'all' ? 'bg-white text-neutral-900 shadow-sm' : 'hover:text-neutral-800'}`}
+                >
+                  Todos
+                </button>
+              </div>
+            </div>
             <table className="min-w-[620px] w-full text-left text-xs">
               <thead className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
                 <tr>
@@ -729,7 +752,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
-                {botHealth.recent_logs.slice(0, 5).map(log => (
+                {botRecentLogs.slice(0, 5).map(log => (
                   <tr key={log.id}>
                     <td className="py-2 pr-3 text-neutral-500">{new Date(log.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
                     <td className="py-2 pr-3 font-bold text-neutral-700">{log.event_type}</td>
@@ -737,6 +760,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     <td className="py-2 pr-3 font-mono text-[10px] text-neutral-400">{log.ticket_id ?? '-'}</td>
                   </tr>
                 ))}
+                {botRecentLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-center text-xs font-bold text-neutral-400">Nenhuma falha recente.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -749,25 +777,34 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Manual rapido do fluxo</p>
             <p className="mt-1 text-sm font-bold text-neutral-700">QR abre o chamado, Telegram opera o card e PMS audita tudo.</p>
           </div>
-          <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">Grupo limpo</span>
+          <button
+            onClick={() => setShowBotManual(value => !value)}
+            className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700 transition hover:bg-emerald-200"
+          >
+            {showBotManual ? 'Ocultar' : 'Ver fluxo'}
+          </button>
         </div>
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
-            <p className="font-black text-neutral-900">1. Abertura</p>
-            <p className="mt-1 text-neutral-500">Hospede ou equipe abre pelo QR. O bot cria um card unico no grupo.</p>
-          </div>
-          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
-            <p className="font-black text-neutral-900">2. Operacao</p>
-            <p className="mt-1 text-neutral-500">Assumir, pecas, concluir, transferir e vistoria atualizam o mesmo card.</p>
-          </div>
-          <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
-            <p className="font-black text-neutral-900">3. Auditoria</p>
-            <p className="mt-1 text-neutral-500">PMS guarda status, notificacoes e falhas para conferencia da gerencia.</p>
-          </div>
-        </div>
-        <p className="mt-3 text-[11px] font-bold text-neutral-500">
-          Mensagens no grupo ficam reservadas para eventos operacionais: assumiu, concluiu, pecas, transferencia e vistoria. Erros simples aparecem como alerta no proprio botao.
-        </p>
+        {showBotManual && (
+          <>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">1. Abertura</p>
+                <p className="mt-1 text-neutral-500">Hospede ou equipe abre pelo QR. O bot cria um card unico no grupo.</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">2. Operacao</p>
+                <p className="mt-1 text-neutral-500">Assumir, pecas, concluir, transferir e vistoria atualizam o mesmo card.</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">3. Auditoria</p>
+                <p className="mt-1 text-neutral-500">PMS guarda status, notificacoes e falhas para conferencia da gerencia.</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] font-bold text-neutral-500">
+              Mensagens no grupo ficam reservadas para eventos operacionais: assumiu, concluiu, pecas, transferencia e vistoria. Erros simples aparecem como alerta no proprio botao.
+            </p>
+          </>
+        )}
       </div>
       {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
       {tickets.length >= 100 && (

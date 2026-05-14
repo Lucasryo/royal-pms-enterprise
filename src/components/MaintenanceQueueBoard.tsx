@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { AlertCircle, Clock, Loader2, Package, SearchCheck, Wrench } from 'lucide-react';
 
@@ -172,7 +172,7 @@ export default function MaintenanceQueueBoard() {
           subtitle="Aguardando assumir"
           accent="bg-amber-500"
           tickets={sortedOpen}
-          renderTicket={(t) => <OpenTicketCard key={t.id} ticket={t} />}
+          renderTicket={(t) => <OpenTicketCard ticket={t} />}
           empty="Nenhum chamado aberto!"
         />
 
@@ -181,7 +181,7 @@ export default function MaintenanceQueueBoard() {
           subtitle="Sendo atendidos agora"
           accent="bg-blue-500"
           tickets={sortedInProgress}
-          renderTicket={(t) => <InProgressTicketCard key={t.id} ticket={t} />}
+          renderTicket={(t) => <InProgressTicketCard ticket={t} />}
           empty="Nenhum chamado em andamento."
         />
 
@@ -190,7 +190,7 @@ export default function MaintenanceQueueBoard() {
           subtitle="Material em falta"
           accent="bg-orange-500"
           tickets={sortedAwaitingParts}
-          renderTicket={(t) => <AwaitingPartsCard key={t.id} ticket={t} />}
+          renderTicket={(t) => <AwaitingPartsCard ticket={t} />}
           empty="Nenhum chamado aguardando peças."
           icon={<Package className="w-4 h-4 text-orange-400" />}
         />
@@ -200,7 +200,7 @@ export default function MaintenanceQueueBoard() {
           subtitle="Concluído — pendente vistoria"
           accent="bg-purple-500"
           tickets={sortedAwaitingInspection}
-          renderTicket={(t) => <AwaitingInspectionCard key={t.id} ticket={t} />}
+          renderTicket={(t) => <AwaitingInspectionCard ticket={t} />}
           empty="Nenhum chamado aguardando vistoria."
           icon={<SearchCheck className="w-4 h-4 text-purple-400" />}
         />
@@ -229,8 +229,8 @@ function Column({
   title, subtitle, accent, tickets, renderTicket, empty, icon,
 }: {
   title: string; subtitle: string; accent: string;
-  tickets: Ticket[]; renderTicket: (t: Ticket) => React.ReactNode;
-  empty: string; icon?: React.ReactNode;
+  tickets: Ticket[]; renderTicket: (t: Ticket) => ReactNode;
+  empty: string; icon?: ReactNode;
 }) {
   return (
     <section className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-4 sm:p-6">
@@ -246,7 +246,9 @@ function Column({
         <div className="py-10 text-center text-neutral-500 text-sm">{empty}</div>
       ) : (
         <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-          {tickets.map(renderTicket)}
+          {tickets.map((ticket) => (
+            <div key={ticket.id}>{renderTicket(ticket)}</div>
+          ))}
         </div>
       )}
     </section>

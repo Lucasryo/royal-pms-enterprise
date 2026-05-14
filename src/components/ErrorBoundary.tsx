@@ -1,15 +1,15 @@
-import React from 'react';
+import { Component, ErrorInfo, PropsWithChildren } from 'react';
 
 interface State { hasError: boolean; message: string }
 
-export default class ErrorBoundary extends React.Component<React.PropsWithChildren<object>, State> {
+export default class ErrorBoundary extends Component<PropsWithChildren<object>, State> {
   state: State = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, message: error.message };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info);
   }
 

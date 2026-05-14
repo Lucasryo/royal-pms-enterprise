@@ -119,7 +119,7 @@ export interface Company {
   email?: string;
   phone?: string;
   address?: string;
-  status?: 'active' | 'inactive';
+  status?: 'active' | 'inactive' | 'ACTIVE' | 'INACTIVE';
 }
 
 export interface UserPermissions {
