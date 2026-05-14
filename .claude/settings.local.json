@@ -43,7 +43,8 @@
       "Bash(gh --version)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "mcp__19d9ee04-09d5-4c62-b445-66841c9f913b__list_edge_functions"
     ]
   }
 }
