@@ -280,7 +280,28 @@ async function fetchTicket(ticketId: string) {
   return data as Record<string, unknown> | null;
 }
 
+function telegramErrorDescription(result: unknown): string {
+  const error = result as { description?: unknown; error_code?: unknown };
+  return String(error?.description ?? error?.error_code ?? "").toLowerCase();
+}
+
+function isMessageNotModified(result: unknown): boolean {
+  return telegramErrorDescription(result).includes("message is not modified");
+}
+
+function shouldReplaceMissingCard(result: unknown): boolean {
+  const description = telegramErrorDescription(result);
+  return description.includes("message to edit not found")
+    || description.includes("message can't be edited")
+    || description.includes("message identifier is not specified")
+    || description.includes("message_id_invalid")
+    || description.includes("message not found");
+}
+
 async function sendTicketCard(record: Record<string, unknown>, chatId: unknown = CHAT_ID): Promise<boolean> {
+  const existingMessageId = Number(record.telegram_message_id);
+  if (record.id && existingMessageId) return await updateTicketCard(record.id as string, chatId);
+
   const result = await tg("sendMessage", {
     chat_id: chatId,
     text: buildTicketCardText(record),
@@ -324,10 +345,28 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
       });
       return true;
     }
+    if (isMessageNotModified(edited)) {
+      await db.from("maintenance_tickets").update({
+        telegram_card_updated_at: new Date().toISOString(),
+      }).eq("id", ticketId);
+      await logTelegramNotification("ticket_card_edit", "edited", {
+        ticketId,
+        payload: { chat_id: chatId, message_id: messageId, note: "not_modified" },
+      });
+      return true;
+    }
     await logTelegramNotification("ticket_card_edit", "failed", {
       ticketId,
       payload: { chat_id: chatId, message_id: messageId, telegram_error: edited },
     });
+    if (!shouldReplaceMissingCard(edited)) return false;
+    await db.from("maintenance_tickets").update({
+      telegram_chat_id: null,
+      telegram_message_id: null,
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId);
+    const freshRecord = await fetchTicket(ticketId);
+    return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId) : false;
   }
   return await sendTicketCard(record, fallbackChatId);
 }
@@ -351,6 +390,81 @@ async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CH
   }).eq("id", ticketId);
   const freshRecord = await fetchTicket(ticketId);
   return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId) : false;
+}
+
+async function findTicketsNeedingCards(limit = 50): Promise<string[]> {
+  const [openCardRes, pendingCardRes] = await Promise.all([
+    db.from("maintenance_tickets")
+      .select("id")
+      .in("status", ["open", "in_progress"])
+      .is("telegram_message_id", null)
+      .order("created_at", { ascending: true })
+      .limit(limit),
+    db.from("maintenance_tickets")
+      .select("id")
+      .eq("status", "resolved")
+      .eq("inspection_status", "pending")
+      .is("telegram_message_id", null)
+      .order("created_at", { ascending: true })
+      .limit(limit),
+  ]);
+  return Array.from(new Set([
+    ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
+    ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
+  ])).slice(0, limit);
+}
+
+async function findRecentlyFailedCardTickets(limit = 50): Promise<string[]> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: failedLogs } = await db.from("maintenance_notification_logs")
+    .select("ticket_id")
+    .eq("channel", "telegram")
+    .eq("status", "failed")
+    .in("event_type", ["ticket_card_send", "ticket_card_edit"])
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const failedIds = Array.from(new Set((failedLogs ?? [])
+    .map(log => log.ticket_id as string | null)
+    .filter((id): id is string => Boolean(id))));
+  if (failedIds.length === 0) return [];
+
+  const { data: activeTickets } = await db.from("maintenance_tickets")
+    .select("id")
+    .in("id", failedIds)
+    .or("status.in.(open,in_progress),and(status.eq.resolved,inspection_status.eq.pending)")
+    .limit(limit);
+  const activeIds = new Set((activeTickets ?? []).map(ticket => ticket.id as string));
+  return failedIds.filter(id => activeIds.has(id)).slice(0, limit);
+}
+
+async function runBotMaintenance(limit = 50) {
+  const missingIds = await findTicketsNeedingCards(limit);
+  const retryIds = await findRecentlyFailedCardTickets(limit);
+  const ids = Array.from(new Set([...missingIds, ...retryIds])).slice(0, limit);
+  let repaired = 0;
+  const failed: string[] = [];
+
+  for (const id of ids) {
+    const ok = await updateTicketCard(id, CHAT_ID);
+    if (ok) repaired++;
+    else failed.push(id);
+  }
+
+  const retryFailed = retryIds.filter(id => failed.includes(id)).length;
+  const summary = {
+    checked: ids.length,
+    repaired,
+    retry_failed: retryFailed,
+    persistent_failures: failed.length,
+    missing_cards_checked: missingIds.length,
+    recent_failures_checked: retryIds.length,
+    failed_ticket_ids: failed.slice(0, 25),
+  };
+  await logTelegramNotification("bot_maintenance", failed.length ? "failed" : ids.length ? "sent" : "skipped", {
+    payload: summary,
+  });
+  return { ok: true, ...summary };
 }
 
 async function rememberCallbackCard(ticketId: string, chatId: unknown, messageId: unknown) {
@@ -612,7 +726,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "reconcile_cards", "recreate_card"];
+  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -680,28 +794,16 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     return { ok, ticket_id: ticketId };
   }
 
+  if ((body.type as string) === "bot_maintenance") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    return await runBotMaintenance(50);
+  }
+
   if ((body.type as string) === "reconcile_cards") {
     const user = await getInternalUser(authHeader);
     if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
-    const [openCardRes, pendingCardRes] = await Promise.all([
-      db.from("maintenance_tickets")
-        .select("id")
-        .in("status", ["open", "in_progress"])
-        .is("telegram_message_id", null)
-        .order("created_at", { ascending: true })
-        .limit(50),
-      db.from("maintenance_tickets")
-        .select("id")
-        .eq("status", "resolved")
-        .eq("inspection_status", "pending")
-        .is("telegram_message_id", null)
-        .order("created_at", { ascending: true })
-        .limit(50),
-    ]);
-    const ids = Array.from(new Set([
-      ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
-      ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
-    ])).slice(0, 50);
+    const ids = await findTicketsNeedingCards(50);
     let repaired = 0;
     const failed: string[] = [];
     for (const id of ids) {
@@ -876,6 +978,9 @@ async function handleCallback(query: Record<string, unknown>) {
 
   // Immediately acknowledge callback to prevent Telegram retries
   await tg("answerCallbackQuery", { callback_query_id: cbId });
+  const callbackAlert = async (text: string) => {
+    await tg("answerCallbackQuery", { callback_query_id: cbId, text, show_alert: true });
+  };
 
   // ── Rating ──────────────────────────────────────────────────────────────
   if (action === "rate") {
@@ -910,11 +1015,7 @@ async function handleCallback(query: Record<string, unknown>) {
   if (action === "insp_assume") {
     const ticketId = rest;
     if (!await isModerator(chatId, fromId)) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas moderadores do grupo podem assumir a vistoria\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas moderadores do grupo podem assumir a vistoria.");
       return { ok: true };
     }
 
@@ -924,21 +1025,13 @@ async function handleCallback(query: Record<string, unknown>) {
 
     // Only allow assuming inspection on resolved tickets
     if (ticket.status !== "resolved") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está aguardando vistoria \\(status: ${esc(ticket.status ?? "desconhecido")}\\)\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado nao esta aguardando vistoria (status: ${ticket.status ?? "desconhecido"}).`);
       return { ok: true };
     }
 
     // Block if another moderator already assumed (inspection_status is "pending" and inspector_tg_id is set)
     if (ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("A vistoria deste chamado ja foi assumida por outro moderador.");
       return { ok: true };
     }
 
@@ -971,29 +1064,17 @@ async function handleCallback(query: Record<string, unknown>) {
       }
 
       if (current?.status !== "resolved") {
-        await tg("sendMessage", {
-          chat_id: chatId,
-          text: `⚠️ Este chamado não está aguardando vistoria \\(status: ${esc(current?.status ?? "desconhecido")}\\)\\.`,
-          parse_mode: "MarkdownV2",
-        });
+        await callbackAlert(`Este chamado nao esta aguardando vistoria (status: ${current?.status ?? "desconhecido"}).`);
         return { ok: true };
       }
 
       if (!current?.inspector_tg_id && (current?.inspection_status === null || current?.inspection_status === "pending")) {
         await updateTicketCard(ticketId, chatId);
-        await tg("sendMessage", {
-          chat_id: chatId,
-          text: `⚠️ Não consegui assumir a vistoria agora\\. Tente tocar em *Assumir Vistoria* novamente\\.`,
-          parse_mode: "MarkdownV2",
-        });
+        await callbackAlert("Nao consegui assumir a vistoria agora. Toque em Assumir Vistoria novamente.");
         return { ok: true };
       }
 
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("A vistoria deste chamado ja foi assumida por outro moderador.");
       return { ok: true };
     }
 
@@ -1011,11 +1092,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
     // Fix B: validate lock against DB inspector_tg_id too
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode aprovar\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode aprovar.");
       return { ok: true };
     }
 
@@ -1025,11 +1102,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
     // Secondary DB-level lock check
     if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode aprovar este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode aprovar este chamado.");
       return { ok: true };
     }
 
@@ -1060,11 +1133,7 @@ async function handleCallback(query: Record<string, unknown>) {
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode reprovar\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode reprovar.");
       return { ok: true };
     }
 
@@ -1074,11 +1143,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
     // DB-level lock check
     if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode reprovar este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode reprovar este chamado.");
       return { ok: true };
     }
 
@@ -1105,11 +1170,7 @@ async function handleCallback(query: Record<string, unknown>) {
   if (lockedTgUserId && lockedTgUserId !== fromId) {
     const { data: tk } = await db
       .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado\\.`,
-      parse_mode: "MarkdownV2",
-    });
+    await callbackAlert(`Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar pecas deste chamado.`);
     return { ok: true };
   }
 
@@ -1147,11 +1208,7 @@ async function handleCallback(query: Record<string, unknown>) {
         return { ok: true };
       }
       // Caso (a): realmente foi outro tecnico
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já foi assumido por ${current?.status_reason ?? "outro técnico"}\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado ja foi assumido por ${current?.status_reason ?? "outro tecnico"}.`);
       return { ok: true };
     }
 
@@ -1209,11 +1266,7 @@ async function handleCallback(query: Record<string, unknown>) {
   } else if (action === "resolve") {
     // Fix 8: only allow resolve if ticket is in_progress
     if (ticket.status !== "in_progress") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está em andamento \\(status: ${esc(ticket.status)}\\)\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status}).`);
       return { ok: true };
     }
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
@@ -1228,11 +1281,7 @@ async function handleCallback(query: Record<string, unknown>) {
   } else if (action === "parts") {
     // Fix 9: only allow parts report if ticket is active
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já está ${esc(ticket.status === "resolved" ? "resolvido" : "cancelado")}\\. Não é possível registrar falta de peças\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado ja esta ${ticket.status === "resolved" ? "resolvido" : "cancelado"}.`);
       return { ok: true };
     }
     const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
@@ -1260,11 +1309,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
   } else if (action === "note") {
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já está encerrado e não aceita novas notas\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Este chamado ja esta encerrado e nao aceita novas notas.");
       return { ok: true };
     }
     await tg("sendMessage", {
@@ -1277,19 +1322,11 @@ async function handleCallback(query: Record<string, unknown>) {
 
   } else if (action === "transfer") {
     if (!lockedTgUserId || lockedTgUserId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o técnico responsável pode transferir este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o tecnico responsavel pode transferir este chamado.");
       return { ok: true };
     }
     if (ticket.status !== "in_progress") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está em andamento e não pode ser transferido\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Este chamado nao esta em andamento e nao pode ser transferido.");
       return { ok: true };
     }
     const { count: transferCount } = await db.from("maintenance_tickets")
@@ -1297,11 +1334,7 @@ async function handleCallback(query: Record<string, unknown>) {
       .eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
       .select("id", { count: "exact", head: true });
     if (!transferCount || transferCount === 0) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Chamado já foi alterado por outra ação\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Chamado ja foi alterado por outra acao.");
       return { ok: true };
     }
     await logEvent({

@@ -163,6 +163,13 @@ type BotHealth = {
   missing_card_ticket_ids: string[];
   recent_logs: TelegramLog[];
 };
+type BotMaintenanceResult = {
+  ok: boolean;
+  checked: number;
+  repaired: number;
+  retry_failed: number;
+  persistent_failures: number;
+};
 
 function BoardTab() {
   function openFullscreen() {
@@ -216,7 +223,8 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [botHealth, setBotHealth] = useState<BotHealth | null>(null);
   const [botHealthLoading, setBotHealthLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [reconcilingCards, setReconcilingCards] = useState(false);
+  const [botMaintenanceLoading, setBotMaintenanceLoading] = useState(false);
+  const [lastBotMaintenance, setLastBotMaintenance] = useState<BotMaintenanceResult | null>(null);
   const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
@@ -504,18 +512,19 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }
   }
 
-  async function reconcileTelegramCards() {
+  async function runBotMaintenance() {
     if (!canDirect) return;
-    setReconcilingCards(true);
+    setBotMaintenanceLoading(true);
     try {
-      const data = await callBotFunction({ type: 'reconcile_cards' });
-      toast.success(`Reconciliacao concluida: ${data.repaired ?? 0}/${data.checked ?? 0} cards ajustados.`);
+      const data = await callBotFunction({ type: 'bot_maintenance' }) as BotMaintenanceResult;
+      setLastBotMaintenance(data);
+      toast.success(`Verificacao concluida: ${data.repaired ?? 0}/${data.checked ?? 0} cards recuperados.`);
       await fetchTickets();
       await fetchBotHealth();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erro ao reconciliar cards.');
+      toast.error(error instanceof Error ? error.message : 'Erro ao verificar o bot.');
     } finally {
-      setReconcilingCards(false);
+      setBotMaintenanceLoading(false);
     }
   }
 
@@ -633,6 +642,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                 {botHealth.missing_card_count ?? 0} chamados ativos sem card rastreado no Telegram.
               </p>
             )}
+            {lastBotMaintenance && (
+              <p className="mt-1 text-xs font-bold text-emerald-700">
+                Ultima verificacao: {lastBotMaintenance.repaired}/{lastBotMaintenance.checked} recuperados, {lastBotMaintenance.persistent_failures} falhas persistentes.
+              </p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <button
@@ -645,11 +659,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             {canDirect && (
               <>
                 <button
-                  onClick={reconcileTelegramCards}
-                  disabled={reconcilingCards}
-                  className="rounded-xl bg-blue-50 px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 transition hover:bg-blue-100 disabled:opacity-50"
+                  onClick={runBotMaintenance}
+                  disabled={botMaintenanceLoading}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white transition hover:bg-blue-500 disabled:opacity-50"
                 >
-                  {reconcilingCards ? 'Reconciliando...' : 'Reconciliar cards'}
+                  {botMaintenanceLoading ? 'Verificando...' : 'Verificar agora'}
                 </button>
                 <button
                   onClick={cleanupTestTickets}
