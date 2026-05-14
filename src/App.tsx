@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { ComponentType, useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabase';
 import { UserProfile, UserRole, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
@@ -51,6 +51,50 @@ import { tryFocusElement, consumeFocusTarget } from './lib/focusTarget';
 import { motion, AnimatePresence } from 'motion/react';
 
 type User = { id: string; email?: string; [key: string]: any };
+type NavItem = {
+  id: ViewType;
+  label: string;
+  section: 'hotel' | 'revenue' | 'management' | 'channels';
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+};
+
+const NAV_SECTION_LABELS: Record<NavItem['section'], string> = {
+  hotel: 'Hotel',
+  revenue: 'Receita',
+  management: 'Gestao',
+  channels: 'Canais',
+};
+
+const NAV_SECTION_ORDER: NavItem['section'][] = ['hotel', 'revenue', 'management', 'channels'];
+
+const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
+  dashboard: { section: 'hotel', description: 'Resumo executivo e atalhos do dia' },
+  reservations: { section: 'hotel', description: 'Reservas, tarifas e calendario' },
+  reception: { section: 'hotel', description: 'Check-in, UHs e turno' },
+  maintenance: { section: 'hotel', description: 'Chamados e preventiva' },
+  checkin: { section: 'hotel', description: 'Entradas, saidas e walk-in' },
+  housekeeping: { section: 'hotel', description: 'Limpeza, bloqueios e liberacao' },
+  operations: { section: 'hotel', description: 'Passagem de turno e pendencias' },
+  pos: { section: 'hotel', description: 'Consumo, comandas e caixa' },
+  events: { section: 'hotel', description: 'Agenda, orcamentos e saloes' },
+  finance: { section: 'revenue', description: 'Faturas, bancos e cobranca' },
+  'prio-billing': { section: 'revenue', description: 'Geracao e conferencia Prio' },
+  tariffs: { section: 'revenue', description: 'Tarifario corporativo' },
+  professional: { section: 'revenue', description: 'Revenue, fiscal, CRM e estoque' },
+  reports: { section: 'revenue', description: 'Indicadores e exportacoes' },
+  'admin-control': { section: 'management', description: 'Usuarios, permissoes e cadastros' },
+  companies: { section: 'management', description: 'Clientes corporativos' },
+  guests: { section: 'management', description: 'Perfis e historico' },
+  tracking: { section: 'management', description: 'Fluxo operacional e financeiro' },
+  registration: { section: 'management', description: 'Usuarios e acessos' },
+  staff: { section: 'management', description: 'Colaboradores e permissoes' },
+  audit: { section: 'management', description: 'Logs e trilha de acoes' },
+  'maintenance-qr': { section: 'management', description: 'Impressao de QR por UH' },
+  'housekeeping-staff': { section: 'management', description: 'Equipe de governanca' },
+  marketing: { section: 'channels', description: 'Omni-inbox e campanhas' },
+  profile: { section: 'management', description: 'Preferencias e seguranca da conta' },
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -342,6 +386,18 @@ export default function App() {
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
+  const groupedNavigation = useMemo(() => {
+    return NAV_SECTION_ORDER
+      .map(section => ({
+        section,
+        label: NAV_SECTION_LABELS[section],
+        items: navigationItems
+          .filter(item => NAV_META[item.id]?.section === section)
+          .map(item => ({ ...item, description: NAV_META[item.id]?.description ?? item.label })),
+      }))
+      .filter(group => group.items.length > 0);
+  }, [navigationItems]);
+
   // Bottom nav: up to 4 priority items based on role (must be before early returns — Rules of Hooks)
   const mobileNavPriority: ViewType[] = ['dashboard', 'reservations', 'reception', 'finance'];
   const bottomNavItems = useMemo(() => {
@@ -397,6 +453,10 @@ export default function App() {
   }
 
   if (!user || !profile) return <MarketingLanding />;
+
+  const activeNavigationItem = navigationItems.find(i => i.id === currentView);
+  const activeMeta = NAV_META[currentView];
+  const activeSectionLabel = activeMeta ? NAV_SECTION_LABELS[activeMeta.section] : 'Sistema';
 
   const renderContent = () => {
     switch (currentView) {
@@ -463,28 +523,40 @@ export default function App() {
           </AnimatePresence>
         </div>
 
-        <nav className="flex-1 px-3 space-y-1 mt-4 overflow-y-auto scrollbar-none">
-          {navigationItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setCurrentView(item.id)}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all group relative ${
-                currentView === item.id ? 'bg-primary/5 text-primary' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <item.icon className={`w-5 h-5 shrink-0 ${currentView === item.id ? 'text-primary' : 'group-hover:text-gray-900'}`} />
-              <AnimatePresence>
+        <nav className="flex-1 px-3 mt-4 overflow-y-auto scrollbar-none">
+          <div className="space-y-5">
+            {groupedNavigation.map((group) => (
+              <div key={group.section} className="space-y-1">
                 {isSidebarOpen && (
-                  <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-bold whitespace-nowrap">
-                    {item.label}
-                  </motion.span>
+                  <p className="px-3 pb-1 text-[10px] font-black uppercase tracking-[0.22em] text-gray-300">
+                    {group.label}
+                  </p>
                 )}
-              </AnimatePresence>
-              {currentView === item.id && (
-                <motion.div layoutId="sidebar-active" className="absolute left-0 w-1 h-6 bg-primary rounded-r-full" />
-              )}
-            </button>
-          ))}
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setCurrentView(item.id)}
+                    title={!isSidebarOpen ? item.label : undefined}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all group relative ${
+                      currentView === item.id ? 'bg-primary/5 text-primary' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <item.icon className={`w-5 h-5 shrink-0 ${currentView === item.id ? 'text-primary' : 'group-hover:text-gray-900'}`} />
+                    <AnimatePresence>
+                      {isSidebarOpen && (
+                        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-bold whitespace-nowrap">
+                          {item.label}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                    {currentView === item.id && (
+                      <motion.div layoutId="sidebar-active" className="absolute left-0 w-1 h-6 bg-primary rounded-r-full" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
         </nav>
 
         <div className="p-4 border-t border-gray-100">
@@ -525,7 +597,7 @@ export default function App() {
               <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
             </div>
             <span className="text-sm font-black text-gray-900 truncate">
-              {navigationItems.find(i => i.id === currentView)?.label || 'Royal PMS'}
+              {activeNavigationItem?.label || 'Royal PMS'}
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -576,8 +648,9 @@ export default function App() {
         {!isMobile && <header className="flex h-16 bg-white border-b border-gray-200 px-8 items-center justify-between sticky top-0 z-40 shrink-0">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-black uppercase tracking-widest text-gray-900 flex items-center gap-2">
-              {navigationItems.find(i => i.id === currentView)?.label || 'Sistema'}
+              <span className="text-gray-400">{activeSectionLabel}</span>
               <ChevronRight className="w-4 h-4 text-gray-300" />
+              {activeNavigationItem?.label || 'Sistema'}
             </h2>
             <div className="relative group">
               <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
@@ -712,24 +785,29 @@ export default function App() {
               </div>
 
               {/* All navigation items */}
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="grid grid-cols-3 gap-3">
-                  {navigationItems.map((item) => {
-                    const active = currentView === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => { setCurrentView(item.id); setShowMoreSheet(false); }}
-                        className={`flex flex-col items-center gap-2 p-3.5 rounded-2xl transition-all active:scale-95 ${
-                          active ? 'bg-primary/10 text-primary' : 'bg-gray-50 text-gray-600 active:bg-gray-100'
-                        }`}
-                      >
-                        <item.icon className="w-5 h-5" />
-                        <span className="text-[11px] font-bold text-center leading-tight">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                {groupedNavigation.map((group) => (
+                  <div key={group.section} className="space-y-2">
+                    <p className="px-1 text-[10px] font-black uppercase tracking-[0.22em] text-gray-300">{group.label}</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {group.items.map((item) => {
+                        const active = currentView === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => { setCurrentView(item.id); setShowMoreSheet(false); }}
+                            className={`flex flex-col items-center gap-2 p-3.5 rounded-2xl transition-all active:scale-95 ${
+                              active ? 'bg-primary/10 text-primary' : 'bg-gray-50 text-gray-600 active:bg-gray-100'
+                            }`}
+                          >
+                            <item.icon className="w-5 h-5" />
+                            <span className="text-[11px] font-bold text-center leading-tight">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Footer actions */}

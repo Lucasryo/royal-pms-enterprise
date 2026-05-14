@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, FiscalFile, Company, Room } from '../types';
+import { canAccessView } from '../lib/permissions';
 import {
   TrendingUp, Users, Calendar, Clock, ArrowUpRight,
   ArrowDownRight, Hotel, CheckCircle2, AlertCircle,
@@ -295,6 +296,14 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
 
   const occupancyPct = stats.totalRooms > 0 ? Math.round((stats.occupiedRooms / stats.totalRooms) * 100) : 0;
   const availableRooms = Math.max(0, stats.totalRooms - stats.occupiedRooms);
+  const moduleCards = useMemo(() => ([
+    { id: 'reservations', title: 'Reservas', description: 'Reservas, tarifas, bloqueios e ocupacao.', icon: Calendar, tone: 'bg-blue-50 text-blue-600 border-blue-100' },
+    { id: 'reception', title: 'Recepcao', description: 'Check-in/out, governanca e turno operacional.', icon: Hotel, tone: 'bg-amber-50 text-amber-600 border-amber-100' },
+    { id: 'finance', title: 'Financeiro', description: 'Faturas, bancos, cobranca e documentos.', icon: FileText, tone: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+    { id: 'events', title: 'Eventos', description: 'Saloes, orcamentos, agenda e execucao.', icon: Globe, tone: 'bg-purple-50 text-purple-600 border-purple-100' },
+    { id: 'reports', title: 'Relatorios', description: 'Indicadores executivos e exportacoes.', icon: Activity, tone: 'bg-slate-50 text-slate-600 border-slate-100' },
+    { id: 'admin-control', title: 'Controle geral', description: 'Usuarios, empresas, acessos e auditoria.', icon: ShieldCheck, tone: 'bg-neutral-100 text-neutral-700 border-neutral-200' },
+  ]).filter(module => canAccessView(profile, module.id)), [profile]);
 
   const greeting = (() => {
     const hour = new Date().getHours();
@@ -318,6 +327,36 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
            </div>
         </div>
       </div>
+
+      {moduleCards.length > 0 && (
+        <div className="rounded-3xl border border-gray-200 bg-white p-4 md:p-6 shadow-sm">
+          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-400">Mapa do PMS</p>
+              <h2 className="mt-1 text-lg md:text-xl font-black tracking-tight text-gray-900">Centrais principais</h2>
+            </div>
+            <p className="text-xs font-bold text-gray-400">Acesse pelo contexto certo, sem duplicar caminho.</p>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {moduleCards.map((module) => (
+              <button
+                key={module.id}
+                onClick={() => onNavigate?.(module.id)}
+                className="group flex items-center gap-4 rounded-2xl border border-gray-200 bg-gray-50/70 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-white hover:shadow-lg hover:shadow-primary/5"
+              >
+                <div className={`rounded-2xl border p-3 ${module.tone}`}>
+                  <module.icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-gray-900">{module.title}</h3>
+                  <p className="mt-0.5 text-xs font-bold leading-5 text-gray-500">{module.description}</p>
+                </div>
+                <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-gray-300 transition group-hover:text-primary" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Hero Stats */}
       {canSeeStats && (
