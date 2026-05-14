@@ -219,7 +219,7 @@ function StatusBadge({ status }: { status: Lead['status'] }) {
     resolved: { label: 'Resolvido', cls: 'bg-emerald-100 text-emerald-700' },
   };
   const { label, cls } = map[status];
-  return <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
+  return <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
 function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
@@ -507,7 +507,7 @@ function LeadInboxTab() {
   }
 
   return (
-    <div className="flex h-[75vh] min-h-[500px] rounded-3xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
+    <div className="flex h-[75vh] min-h-[500px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
       {/* Sidebar */}
       <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
         <div className="p-4 border-b border-neutral-100 space-y-3">
@@ -531,7 +531,7 @@ function LeadInboxTab() {
                     const nextLead = leads.find(lead => (channel.id === 'all' || lead.channel === channel.id) && (activeFilter === 'all' || lead.status === activeFilter));
                     setSelectedId(nextLead?.id ?? null);
                   }}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-semibold uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }}>{channel.icon}</span>
@@ -547,7 +547,7 @@ function LeadInboxTab() {
               <button
                 key={f}
                 onClick={() => setActiveFilter(f)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
               >
                 {f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}
               </button>
@@ -564,7 +564,7 @@ function LeadInboxTab() {
                 className={`w-full text-left p-3 border-b border-neutral-50 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-neutral-50'}`}
               >
                 <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center shrink-0 text-xs font-black text-neutral-600">
+                  <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center shrink-0 text-xs font-semibold text-neutral-600">
                     {lead.guestName[0]}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -577,7 +577,7 @@ function LeadInboxTab() {
                       <span style={{ color: ch?.color }} className="flex items-center gap-0.5 text-[9px] font-bold">{ch?.icon}{ch?.name}</span>
                       <SentimentIcon s={lead.sentiment} />
                       {!!lead.unreadCount && (
-                        <span className="ml-auto w-4 h-4 bg-amber-500 rounded-full text-white text-[9px] font-black flex items-center justify-center">{lead.unreadCount}</span>
+                        <span className="ml-auto w-4 h-4 bg-amber-500 rounded-full text-white text-[9px] font-semibold flex items-center justify-center">{lead.unreadCount}</span>
                       )}
                     </div>
                   </div>
@@ -594,7 +594,7 @@ function LeadInboxTab() {
           {/* Header */}
           <div className="px-5 py-3 border-b border-neutral-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center font-black text-sm text-neutral-700">{selected.guestName[0]}</div>
+              <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center font-semibold text-sm text-neutral-700">{selected.guestName[0]}</div>
               <div>
                 <p className="font-bold text-sm text-neutral-900">{selected.guestName}</p>
                 <div className="flex items-center gap-2">
@@ -628,8 +628,8 @@ function LeadInboxTab() {
                 <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : selected?.channel === 'email' ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
                   {selected?.channel === 'email' && msg.subject && (
                     <div className="mb-2 border-b border-neutral-100 pb-2">
-                      <p className="text-[9px] font-black uppercase tracking-wider text-amber-600">Assunto</p>
-                      <p className="text-sm font-black text-neutral-900">{msg.subject}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
+                      <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
                     </div>
                   )}
                   <p className="whitespace-pre-wrap break-words">{msg.text}</p>
@@ -642,7 +642,7 @@ function LeadInboxTab() {
 
           {/* AI suggestions */}
           <div className="px-4 py-2 border-t border-neutral-100 bg-amber-50/50">
-            <p className="text-[9px] font-black uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Sugestões IA</p>
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Sugestões IA</p>
             {loadingAI ? (
               <div className="flex gap-2">
                 {[1,2,3].map(i => <div key={i} className="h-7 w-40 bg-amber-100 rounded-lg animate-pulse" />)}
@@ -727,8 +727,8 @@ function CampaignsTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Campanhas</p>
-          <h2 className="text-xl font-black text-neutral-950">{campaigns.length} campanhas</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Campanhas</p>
+          <h2 className="text-xl font-semibold text-neutral-950">{campaigns.length} campanhas</h2>
         </div>
         <button
           onClick={() => setShowForm(true)}
@@ -750,14 +750,14 @@ function CampaignsTab() {
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-3`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className="text-2xl font-black text-neutral-950">{stat.value}</p>
+            <p className="text-2xl font-semibold text-neutral-950">{stat.value}</p>
             <p className="text-xs text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
       {/* Campaign list */}
-      <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
         {campaigns.map((c, idx) => (
           <div key={c.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < campaigns.length - 1 ? 'border-b border-neutral-100' : ''}`}>
             <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
@@ -766,17 +766,17 @@ function CampaignsTab() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <p className="font-bold text-sm text-neutral-900 truncate">{c.name}</p>
-                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${statusMap[c.status].cls}`}>{statusMap[c.status].label}</span>
+                <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${statusMap[c.status].cls}`}>{statusMap[c.status].label}</span>
               </div>
               <p className="text-xs text-neutral-500">{c.channel} {c.scheduledAt ? `· ${c.scheduledAt}` : ''}</p>
             </div>
             <div className="hidden sm:flex items-center gap-6 text-right">
               <div>
-                <p className="text-sm font-black text-neutral-900">{c.reach}</p>
+                <p className="text-sm font-semibold text-neutral-900">{c.reach}</p>
                 <p className="text-[10px] text-neutral-400">Alcance</p>
               </div>
               <div>
-                <p className="text-sm font-black text-emerald-600">{c.conv}</p>
+                <p className="text-sm font-semibold text-emerald-600">{c.conv}</p>
                 <p className="text-[10px] text-neutral-400">Conversão</p>
               </div>
             </div>
@@ -789,34 +789,34 @@ function CampaignsTab() {
         {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowForm(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-neutral-950">Nova Campanha</h3>
+                <h3 className="text-lg font-semibold text-neutral-950">Nova Campanha</h3>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500 hover:bg-neutral-200"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome</label>
                   <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Promoção Julho" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Canal</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Canal</label>
                     <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium">
                       {['WhatsApp', 'Instagram', 'Facebook', 'E-mail'].map(c => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Agendar para</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Agendar para</label>
                     <input type="date" value={form.scheduledAt} onChange={e => setForm({ ...form, scheduledAt: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Público-alvo</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Público-alvo</label>
                   <input value={form.audience} onChange={e => setForm({ ...form, audience: e.target.value })} placeholder="Ex: Hóspedes dos últimos 6 meses" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Mensagem</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem</label>
                   <textarea value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Use [NOME] para personalizar..." rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-medium resize-none" />
                 </div>
                 <div className="flex gap-3 pt-2">
@@ -872,8 +872,8 @@ function TemplatesTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Templates</p>
-          <h2 className="text-xl font-black text-neutral-950">{templates.length} templates</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Templates</p>
+          <h2 className="text-xl font-semibold text-neutral-950">{templates.length} templates</h2>
         </div>
         <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
           <Plus className="w-4 h-4" /> Novo template
@@ -888,21 +888,21 @@ function TemplatesTab() {
       </div>
 
       <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-        <button onClick={() => setFilter('')} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${!filter ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'}`}>Todos</button>
+        <button onClick={() => setFilter('')} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-widest ${!filter ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'}`}>Todos</button>
         {TEMPLATE_CATEGORIES.map(cat => (
-          <button key={cat} onClick={() => setFilter(cat)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${filter === cat ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'}`}>{cat}</button>
+          <button key={cat} onClick={() => setFilter(cat)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-widest ${filter === cat ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500'}`}>{cat}</button>
         ))}
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-16 rounded-3xl border border-dashed border-neutral-200">
+        <div className="text-center py-16 rounded-2xl border border-dashed border-neutral-200">
           <MessageSquare className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
           <p className="font-bold text-neutral-400">Nenhum template encontrado</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(t => (
-            <motion.article key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="group p-5 bg-white rounded-3xl border border-neutral-200 hover:border-amber-300 hover:shadow-md transition-all">
+            <motion.article key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="group p-5 bg-white rounded-2xl border border-neutral-200 hover:border-amber-300 hover:shadow-md transition-all">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h4 className="font-bold text-sm text-neutral-900">{t.name}</h4>
@@ -916,7 +916,7 @@ function TemplatesTab() {
               <p className="text-xs text-neutral-500 line-clamp-3 leading-relaxed mb-4">{t.text}</p>
               <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
                 <span className="text-[9px] font-bold text-neutral-400">{t.channel}</span>
-                <button onClick={() => { navigator.clipboard.writeText(t.text); toast.success('Copiado!'); }} className="flex items-center gap-1 text-[9px] font-black text-amber-600 uppercase hover:text-amber-800">
+                <button onClick={() => { navigator.clipboard.writeText(t.text); toast.success('Copiado!'); }} className="flex items-center gap-1 text-[9px] font-semibold text-amber-600 uppercase hover:text-amber-800">
                   <Copy className="w-3 h-3" /> Copiar
                 </button>
               </div>
@@ -929,30 +929,30 @@ function TemplatesTab() {
         {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowForm(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-neutral-950">{editing ? 'Editar Template' : 'Novo Template'}</h3>
+                <h3 className="text-lg font-semibold text-neutral-950">{editing ? 'Editar Template' : 'Novo Template'}</h3>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome</label>
                     <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Boas-vindas" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Categoria</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Categoria</label>
                     <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
                       {TEMPLATE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Mensagem</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem</label>
                   <textarea value={form.text} onChange={e => setForm({ ...form, text: e.target.value })} placeholder="Use [NOME] para personalizar..." rows={5} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Canal</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Canal</label>
                   <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
                     {TEMPLATE_CHANNELS.map(c => <option key={c}>{c}</option>)}
                   </select>
@@ -1000,8 +1000,8 @@ function AnalyticsTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Analytics do Bot</p>
-          <h2 className="text-xl font-black text-neutral-950">Desempenho</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics do Bot</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Desempenho</h2>
         </div>
         <div className="flex bg-neutral-100 rounded-xl p-1">
           {(['7d', '30d', '90d'] as const).map(p => (
@@ -1025,7 +1025,7 @@ function AnalyticsTab() {
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className="text-xl font-black text-neutral-950">{stat.value}</p>
+            <p className="text-xl font-semibold text-neutral-950">{stat.value}</p>
             <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
@@ -1033,8 +1033,8 @@ function AnalyticsTab() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Bar chart */}
-        <div className="lg:col-span-2 rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-black text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
+        <div className="lg:col-span-2 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
           <div className="flex items-end gap-1 h-32">
             {dailyData.slice(-14).map((d, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-1">
@@ -1053,14 +1053,14 @@ function AnalyticsTab() {
         </div>
 
         {/* Top intents */}
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-black text-sm text-neutral-900 mb-4">Top Intenções</h3>
+        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Top Intenções</h3>
           <div className="space-y-3">
             {intents.map((intent, i) => (
               <div key={i} className="space-y-1">
                 <div className="flex justify-between text-xs">
                   <span className="font-medium text-neutral-700 truncate">{intent.intent}</span>
-                  <span className="font-black text-neutral-900 ml-2">{intent.count}</span>
+                  <span className="font-semibold text-neutral-900 ml-2">{intent.count}</span>
                 </div>
                 <div className="w-full bg-neutral-100 rounded-full h-1.5">
                   <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${(intent.count / intents[0].count) * 100}%` }} />
@@ -1100,8 +1100,8 @@ function NPSTab() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-black text-neutral-950">Satisfação dos Hóspedes</h2>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
+        <h2 className="text-xl font-semibold text-neutral-950">Satisfação dos Hóspedes</h2>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1115,19 +1115,19 @@ function NPSTab() {
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
             <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
       {/* NPS bar */}
-      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-black text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
         <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-black text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
+          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
+          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
+          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
         </div>
         <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
           <span className="text-red-500">Detratores (0-6)</span>
@@ -1140,7 +1140,7 @@ function NPSTab() {
       <div className="space-y-3">
         {scores.map(s => (
           <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${scoreColor(s.score)}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-sm shrink-0 ${scoreColor(s.score)}`}>
               {s.score}
             </div>
             <div className="flex-1 min-w-0">
@@ -1199,8 +1199,8 @@ function BotTrainingTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Treinamento</p>
-          <h2 className="text-xl font-black text-neutral-950">Configurar Bot IA</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Treinamento</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Configurar Bot IA</h2>
         </div>
         <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all">
           {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1217,7 +1217,7 @@ function BotTrainingTab() {
         ))}
       </div>
 
-      <div className="rounded-3xl border border-neutral-200 bg-white p-5 sm:p-6 shadow-sm space-y-5">
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6 shadow-sm space-y-5">
         {activeSection === 'info' && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1228,17 +1228,17 @@ function BotTrainingTab() {
                 { label: 'Endereço', key: 'address' as keyof BotConfig, placeholder: 'Av. Principal, 1000' },
               ].map(field => (
                 <div key={field.key}>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{field.label}</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{field.label}</label>
                   <input value={String(config[field.key])} onChange={e => setConfig(prev => ({ ...prev, [field.key]: e.target.value }))} placeholder={field.placeholder} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
               ))}
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Descrição do Hotel</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Descrição do Hotel</label>
               <textarea value={config.description} onChange={e => setConfig(prev => ({ ...prev, description: e.target.value }))} rows={4} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Políticas (check-in, checkout, pets...)</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Políticas (check-in, checkout, pets...)</label>
               <textarea value={config.policies} onChange={e => setConfig(prev => ({ ...prev, policies: e.target.value }))} rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
             </div>
           </>
@@ -1247,11 +1247,11 @@ function BotTrainingTab() {
         {activeSection === 'pricing' && (
           <>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Tabela de Tarifas (UHs e preços)</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Tabela de Tarifas (UHs e preços)</label>
               <textarea value={config.rooms} onChange={e => setConfig(prev => ({ ...prev, rooms: e.target.value }))} rows={6} placeholder="Executiva: R$ 359/noite&#10;Master: R$ 520/noite&#10;..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none font-mono" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">FAQ (perguntas e respostas frequentes)</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">FAQ (perguntas e respostas frequentes)</label>
               <textarea value={config.faq} onChange={e => setConfig(prev => ({ ...prev, faq: e.target.value }))} rows={6} placeholder="Café da manhã incluso? Sim, das 6h às 10h.&#10;Tem estacionamento? Sim, gratuito." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
             </div>
           </>
@@ -1260,7 +1260,7 @@ function BotTrainingTab() {
         {activeSection === 'personality' && (
           <>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
               <select value={config.botMood} onChange={e => setConfig(prev => ({ ...prev, botMood: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
                 {['professional', 'friendly', 'formal', 'casual'].map(m => (
                   <option key={m} value={m}>{m === 'professional' ? 'Profissional' : m === 'friendly' ? 'Amigável' : m === 'formal' ? 'Formal' : 'Casual'}</option>
@@ -1268,15 +1268,15 @@ function BotTrainingTab() {
               </select>
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Assistente Virtual</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do Assistente Virtual</label>
               <input value={config.widgetBotName} onChange={e => setConfig(prev => ({ ...prev, widgetBotName: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Mensagem de Boas-vindas</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem de Boas-vindas</label>
               <textarea value={config.widgetWelcomeMessage} onChange={e => setConfig(prev => ({ ...prev, widgetWelcomeMessage: e.target.value }))} rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Link Google Reviews (para NPS)</label>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Link Google Reviews (para NPS)</label>
               <input value={config.googleReviewLink} onChange={e => setConfig(prev => ({ ...prev, googleReviewLink: e.target.value }))} placeholder="https://g.page/r/..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
             </div>
             <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
@@ -1328,8 +1328,8 @@ function CRMTab() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">CRM</p>
-        <h2 className="text-xl font-black text-neutral-950">Leads e Scoring</h2>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">CRM</p>
+        <h2 className="text-xl font-semibold text-neutral-950">Leads e Scoring</h2>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1340,19 +1340,19 @@ function CRMTab() {
           { label: 'Score Médio', value: Math.round(leads.reduce((a, b) => a + b.score, 0) / leads.length).toString(), color: 'text-emerald-600' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
             <p className="text-xs text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <thead>
               <tr className="border-b border-neutral-100">
                 {['Lead', 'Score IA', 'Estágio', 'Canal', 'Último Contato', 'Tags'].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-[10px] font-black uppercase tracking-wider text-neutral-400">{h}</th>
+                  <th key={h} className="text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1364,7 +1364,7 @@ function CRMTab() {
                   <tr key={i} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-black text-neutral-600">{lead.name[0]}</div>
+                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-semibold text-neutral-600">{lead.name[0]}</div>
                         <div>
                           <p className="font-bold text-sm text-neutral-900">{lead.name}</p>
                           <p className="text-[10px] text-neutral-400">{lead.totalConversations} conversas</p>
@@ -1376,10 +1376,10 @@ function CRMTab() {
                         <div className="w-16 bg-neutral-100 rounded-full h-1.5">
                           <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${lead.score}%` }} />
                         </div>
-                        <span className={`text-sm font-black ${scoreColor(lead.score)}`}>{lead.score}</span>
+                        <span className={`text-sm font-semibold ${scoreColor(lead.score)}`}>{lead.score}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3"><span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span></td>
+                    <td className="px-5 py-3"><span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span></td>
                     <td className="px-5 py-3 text-xs" style={{ color: ch?.color }}>{ch?.name}</td>
                     <td className="px-5 py-3 text-xs text-neutral-500">{lead.lastContact}</td>
                     <td className="px-5 py-3">
@@ -1434,8 +1434,8 @@ function SimulatorTab() {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Simulador</p>
-        <h2 className="text-xl font-black text-neutral-950">Testar WhatsApp Bot</h2>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Simulador</p>
+        <h2 className="text-xl font-semibold text-neutral-950">Testar WhatsApp Bot</h2>
         <p className="text-sm text-neutral-500">Simule uma conversa real com o assistente virtual do hotel.</p>
       </div>
 
@@ -1445,7 +1445,7 @@ function SimulatorTab() {
           {/* Status bar */}
           <div className="bg-[#075E54] rounded-[32px] overflow-hidden">
             <div className="px-4 py-3 flex items-center gap-3 border-b border-white/10">
-              <div className="w-9 h-9 rounded-full bg-emerald-400 flex items-center justify-center font-black text-white text-sm">R</div>
+              <div className="w-9 h-9 rounded-full bg-emerald-400 flex items-center justify-center font-semibold text-white text-sm">R</div>
               <div>
                 <p className="text-white font-bold text-sm">Royal PMS Hotel</p>
                 <p className="text-emerald-300 text-[10px]">online</p>
@@ -1497,15 +1497,15 @@ function FlowBuilderTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Automações</p>
-          <h2 className="text-xl font-black text-neutral-950">Flow Builder</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Automações</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Flow Builder</h2>
         </div>
         <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
           <Plus className="w-4 h-4" /> Novo flow
         </button>
       </div>
 
-      <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
         {flows.map((flow, idx) => (
           <div key={flow.id} className={`flex items-center gap-4 p-4 sm:p-5 ${idx < flows.length - 1 ? 'border-b border-neutral-100' : ''}`}>
             <div className={`w-2 h-10 rounded-full shrink-0 ${flow.status === 'active' ? 'bg-emerald-400' : 'bg-neutral-200'}`} />
@@ -1515,10 +1515,10 @@ function FlowBuilderTab() {
             </div>
             <div className="hidden sm:flex items-center gap-6">
               <div className="text-center">
-                <p className="font-black text-sm text-neutral-900">{flow.steps}</p>
+                <p className="font-semibold text-sm text-neutral-900">{flow.steps}</p>
                 <p className="text-[10px] text-neutral-400">Passos</p>
               </div>
-              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${flow.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+              <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${flow.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
                 {flow.status === 'active' ? 'Ativo' : 'Inativo'}
               </span>
             </div>
@@ -1530,8 +1530,8 @@ function FlowBuilderTab() {
       </div>
 
       {/* Flow diagram preview */}
-      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-black text-sm text-neutral-900 mb-4">Pré-visualização: Saudação Inicial</h3>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Pré-visualização: Saudação Inicial</h3>
         <div className="flex flex-col items-center gap-3">
           {[
             { icon: Bell, label: 'Trigger', desc: 'Primeira mensagem recebida', color: 'bg-amber-50 border-amber-200 text-amber-700' },
@@ -1543,7 +1543,7 @@ function FlowBuilderTab() {
               <div className={`w-full px-4 py-3 rounded-2xl border ${step.color} flex items-center gap-3`}>
                 <step.icon className="w-4 h-4 shrink-0" />
                 <div>
-                  <p className="text-[10px] font-black uppercase">{step.label}</p>
+                  <p className="text-[10px] font-semibold uppercase">{step.label}</p>
                   <p className="text-xs">{step.desc}</p>
                 </div>
               </div>
@@ -1570,8 +1570,8 @@ function BroadcastsTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Disparos</p>
-          <h2 className="text-xl font-black text-neutral-950">Broadcast Manager</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Disparos</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Broadcast Manager</h2>
         </div>
         <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
           <Send className="w-4 h-4" /> Novo disparo
@@ -1589,13 +1589,13 @@ function BroadcastsTab() {
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className={`text-xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className={`text-xl font-semibold ${stat.color}`}>{stat.value}</p>
             <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
         {broadcasts.map((b, idx) => (
           <div key={b.id} className={`p-4 sm:p-5 ${idx < broadcasts.length - 1 ? 'border-b border-neutral-100' : ''}`}>
             <div className="flex items-start justify-between mb-3">
@@ -1603,7 +1603,7 @@ function BroadcastsTab() {
                 <p className="font-bold text-sm text-neutral-900">{b.name}</p>
                 <p className="text-xs text-neutral-500">{b.date}</p>
               </div>
-              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${b.status === 'sent' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${b.status === 'sent' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                 {b.status === 'sent' ? 'Enviado' : 'Agendado'}
               </span>
             </div>
@@ -1616,7 +1616,7 @@ function BroadcastsTab() {
                   { label: 'Respondidos', value: b.replied },
                 ].map(m => (
                   <div key={m.label} className="text-center p-2 rounded-xl bg-neutral-50">
-                    <p className="font-black text-sm text-neutral-900">{m.value}</p>
+                    <p className="font-semibold text-sm text-neutral-900">{m.value}</p>
                     <p className="text-[9px] text-neutral-400">{m.label}</p>
                   </div>
                 ))}
@@ -1813,8 +1813,8 @@ function FinanceiroTab() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Financeiro</p>
-          <h2 className="text-xl font-black text-neutral-950">PIX Automático — Mercado Pago</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Financeiro</p>
+          <h2 className="text-xl font-semibold text-neutral-950">PIX Automático — Mercado Pago</h2>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -1835,14 +1835,14 @@ function FinanceiroTab() {
 
       {/* Banner token não configurado */}
       {!tokenSaved && (
-        <div className="rounded-3xl border-2 border-amber-300 bg-amber-50 p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex-1">
-            <p className="font-black text-amber-900 text-sm">Configure seu Access Token do Mercado Pago</p>
+            <p className="font-semibold text-amber-900 text-sm">Configure seu Access Token do Mercado Pago</p>
             <p className="text-xs text-amber-700 mt-1 leading-relaxed">
               Cole o token uma única vez — o sistema salva no servidor e gera QR Codes automaticamente com o valor exato de cada reserva.
             </p>
           </div>
-          <button onClick={() => setShowConfig(true)} className="shrink-0 px-5 py-3 bg-amber-500 text-white text-sm font-black rounded-xl hover:bg-amber-400 transition-colors flex items-center gap-2">
+          <button onClick={() => setShowConfig(true)} className="shrink-0 px-5 py-3 bg-amber-500 text-white text-sm font-semibold rounded-xl hover:bg-amber-400 transition-colors flex items-center gap-2">
             <Key className="w-4 h-4" /> Configurar agora
           </button>
         </div>
@@ -1860,7 +1860,7 @@ function FinanceiroTab() {
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className={`text-xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className={`text-xl font-semibold ${stat.color}`}>{stat.value}</p>
             <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
@@ -1871,7 +1871,7 @@ function FinanceiroTab() {
         <div className="flex items-center justify-between">
           <div className="flex gap-2 overflow-x-auto scrollbar-none">
             {(['all', 'pending', 'paid'] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors ${filter === f ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-500'}`}>
+              <button key={f} onClick={() => setFilter(f)} className={`shrink-0 px-4 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-wider transition-colors ${filter === f ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-500'}`}>
                 {f === 'all' ? 'Todas' : f === 'pending' ? `Sem PIX (${pixPending.length})` : `PIX Gerado (${pixGenerated.length})`}
               </button>
             ))}
@@ -1881,7 +1881,7 @@ function FinanceiroTab() {
           </button>
         </div>
 
-        <div className="rounded-3xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+        <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
           {loadingRes ? (
             <div className="py-16 text-center text-neutral-400">
               <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-30" />
@@ -1913,7 +1913,7 @@ function FinanceiroTab() {
                   )}
                 </div>
                 <div className="text-right shrink-0 mr-2">
-                  <p className="font-black text-sm text-neutral-900">R$ {Number(res.total_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  <p className="font-semibold text-sm text-neutral-900">R$ {Number(res.total_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   <p className="text-[9px] text-neutral-400">total</p>
                 </div>
                 <div className="flex flex-col gap-1.5 shrink-0">
@@ -1925,7 +1925,7 @@ function FinanceiroTab() {
                         else if (res.pix_copia_cola) qrCodeUrl = await QRCodeLib.toDataURL(res.pix_copia_cola!, { margin: 2, width: 280, color: { dark: '#0a0a0a', light: '#ffffff' } });
                         setViewPix({ qrCodeUrl, copiaECola: res.pix_copia_cola!, paymentId: res.pix_payment_id!, guestName: res.guest_name });
                       }}
-                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black rounded-lg border border-emerald-200 hover:bg-emerald-100"
+                      className="px-3 py-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-semibold rounded-lg border border-emerald-200 hover:bg-emerald-100"
                     >
                       Ver QR
                     </button>
@@ -1933,7 +1933,7 @@ function FinanceiroTab() {
                   <button
                     onClick={() => generatePixForReservation(res)}
                     disabled={isGenerating}
-                    className="px-3 py-1.5 bg-neutral-900 text-white text-[10px] font-black rounded-lg hover:bg-neutral-800 disabled:opacity-60 flex items-center gap-1 transition-all"
+                    className="px-3 py-1.5 bg-neutral-900 text-white text-[10px] font-semibold rounded-lg hover:bg-neutral-800 disabled:opacity-60 flex items-center gap-1 transition-all"
                   >
                     {isGenerating ? <RefreshCw className="w-3 h-3 animate-spin" /> : <QrCode className="w-3 h-3" />}
                     {hasPix ? 'Regen.' : 'Gerar PIX'}
@@ -1950,17 +1950,17 @@ function FinanceiroTab() {
         {showConfig && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowConfig(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-lg font-black text-neutral-950">🟡 Mercado Pago</h3>
+                  <h3 className="text-lg font-semibold text-neutral-950">🟡 Mercado Pago</h3>
                   <p className="text-xs text-neutral-500 mt-0.5">Access Token salvo no servidor — nunca exposto</p>
                 </div>
                 <button onClick={() => setShowConfig(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Access Token de Produção</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Access Token de Produção</label>
                   <input
                     type="password"
                     value={tokenInput}
@@ -2007,10 +2007,10 @@ function FinanceiroTab() {
         {viewPix && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewPix(null)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl text-center">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl text-center">
               <button onClick={() => setViewPix(null)} className="absolute top-4 right-4 p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
-              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">QR Code PIX</p>
-              <p className="font-black text-neutral-900 mb-4 truncate">{viewPix.guestName}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400 mb-1">QR Code PIX</p>
+              <p className="font-semibold text-neutral-900 mb-4 truncate">{viewPix.guestName}</p>
               {viewPix.qrCodeUrl ? (
                 <img src={viewPix.qrCodeUrl} alt="QR Code PIX" className="mx-auto w-56 h-56 rounded-2xl border border-neutral-200 mb-4" />
               ) : (
@@ -2019,7 +2019,7 @@ function FinanceiroTab() {
                 </div>
               )}
               <div className="text-left mb-4">
-                <p className="text-[10px] font-black uppercase text-neutral-400 mb-1.5">Pix Copia e Cola</p>
+                <p className="text-[10px] font-semibold uppercase text-neutral-400 mb-1.5">Pix Copia e Cola</p>
                 <div className="flex items-center gap-2 p-3 bg-neutral-50 rounded-xl border border-neutral-200">
                   <p className="text-[9px] font-mono text-neutral-600 flex-1 break-all leading-relaxed line-clamp-3">{viewPix.copiaECola}</p>
                   <button onClick={() => { navigator.clipboard.writeText(viewPix.copiaECola); toast.success('Copiado!'); }} className="shrink-0 p-2 rounded-lg bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-100">
@@ -2039,33 +2039,33 @@ function FinanceiroTab() {
         {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (generating !== 'manual') setShowForm(false); }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-neutral-950">Cobrança PIX avulsa</h3>
+                <h3 className="text-lg font-semibold text-neutral-950">Cobrança PIX avulsa</h3>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do hóspede</label>
                   <input value={form.guestName} onChange={e => setForm(f => ({ ...f, guestName: e.target.value }))} placeholder="Ana Beatriz Costa" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">E-mail (opcional)</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">E-mail (opcional)</label>
                     <input type="email" value={form.guestEmail} onChange={e => setForm(f => ({ ...f, guestEmail: e.target.value }))} placeholder="hospede@email.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">CPF <span className="text-red-500">*</span></label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">CPF <span className="text-red-500">*</span></label>
                     <input value={form.guestCpf} onChange={e => setForm(f => ({ ...f, guestCpf: e.target.value }))} placeholder="000.000.000-00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Valor (R$)</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Valor (R$)</label>
                     <input type="number" step="0.01" min="1" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="750,00" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Descrição</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Descrição</label>
                     <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Hospedagem" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                 </div>
@@ -2234,8 +2234,8 @@ function IntegracoesTab() {
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Integrações</p>
-          <h2 className="text-xl font-black text-neutral-950">Conectar Canais & APIs</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Integrações</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Conectar Canais & APIs</h2>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
@@ -2245,22 +2245,22 @@ function IntegracoesTab() {
 
       {/* Redes sociais */}
       <section className="space-y-4">
-        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Redes Sociais & Canais</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Redes Sociais & Canais</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {SOCIAL_INTEGRATIONS.map(integration => {
             const isConnected = statuses[integration.id] === 'connected';
             return (
-              <motion.article key={integration.id} whileHover={{ y: -2 }} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+              <motion.article key={integration.id} whileHover={{ y: -2 }} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
                 <div className="flex items-start justify-between mb-4">
                   <div className={`w-12 h-12 rounded-2xl ${integration.color} flex items-center justify-center text-white shadow-sm`}>
                     {integration.icon}
                   </div>
-                  <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1 rounded-full ${isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`flex items-center gap-1.5 text-[9px] font-semibold uppercase px-2.5 py-1 rounded-full ${isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
                     {isConnected ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
                     {isConnected ? 'Conectado' : 'Desconectado'}
                   </span>
                 </div>
-                <h4 className="font-black text-sm text-neutral-900 mb-1">{integration.name}</h4>
+                <h4 className="font-semibold text-sm text-neutral-900 mb-1">{integration.name}</h4>
                 <p className="text-xs text-neutral-500 leading-relaxed mb-5">{integration.description}</p>
                 <div className="flex items-center justify-between pt-4 border-t border-neutral-100">
                   {!isConnected && (
@@ -2288,7 +2288,7 @@ function IntegracoesTab() {
 
       {/* Webhooks PMS */}
       <section className="space-y-4">
-        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Integração PMS Externo</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Integração PMS Externo</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[
             { id: 'cloudbeds', name: 'Cloudbeds', icon: <Database className="w-6 h-6" />, color: '#6366f1' },
@@ -2296,21 +2296,21 @@ function IntegracoesTab() {
           ].map(pms => {
             const cfg = pmsConfig[pms.id] ?? { webhookUrl: '', apiKey: '', enabled: false };
             return (
-              <div key={pms.id} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+              <div key={pms.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white" style={{ background: pms.color }}>{pms.icon}</div>
                   <div>
-                    <p className="font-black text-sm text-neutral-900">{pms.name}</p>
+                    <p className="font-semibold text-sm text-neutral-900">{pms.name}</p>
                     <p className="text-[10px] text-neutral-500">Webhook Outbound</p>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Webhook URL</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Webhook URL</label>
                     <input value={cfg.webhookUrl} onChange={e => savePmsWebhook(pms.id, { ...cfg, webhookUrl: e.target.value })} placeholder={`https://api.${pms.id}.com/v1/webhooks/...`} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-xs" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">API Key</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">API Key</label>
                     <input type="password" value={cfg.apiKey} onChange={e => savePmsWebhook(pms.id, { ...cfg, apiKey: e.target.value })} placeholder="••••••••" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-xs" />
                   </div>
                   <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl bg-neutral-50">
@@ -2328,13 +2328,13 @@ function IntegracoesTab() {
 
       {/* Webhooks URLs do sistema */}
       <section className="space-y-4">
-        <h3 className="text-sm font-black uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
+        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
           <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
           {['whatsapp', 'instagram', 'facebook'].map(ch => (
             <div key={ch} className="flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
                 <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
                   <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
                   <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
@@ -2348,13 +2348,13 @@ function IntegracoesTab() {
       </section>
 
       {/* E-mail de confirmação */}
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+      <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
             <Mail className="w-5 h-5 text-amber-600" />
           </div>
           <div>
-            <p className="font-black text-sm text-neutral-900">E-mail de Confirmação de Reserva</p>
+            <p className="font-semibold text-sm text-neutral-900">E-mail de Confirmação de Reserva</p>
             <p className="text-xs text-neutral-500">Notificar o gerente quando o bot confirmar uma reserva</p>
           </div>
         </div>
@@ -2371,17 +2371,17 @@ function IntegracoesTab() {
         {showTokenModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowTokenModal(null)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-2xl ${showTokenModal.color} flex items-center justify-center text-white`}>{showTokenModal.icon}</div>
-                  <h3 className="text-lg font-black text-neutral-950">{showTokenModal.name}</h3>
+                  <h3 className="text-lg font-semibold text-neutral-950">{showTokenModal.name}</h3>
                 </div>
                 <button onClick={() => setShowTokenModal(null)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">
                     {showTokenModal.id === 'instagram' ? 'ID da Conta Instagram' : showTokenModal.id === 'facebook' ? 'ID da Página Facebook' : showTokenModal.id === 'google' ? 'ID do Google Meu Negócio' : showTokenModal.id === 'linkedin' ? 'ID da Página LinkedIn' : 'Phone ID / Access Token'}
                   </label>
                   <input
@@ -2414,37 +2414,37 @@ function IntegracoesTab() {
         {showSmtp && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSmtp(false)} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-2xl p-6 sm:p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-neutral-950">Configurar Servidor E-mail</h3>
+                <h3 className="text-lg font-semibold text-neutral-950">Configurar Servidor E-mail</h3>
                 <button onClick={() => setShowSmtp(false)} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
               </div>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Host SMTP</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Host SMTP</label>
                     <input value={smtpConfig.host} onChange={e => setSmtpConfig(c => ({ ...c, host: e.target.value }))} placeholder="smtp.gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Porta</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Porta</label>
                     <input value={smtpConfig.port} onChange={e => setSmtpConfig(c => ({ ...c, port: e.target.value }))} placeholder="587" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Usuário / E-mail</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Usuário / E-mail</label>
                   <input value={smtpConfig.user} onChange={e => setSmtpConfig(c => ({ ...c, user: e.target.value }))} placeholder="hotel@gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Senha / App Password</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Senha / App Password</label>
                   <input type="password" value={smtpConfig.pass} onChange={e => setSmtpConfig(c => ({ ...c, pass: e.target.value }))} placeholder="••••••••••••" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Servidor IMAP</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Servidor IMAP</label>
                     <input value={smtpConfig.imapHost ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, imapHost: e.target.value }))} placeholder="imap.gmail.com" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Porta IMAP</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Porta IMAP</label>
                     <input value={smtpConfig.imapPort ?? '993'} onChange={e => setSmtpConfig(c => ({ ...c, imapPort: e.target.value }))} placeholder="993" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                 </div>
@@ -2452,47 +2452,47 @@ function IntegracoesTab() {
                   Para receber e-mails, preencha o servidor IMAP. Para Gmail: imap.gmail.com / 993.
                 </p>
                 <div>
-                  <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome do Remetente</label>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do Remetente</label>
                   <input value={smtpConfig.fromName} onChange={e => setSmtpConfig(c => ({ ...c, fromName: e.target.value }))} placeholder="Recepção Royal PMS" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                 </div>
                 <div className="rounded-2xl border border-neutral-200 bg-white p-4 space-y-3">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-neutral-500">Assinatura profissional</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Assinatura profissional</p>
                     <p className="text-xs text-neutral-500">Usada automaticamente nas respostas enviadas pelo Omni-Inbox.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Nome / Empresa</label>
+                      <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome / Empresa</label>
                       <input value={smtpConfig.signatureName ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureName: e.target.value }))} placeholder="Royal Macaé Palace Hotel" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Departamento</label>
+                      <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Departamento</label>
                       <input value={smtpConfig.signatureRole ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureRole: e.target.value }))} placeholder="Reservas" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Telefone</label>
+                      <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Telefone</label>
                       <input value={smtpConfig.signaturePhone ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signaturePhone: e.target.value }))} placeholder="+55 22 0000-0000" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Site</label>
+                      <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Site</label>
                       <input value={smtpConfig.signatureWebsite ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureWebsite: e.target.value }))} placeholder="https://royalmacae.com.br" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Endereço</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Endereço</label>
                     <input value={smtpConfig.signatureAddress ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureAddress: e.target.value }))} placeholder="Av. Atlântica, Macaé - RJ" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black uppercase text-neutral-400 mb-1 block">Logo URL</label>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Logo URL</label>
                     <input value={smtpConfig.signatureLogoUrl ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureLogoUrl: e.target.value }))} placeholder="https://..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                   </div>
                   <div className="rounded-xl bg-neutral-50 p-4">
                     <div className="flex items-center gap-3">
                       {smtpConfig.signatureLogoUrl ? <img src={smtpConfig.signatureLogoUrl} alt="" className="h-10 w-10 rounded-lg object-contain bg-white border border-neutral-200" /> : <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center"><Hotel className="h-5 w-5 text-amber-700" /></div>}
                       <div className="min-w-0">
-                        <p className="text-sm font-black text-neutral-900">{smtpConfig.signatureName || smtpConfig.fromName || 'Royal Macaé Palace Hotel'}</p>
+                        <p className="text-sm font-semibold text-neutral-900">{smtpConfig.signatureName || smtpConfig.fromName || 'Royal Macaé Palace Hotel'}</p>
                         <p className="text-xs font-bold text-amber-700">{smtpConfig.signatureRole || 'Reservas'}</p>
                         <p className="text-[11px] text-neutral-500 truncate">{[smtpConfig.signaturePhone, smtpConfig.signatureWebsite].filter(Boolean).join(' · ')}</p>
                         {smtpConfig.signatureAddress && <p className="text-[11px] text-neutral-400 truncate">{smtpConfig.signatureAddress}</p>}
