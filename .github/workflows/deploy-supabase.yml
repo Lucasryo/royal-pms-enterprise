@@ -187,6 +187,7 @@ jobs:
           supabase secrets set \
             TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
             TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }} \
+            TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }} \
             --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
       - name: Register Telegram webhook
@@ -195,7 +196,7 @@ jobs:
           curl -s -X POST \
             "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook" \
             -H "Content-Type: application/json" \
-            -d "{\"url\": \"https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/notify-maintenance-ticket\"}" \
+            -d "{\"url\": \"https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/notify-maintenance-ticket\", \"secret_token\": \"${{ secrets.TELEGRAM_WEBHOOK_SECRET }}\", \"allowed_updates\": [\"message\", \"edited_message\", \"callback_query\"]}" \
             | cat
 
       - name: Run maintenance tickets RLS migration
