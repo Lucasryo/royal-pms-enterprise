@@ -247,6 +247,9 @@ function LeadInboxTab() {
   const [messageInput, setMessageInput] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [refreshingInbox, setRefreshingInbox] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
+  const [composeSending, setComposeSending] = useState(false);
   const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
     '1': [
       { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
@@ -598,6 +601,81 @@ function LeadInboxTab() {
     }
   }
 
+  async function composeAndSend() {
+    const to = composeForm.to.trim().toLowerCase();
+    const subject = composeForm.subject.trim();
+    const body = composeForm.body.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { toast.error('E-mail de destino inválido.'); return; }
+    if (!subject) { toast.error('Assunto é obrigatório.'); return; }
+    if (!body) { toast.error('Mensagem é obrigatória.'); return; }
+
+    setComposeSending(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject, body, inReplyTo: '', references: '' }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.sent) throw new Error(result.error || 'Falha ao enviar.');
+
+      const now = new Date().toISOString();
+      const outgoingMessageId: string | null = typeof result.messageId === 'string' ? result.messageId : null;
+
+      // Upsert contact by email
+      const { data: contactData, error: contactError } = await supabase
+        .from('marketing_contacts')
+        .upsert({
+          email: to,
+          name: to.split('@')[0],
+          channel: 'email',
+          last_message: `${subject} - ${body}`.slice(0, 500),
+          last_message_at: now,
+          status: 'ai_responded',
+          sentiment: 'neutral',
+          unread_count: 0,
+          updated_at: now,
+        }, { onConflict: 'email' })
+        .select('*')
+        .single();
+
+      if (contactError) throw contactError;
+      const contact = contactData as MarketingContactRow;
+
+      await supabase.from('inbox_messages').insert([{
+        contact_id: contact.id,
+        contact_identifier: to,
+        channel: 'email',
+        direction: 'out',
+        subject,
+        body,
+        email_message_id: outgoingMessageId,
+        email_references: null,
+        folder: 'inbox',
+        read: true,
+      }]);
+
+      const newLead = mapContactToLead(contact);
+      setLeads(prev => {
+        const without = prev.filter(l => l.id !== newLead.id);
+        return [newLead, ...without];
+      });
+      setActiveChannel('email');
+      setSelectedId(newLead.id);
+      setComposeForm({ to: '', subject: '', body: '' });
+      setComposeOpen(false);
+      toast.success('E-mail enviado');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao enviar.');
+    } finally {
+      setComposeSending(false);
+    }
+  }
+
   function markResolved() {
     if (!selectedId) return;
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'resolved' as const, unreadCount: 0 } : l));
@@ -609,6 +687,12 @@ function LeadInboxTab() {
       {/* Sidebar */}
       <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
         <div className="p-4 border-b border-neutral-100 space-y-3">
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
+          >
+            <Edit3 className="w-3.5 h-3.5" /> Novo e-mail
+          </button>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
             <input
@@ -841,6 +925,66 @@ function LeadInboxTab() {
           <div className="text-center">
             <Inbox className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="font-bold">Selecione uma conversa</p>
+          </div>
+        </div>
+      )}
+
+      {composeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 backdrop-blur-sm p-4" onClick={() => !composeSending && setComposeOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center"><Mail className="w-3.5 h-3.5 text-amber-600" /></div>
+                <h3 className="text-sm font-semibold text-neutral-900">Novo e-mail</h3>
+              </div>
+              <button onClick={() => !composeSending && setComposeOpen(false)} className="p-1.5 rounded-lg text-neutral-500 hover:bg-neutral-100" disabled={composeSending}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Para</label>
+                <input
+                  type="email"
+                  value={composeForm.to}
+                  onChange={e => setComposeForm(f => ({ ...f, to: e.target.value }))}
+                  placeholder="destinatario@exemplo.com"
+                  className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none"
+                  disabled={composeSending}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Assunto</label>
+                <input
+                  type="text"
+                  value={composeForm.subject}
+                  onChange={e => setComposeForm(f => ({ ...f, subject: e.target.value }))}
+                  placeholder="Assunto do e-mail"
+                  className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none"
+                  disabled={composeSending}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Mensagem</label>
+                <textarea
+                  value={composeForm.body}
+                  onChange={e => setComposeForm(f => ({ ...f, body: e.target.value }))}
+                  placeholder="Escreva sua mensagem..."
+                  rows={8}
+                  className="mt-1 w-full px-3 py-2 bg-neutral-50 rounded-xl text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none resize-none"
+                  disabled={composeSending}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-neutral-200 bg-neutral-50">
+              <button onClick={() => setComposeOpen(false)} disabled={composeSending} className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors">
+                Cancelar
+              </button>
+              <button onClick={composeAndSend} disabled={composeSending} className="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 disabled:opacity-50 transition-colors">
+                {composeSending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {composeSending ? 'Enviando...' : 'Enviar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
