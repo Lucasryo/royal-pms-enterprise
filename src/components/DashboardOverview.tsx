@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, FiscalFile, Company, Room } from '../types';
 import { canAccessView } from '../lib/permissions';
