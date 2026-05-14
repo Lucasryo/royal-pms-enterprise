@@ -94,7 +94,9 @@ async function sendWithRetry({ smtpConfig, to, subject, message, messageId, inRe
 }) {
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const MAX_ATTEMPTS = 5;
+  const BACKOFF_MS = [2000, 5000, 12000, 25000];
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const smtp = new SmtpClient(smtpConfig.host, Number(smtpConfig.port || 587));
     try {
       await smtp.connect();
@@ -119,8 +121,9 @@ async function sendWithRetry({ smtpConfig, to, subject, message, messageId, inRe
       return;
     } catch (error) {
       lastError = error;
-      if (!isTransientSmtpError(error) || attempt === 3) break;
-      await delay(attempt * 1500);
+      console.warn(`[send-email] attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
+      if (!isTransientSmtpError(error) || attempt === MAX_ATTEMPTS) break;
+      await delay(BACKOFF_MS[attempt - 1] ?? 45000);
     } finally {
       smtp.close();
     }
