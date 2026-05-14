@@ -816,10 +816,12 @@ async function handleCallback(query: Record<string, unknown>) {
       chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
     });
     const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+    // Fallback: send fresh message with action keyboard in case editMessageReplyMarkup failed
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}`,
+      text: `🔧 *${esc(name)}* assumiu: *${esc(ticket.title)}*${uhPart}\n\nEscolha a próxima ação:`,
       parse_mode: "MarkdownV2",
+      reply_markup: inProgressKb(ticketId, fromId),
     });
     // 3C: audit
     await logEvent({
