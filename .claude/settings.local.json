@@ -43,7 +43,11 @@
       "Bash(gh --version)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(gh pr create --base main --head claude/zen-curie-db34d6 --title 'Marketing: use full content width' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const s=fs.readFileSync\\('supabase/functions/imap-folder-action/index.ts','utf8'\\);process.stdout.write\\(JSON.stringify\\(s\\)\\);\")",
+      "Read(//tmp/**)"
     ]
   }
 }
