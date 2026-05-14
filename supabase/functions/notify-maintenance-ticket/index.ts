@@ -804,9 +804,25 @@ async function handleCallback(query: Record<string, unknown>) {
     }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
+      // count=0 pode ser: (a) outro tecnico assumiu, OU (b) retry do Telegram do mesmo usuario
+      // Buscar quem realmente assumiu para decidir
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("telegram_user_id, status_reason")
+        .eq("id", ticketId).single();
+      if (current?.telegram_user_id === fromId) {
+        // Caso (b): mesmo usuario, retry/duplicate — re-emite o teclado e finaliza silenciosamente
+        if (msgId) {
+          await tg("editMessageReplyMarkup", {
+            chat_id: chatId, message_id: msgId, reply_markup: inProgressKb(ticketId, fromId),
+          });
+        }
+        return { ok: true };
+      }
+      // Caso (a): realmente foi outro tecnico
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `⚠️ Este chamado já foi assumido por outro técnico\\.`,
+        text: `⚠️ Este chamado já foi assumido por ${current?.status_reason ?? "outro técnico"}\\.`,
         parse_mode: "MarkdownV2",
       });
       return { ok: true };
