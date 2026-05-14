@@ -746,14 +746,48 @@ async function handleCallback(query: Record<string, unknown>) {
       return { ok: true };
     }
 
-    // Fix B: save inspector_tg_id atomically while inspection is pending
+    // Fix B: save inspector_tg_id atomically while inspection is waiting.
     const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "pending",
       inspector_tg_id: fromId,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId).eq("status", "resolved").eq("inspection_status", "pending").is("inspector_tg_id", null).select("id", { count: "exact", head: true });
+    }).eq("id", ticketId)
+      .eq("status", "resolved")
+      .is("inspector_tg_id", null)
+      .or("inspection_status.is.null,inspection_status.eq.pending")
+      .select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("status,inspection_status,inspector_tg_id")
+        .eq("id", ticketId)
+        .single();
+
+      if (current?.status === "resolved" && Number(current.inspector_tg_id) === fromId) {
+        await updateTicketCard(ticketId, chatId);
+        return { ok: true };
+      }
+
+      if (current?.status !== "resolved") {
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `⚠️ Este chamado não está aguardando vistoria \\(status: ${esc(current?.status ?? "desconhecido")}\\)\\.`,
+          parse_mode: "MarkdownV2",
+        });
+        return { ok: true };
+      }
+
+      if (!current?.inspector_tg_id && (current?.inspection_status === null || current?.inspection_status === "pending")) {
+        await updateTicketCard(ticketId, chatId);
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `⚠️ Não consegui assumir a vistoria agora\\. Tente tocar em *Assumir Vistoria* novamente\\.`,
+          parse_mode: "MarkdownV2",
+        });
+        return { ok: true };
+      }
+
       await tg("sendMessage", {
         chat_id: chatId,
         text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
