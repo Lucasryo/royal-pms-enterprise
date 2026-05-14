@@ -38,6 +38,11 @@ serve(async (req) => {
     const to = cleanEmail(body?.to);
     const subject = cleanSubject(body?.subject);
     const message = cleanBody(body?.body);
+    const inReplyTo = cleanMessageId(body?.inReplyTo);
+    const referencesRaw = String(body?.references ?? "").trim();
+    const references = referencesRaw
+      ? referencesRaw.split(/\s+/).map(cleanMessageId).filter(Boolean).join(" ")
+      : "";
 
     if (!to || !subject || !message) {
       return json({ error: "Destinatario, assunto e mensagem sao obrigatorios." }, 400);
@@ -48,13 +53,18 @@ serve(async (req) => {
       return json({ error: "SMTP nao esta configurado." }, 400);
     }
 
+    const messageId = generateMessageId(smtpConfig.user);
+
     await sendWithRetry({
       smtpConfig,
       to,
       subject,
       message,
+      messageId,
+      inReplyTo,
+      references,
     });
-    return json({ sent: true, messageId: null });
+    return json({ sent: true, messageId });
   } catch (error) {
     const message = formatPublicError(error);
     return json({ error: message }, 500);
@@ -73,11 +83,14 @@ async function loadSmtpConfig() {
   return JSON.parse(data.value) as SmtpConfig;
 }
 
-async function sendWithRetry({ smtpConfig, to, subject, message }: {
+async function sendWithRetry({ smtpConfig, to, subject, message, messageId, inReplyTo, references }: {
   smtpConfig: SmtpConfig;
   to: string;
   subject: string;
   message: string;
+  messageId: string;
+  inReplyTo: string;
+  references: string;
 }) {
   let lastError: unknown;
 
@@ -98,6 +111,9 @@ async function sendWithRetry({ smtpConfig, to, subject, message }: {
         subject,
         body: message,
         html: buildHtmlEmail(message, smtpConfig),
+        messageId,
+        inReplyTo,
+        references,
       });
       await smtp.quit();
       return;
@@ -143,7 +159,7 @@ class SmtpClient {
     await this.command(base64(pass), [235], false);
   }
 
-  async sendMail({ fromEmail, fromName, to, subject, body, html }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string }) {
+  async sendMail({ fromEmail, fromName, to, subject, body, html, messageId, inReplyTo, references }: { fromEmail: string; fromName: string; to: string; subject: string; body: string; html: string; messageId: string; inReplyTo: string; references: string }) {
     await this.command(`MAIL FROM:<${fromEmail}>`, [250]);
     await this.command(`RCPT TO:<${to}>`, [250, 251]);
     await this.command("DATA", [354]);
@@ -153,10 +169,20 @@ class SmtpClient {
       `From: ${encodeAddress(fromName, fromEmail)}`,
       `To: <${to}>`,
       `Subject: ${encodeHeader(subject)}`,
+      `Message-ID: <${messageId}>`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       `Date: ${new Date().toUTCString()}`,
     ];
+    if (inReplyTo) headers.push(`In-Reply-To: <${inReplyTo}>`);
+    if (references) {
+      const formatted = references
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => `<${id}>`)
+        .join(" ");
+      headers.push(`References: ${formatted}`);
+    }
 
     const mimeBody = [
       `--${boundary}`,
@@ -257,6 +283,20 @@ function cleanSubject(value: unknown) {
 
 function cleanBody(value: unknown) {
   return String(value ?? "").replace(/\r\n/g, "\n").trim().slice(0, 12000);
+}
+
+function cleanMessageId(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^<+/, "")
+    .replace(/>+$/, "")
+    .replace(/[\s<>"]/g, "")
+    .slice(0, 998);
+}
+
+function generateMessageId(fromEmail: string) {
+  const domain = fromEmail.split("@")[1] || "royal-pms.local";
+  return `${crypto.randomUUID()}@${domain}`;
 }
 
 function base64(value: string) {
