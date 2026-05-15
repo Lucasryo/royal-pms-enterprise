@@ -494,9 +494,9 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
       telegram_card_updated_at: null,
     }).eq("id", ticketId);
     const freshRecord = await fetchTicket(ticketId);
-    return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId) : false;
+    return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId, { notifyNew: true, source: "card_recreated_after_missing" }) : false;
   }
-  return await sendTicketCard(record, fallbackChatId);
+  return await sendTicketCard(record, fallbackChatId, { notifyNew: true, source: "card_recreated_no_message_id" });
 }
 
 async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT_ID): Promise<boolean> {
@@ -519,7 +519,7 @@ async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CH
     telegram_card_updated_at: null,
   }).eq("id", ticketId);
   const freshRecord = await fetchTicket(ticketId);
-  return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId) : false;
+  return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId, { notifyNew: true, source: "card_recreated_manual" }) : false;
 }
 
 async function findTicketsNeedingCards(limit = 50): Promise<string[]> {
