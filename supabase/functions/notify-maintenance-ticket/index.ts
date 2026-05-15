@@ -307,8 +307,45 @@ function shouldReplaceMissingCard(result: unknown): boolean {
 }
 
 async function sendTicketCard(record: Record<string, unknown>, chatId: unknown = CHAT_ID): Promise<boolean> {
+  const ticketId = record.id as string;
   const existingMessageId = Number(record.telegram_message_id);
-  if (record.id && existingMessageId) return await updateTicketCard(record.id as string, chatId);
+  if (ticketId && existingMessageId) return await updateTicketCard(ticketId, chatId);
+
+  if (ticketId) {
+    const freshRecord = await fetchTicket(ticketId);
+    if (!freshRecord) return false;
+    const freshMessageId = Number(freshRecord.telegram_message_id);
+    if (freshMessageId) return await updateTicketCard(ticketId, chatId);
+
+    const claimCutoff = new Date(Date.now() - 20_000).toISOString();
+    const { data: claimedRows, error: claimError } = await db.from("maintenance_tickets")
+      .update({ telegram_card_updated_at: new Date().toISOString() })
+      .eq("id", ticketId)
+      .is("telegram_message_id", null)
+      .or(`telegram_card_updated_at.is.null,telegram_card_updated_at.lt.${claimCutoff}`)
+      .select("id");
+
+    if (claimError) {
+      await logTelegramNotification("ticket_card_send", "failed", {
+        ticketId,
+        payload: { reason: "send_claim_failed", error: claimError.message },
+      });
+      return false;
+    }
+
+    if (!claimedRows || claimedRows.length === 0) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+      const afterClaim = await fetchTicket(ticketId);
+      if (Number(afterClaim?.telegram_message_id)) return await updateTicketCard(ticketId, chatId);
+      await logTelegramNotification("ticket_card_send", "skipped", {
+        ticketId,
+        payload: { reason: "send_in_progress" },
+      });
+      return true;
+    }
+
+    record = freshRecord;
+  }
 
   const result = await tg("sendMessage", {
     chat_id: chatId,
@@ -318,6 +355,11 @@ async function sendTicketCard(record: Record<string, unknown>, chatId: unknown =
     reply_markup: ticketCardKb(record),
   });
   if (result?.ok) await saveTicketCardRef(record.id as string, chatId, result.result?.message_id);
+  else if (ticketId) {
+    await db.from("maintenance_tickets").update({
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId).is("telegram_message_id", null);
+  }
   await logTelegramNotification("ticket_card_send", result?.ok ? "sent" : "failed", {
     ticketId: record.id as string,
     payload: {

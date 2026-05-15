@@ -188,13 +188,13 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
     setSubmitting(true);
     setError(null);
 
+    const reporterLine = `Reportado por: ${staffName}${staffFloor ? ` (${staffFloor} andar)` : ''}`;
     const payload: Record<string, any> = {
       room_number: roomNumber,
       title: title.trim(),
-      description: description.trim() || null,
+      description: [reporterLine, description.trim()].filter(Boolean).join('\n\n').slice(0, 2000),
       priority,
       status: 'open',
-      status_reason: `Reportado por: ${staffName}${staffFloor ? ` (${staffFloor}º andar)` : ''}`,
     };
     if (photoUrl) payload.resolution_notes = `Foto: ${photoUrl}`;
 
