@@ -1,2 +1,5 @@
 [functions.notify-maintenance-ticket]
 verify_jwt = false
+
+[functions.pin-validate]
+verify_jwt = false
