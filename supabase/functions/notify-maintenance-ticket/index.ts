@@ -1128,9 +1128,10 @@ async function handleCallback(query: Record<string, unknown>) {
   const action   = data.slice(0, colonIdx);
   const rest     = data.slice(colonIdx + 1);
 
-  // Immediately acknowledge callback to prevent Telegram retries
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
+  let callbackAnswered = false;
   const callbackAlert = async (text: string) => {
+    if (callbackAnswered) return;
+    callbackAnswered = true;
     await tg("answerCallbackQuery", { callback_query_id: cbId, text, show_alert: true });
   };
 
