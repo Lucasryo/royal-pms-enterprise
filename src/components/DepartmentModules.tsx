@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, Utensils } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -13,7 +13,6 @@ import AuditDashboard from './AuditDashboard';
 import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
-import FiscalPanelDashboard from './FiscalPanelDashboard';
 import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQueue';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
@@ -29,6 +28,35 @@ type ModuleTab<T extends string> = {
 
 const moduleShellClass = 'space-y-6 pb-12';
 
+function RatesGroupTab({ profile }: { profile: UserProfile }) {
+  const [sub, setSub] = useState<'public' | 'corporate' | 'revenue'>('public');
+  const items: Array<{ id: 'public' | 'corporate' | 'revenue'; label: string }> = [
+    { id: 'public', label: 'Tarifas públicas' },
+    { id: 'corporate', label: 'Tarifas corporativas' },
+    { id: 'revenue', label: 'Revenue e rate shopper' },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl max-w-full overflow-x-auto">
+        {items.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSub(t.id)}
+            className={`shrink-0 px-4 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+              sub === t.id ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === 'public' && <PublicRatesManager profile={profile} />}
+      {sub === 'corporate' && <AdminDashboard profile={profile} initialTab="tariffs" />}
+      {sub === 'revenue' && <RevenuePanelDashboard profile={profile} />}
+    </div>
+  );
+}
+
 export function ReservationsModuleDashboard({ profile }: { profile: UserProfile }) {
   return (
     <ModuleShell
@@ -40,10 +68,8 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
       tabs={[
         { id: 'central', label: 'Central de reservas', icon: CalendarDays, render: () => <ReservationsDashboard profile={profile} /> },
         { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
-        { id: 'public-rates', label: 'Tarifas publicas', icon: Globe, render: () => <PublicRatesManager profile={profile} /> },
         { id: 'blocked-dates', label: 'Bloqueio de datas', icon: Hotel, render: () => <BlockedDatesManager profile={profile} /> },
-        { id: 'tariffs', label: 'Tarifas corporativas', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="tariffs" /> },
-        { id: 'revenue', label: 'Revenue e rate shopper', icon: BarChart3, render: () => <RevenuePanelDashboard profile={profile} /> },
+        { id: 'rates', label: 'Tarifas', icon: CreditCard, render: () => <RatesGroupTab profile={profile} /> },
       ]}
     />
   );
@@ -76,11 +102,9 @@ export function MaintenanceModuleDashboard({ profile }: { profile: UserProfile }
       queueDepartment="maintenance"
       hideTopQueue
       tabs={[
-        { id: 'tickets', label: 'Chamados internos', icon: Wrench, render: () => <OperationalWorkQueue profile={profile} department="maintenance" /> },
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
         { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
-        { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
       ]}
     />
   );
@@ -1384,7 +1408,9 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
         { id: 'finance', label: 'Financeiro', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="finance" /> },
         { id: 'documents', label: 'Faturas e documentos', icon: FileText, render: () => <AdminDashboard profile={profile} initialTab="documents" /> },
         { id: 'tracking', label: 'Rastreio e cobranca', icon: ClipboardList, render: () => <AdminDashboard profile={profile} initialTab="tracking" /> },
-        { id: 'fiscal', label: 'Fiscal/NFS-e', icon: ShieldCheck, render: () => <FiscalPanelDashboard profile={profile} /> },
+        { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
+        { id: 'registration', label: 'Cadastro de Empresas', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
+        { id: 'banks', label: 'Contas Bancárias', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="banks" /> },
       ]}
     />
   );
@@ -1430,8 +1456,7 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
       queueDepartment="admin"
       adminQueue
       tabs={[
-        { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
-        { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
+        { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="users" /> },
         { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
       ]}
     />
