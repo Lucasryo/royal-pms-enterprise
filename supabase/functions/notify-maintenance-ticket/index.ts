@@ -197,10 +197,7 @@ function buildTicketCardText(record: Record<string, unknown>): string {
 // ── keyboards ───────────────────────────────────────────────────────────────
 function openKb(id: string) {
   return { inline_keyboard: [
-    [
-      { text: "✅ Assumir",         callback_data: `assume:${id}` },
-      { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`  },
-    ],
+    [{ text: "✅ Assumir", callback_data: `assume:${id}` }],
     [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
   ]};
 }
@@ -227,6 +224,13 @@ function partsReceivedKb(id: string, tgUserId?: number) {
     { text: "📦 Peças Recebidas", callback_data: `parts_ok:${id}${suffix}` },
     { text: "✅ Concluir",        callback_data: `resolve:${id}${suffix}`   },
   ]] };
+}
+
+function bindTechKb(id: string) {
+  return { inline_keyboard: [
+    [{ text: "✅ Assumir", callback_data: `assume:${id}` }],
+    [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
+  ]};
 }
 
 function inspectionKb(id: string) {
@@ -260,6 +264,7 @@ function ticketCardKb(record: Record<string, unknown>) {
   const inspectorTgId = record.inspector_tg_id ? Number(record.inspector_tg_id) : undefined;
 
   if (status === "open") return openKb(id);
+  if (status === "in_progress" && !techTgId) return bindTechKb(id);
   if (status === "in_progress" && record.awaiting_parts) return partsReceivedKb(id, techTgId);
   if (status === "in_progress") return inProgressKb(id, techTgId);
   if (status === "resolved" && inspection === "pending" && inspectorTgId) return inspectorActionsKb(id, inspectorTgId);
@@ -522,6 +527,42 @@ async function logEvent(opts: {
 }
 
 // ── sla alert ───────────────────────────────────────────────────────────────
+function ownerBlockMessage(ticket: Record<string, unknown> | null | undefined): string {
+  const owner = ticket?.status_reason ? String(ticket.status_reason) : "quem assumiu";
+  return `Apenas ${owner} pode alterar este chamado.`;
+}
+
+function isTicketOwnedBy(ticket: Record<string, unknown> | null | undefined, fromId: number): boolean {
+  return ticket?.status === "in_progress" &&
+    !!ticket.telegram_user_id &&
+    Number(ticket.telegram_user_id) === fromId;
+}
+
+async function ensureCallbackOwner(
+  ticket: Record<string, unknown>,
+  fromId: number,
+  callbackAlert: (text: string) => Promise<void>,
+): Promise<boolean> {
+  if (isTicketOwnedBy(ticket, fromId)) return true;
+  if (ticket.status !== "in_progress") {
+    await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status ?? "desconhecido"}).`);
+  } else {
+    await callbackAlert(ownerBlockMessage(ticket));
+  }
+  return false;
+}
+
+async function ensureReplyOwner(ticketId: string, fromId: number, chatId: unknown, message: Record<string, unknown>) {
+  const { data: ticket } = await db
+    .from("maintenance_tickets")
+    .select("status,telegram_user_id,status_reason")
+    .eq("id", ticketId)
+    .single();
+  if (isTicketOwnedBy(ticket as Record<string, unknown> | null, fromId)) return { ok: true, ticket };
+  await deleteChatMessage(chatId, message.message_id);
+  return { ok: false, ticket };
+}
+
 async function rejectInspectionAndReturnToTech(
   ticketId: string,
   actorTgId: number,
@@ -1272,12 +1313,7 @@ async function handleCallback(query: Record<string, unknown>) {
   }
   await rememberCallbackCard(ticketId, chatId, msgId);
 
-  if (lockedTgUserId && lockedTgUserId !== fromId) {
-    const { data: tk } = await db
-      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await callbackAlert(`Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar pecas deste chamado.`);
-    return { ok: true };
-  }
+  void lockedTgUserId;
 
   // 3C: select específico — evita carregar campos desnecessários
   const { data: ticket } = await db
@@ -1285,6 +1321,11 @@ async function handleCallback(query: Record<string, unknown>) {
     .select("id,status,room_number,title,created_at,status_reason,telegram_user_id,awaiting_parts,resolution_notes,inspection_status,description,assigned_to,priority,resolved_at,inspection_notes,inspected_at,rating")
     .eq("id", ticketId).single();
   if (!ticket) return { ok: true };
+
+  const ownerOnlyActions = ["parts_ok", "resolve", "parts", "note", "transfer"];
+  if (ownerOnlyActions.includes(action) && !await ensureCallbackOwner(ticket, fromId, callbackAlert)) {
+    return { ok: true };
+  }
 
   if (action === "assume") {
     // Fix A+10: atomic update with status guard to prevent double-assume
@@ -1294,16 +1335,19 @@ async function handleCallback(query: Record<string, unknown>) {
       updated_at: new Date().toISOString(),
       status_reason: name,
       telegram_user_id: fromId,
-    }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
+    })
+      .eq("id", ticketId)
+      .or("status.eq.open,and(status.eq.in_progress,telegram_user_id.is.null)")
+      .select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
       // count=0 pode ser: (a) outro tecnico assumiu, OU (b) retry do Telegram do mesmo usuario
       // Buscar quem realmente assumiu para decidir
       const { data: current } = await db
         .from("maintenance_tickets")
-        .select("telegram_user_id, status_reason")
+        .select("telegram_user_id, status_reason, status")
         .eq("id", ticketId).single();
-      if (current?.telegram_user_id === fromId) {
+      if (Number(current?.telegram_user_id) === fromId) {
         // Caso (b): mesmo usuario, retry/duplicate — re-emite o teclado e finaliza silenciosamente
         if (msgId) {
           await tg("editMessageReplyMarkup", {
@@ -1355,7 +1399,7 @@ async function handleCallback(query: Record<string, unknown>) {
     await db.from("maintenance_tickets").update({
       awaiting_parts: false,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
     await updateTicketCard(ticketId, chatId);
     return { ok: true };
     if (msgId) await tg("editMessageReplyMarkup", {
@@ -1374,7 +1418,7 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status}).`);
       return { ok: true };
     }
-    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
+    const lockSuffix = ticket.telegram_user_id ? `\\|${esc(String(ticket.telegram_user_id))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
       text: `✍️ Descreva a solução \\[resolve:${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
@@ -1389,7 +1433,7 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert(`Este chamado ja esta ${ticket.status === "resolved" ? "resolvido" : "cancelado"}.`);
       return { ok: true };
     }
-    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
+    const lockSuffix = ticket.telegram_user_id ? `\\|${esc(String(ticket.telegram_user_id))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
       text: `🔩 Quais peças são necessárias? \\[parts:${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
@@ -1426,10 +1470,6 @@ async function handleCallback(query: Record<string, unknown>) {
     });
 
   } else if (action === "transfer") {
-    if (!lockedTgUserId || lockedTgUserId !== fromId) {
-      await callbackAlert("Apenas o tecnico responsavel pode transferir este chamado.");
-      return { ok: true };
-    }
     if (ticket.status !== "in_progress") {
       await callbackAlert("Este chamado nao esta em andamento e nao pode ser transferido.");
       return { ok: true };
@@ -1618,7 +1658,7 @@ async function handleReply(message: Record<string, unknown>) {
       status_reason: tech.name,
       started_at: now,
       updated_at: now,
-      // telegram_user_id não é definido — qualquer técnico pode concluir
+      // telegram_user_id nao e definido aqui; o tecnico precisa assumir no card para vincular o Telegram.
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
@@ -1626,7 +1666,7 @@ async function handleReply(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
       parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(ticketId),
+      reply_markup: bindTechKb(ticketId),
     });
     return { ok: true };
   }
@@ -1636,7 +1676,9 @@ async function handleReply(message: Record<string, unknown>) {
   if (noteMatch) {
     const tId     = noteMatch[1];
     const ownerId = Number(noteMatch[2]);
-    if (ownerId !== fromId) return { ok: true };
+    void ownerId;
+    const ownerCheck = await ensureReplyOwner(tId, fromId, chatId, message);
+    if (!ownerCheck.ok) return { ok: true };
     const noteText = userText.trim();
     if (!noteText) return { ok: true };
     const { data: tk } = await db.from("maintenance_tickets")
@@ -1644,7 +1686,8 @@ async function handleReply(message: Record<string, unknown>) {
     if (!tk || tk.status === "resolved" || tk.status === "cancelled") return { ok: true };
     const stamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
     const newNotes = [tk.resolution_notes, `[${stamp}] ${noteText}`].filter(Boolean).join("\n");
-    await db.from("maintenance_tickets").update({ resolution_notes: newNotes, updated_at: new Date().toISOString() }).eq("id", tId);
+    await db.from("maintenance_tickets").update({ resolution_notes: newNotes, updated_at: new Date().toISOString() })
+      .eq("id", tId).eq("status", "in_progress").eq("telegram_user_id", fromId);
     await logEvent({
       ticketId: tId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
@@ -1674,16 +1717,9 @@ async function handleReply(message: Record<string, unknown>) {
   const lockedTgUserId = match[2] ? Number(match[2]) : null;
   const replyValue     = userText.trim();
 
-  if (lockedTgUserId && lockedTgUserId !== fromId) {
-    const { data: tk } = await db
-      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔒 Apenas *${esc(tk?.status_reason ?? "quem assumiu")}* pode finalizar este chamado\\.`,
-      parse_mode: "MarkdownV2",
-    });
-    return { ok: true };
-  }
+  void lockedTgUserId;
+  const ownerCheck = await ensureReplyOwner(ticketId, fromId, chatId, message);
+  if (!ownerCheck.ok) return { ok: true };
 
   const isResolve = !!(resolveMatch ?? legacyResolveMatch);
   const isParts   = !!(partsMatch ?? legacyPartsMatch);
@@ -1740,7 +1776,7 @@ async function handleReply(message: Record<string, unknown>) {
       inspection_requested_at: null,
       rating: null,
       rated_by_tg_id: null,
-    }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId).select("id", { count: "exact", head: true });
 
     if (!resolvedCount || resolvedCount === 0) {
       const { data: current } = await db
@@ -1816,7 +1852,7 @@ async function handleReply(message: Record<string, unknown>) {
       updated_at: new Date().toISOString(),
       awaiting_parts: true,
       resolution_notes: `Aguardando pecas: ${replyValue} (${name})`,
-    }).eq("id", ticketId);
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
     await updateTicketCard(ticketId, chatId);
     await cleanupPromptAndReply(message);
   }
