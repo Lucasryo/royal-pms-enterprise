@@ -300,6 +300,19 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     return data;
   }
 
+  async function logMaintenanceEvent(ticketId: string, event: string, prevStatus: string | null, newStatus: string | null, notes?: string) {
+    await supabase.from('maintenance_ticket_events').insert({
+      ticket_id: ticketId,
+      actor_type: 'pms_user',
+      actor_id: profile.id,
+      actor_name: profile.name,
+      event,
+      prev_status: prevStatus,
+      new_status: newStatus,
+      notes: notes ?? null,
+    });
+  }
+
   async function fetchBotHealth() {
     setBotHealthLoading(true);
     try {
@@ -409,6 +422,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     const { error } = await supabase.from('maintenance_tickets').update({
       inspection_status: 'pending',
       inspector_id: inspectorId,
+      inspector_tg_id: null,
+      rating: null,
+      rated_by_tg_id: null,
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
@@ -424,6 +440,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) { toast.error('Erro: ' + error.message); return; }
+    await logMaintenanceEvent(ticket.id, 'inspection_approved_admin', 'pending', 'approved', note || 'Aprovado via PMS.');
 
     // Pede avaliação pelo Telegram apenas após aprovação da vistoria
     try {
@@ -457,7 +474,12 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
+    else {
+      await logMaintenanceEvent(ticket.id, 'inspection_rejected_admin', 'resolved', 'in_progress', note);
+      toast.success('Chamado reprovado na vistoria — voltou para em andamento.');
+      fetchTickets();
+      void notifyBot('manual_resend', ticket.id);
+    }
   }
 
   async function toggleNotifLogs(ticketId: string) {

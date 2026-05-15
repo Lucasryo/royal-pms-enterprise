@@ -592,7 +592,10 @@ async function rejectInspectionAndReturnToTech(
     await updateTicketCard(ticketId, chatId);
     return { ok: false, error: `not_pending_inspection:${ticket.status ?? "unknown"}` };
   }
-  if (ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== actorTgId) {
+  if (!ticket.inspector_tg_id) {
+    return { ok: false, error: "inspection_not_assumed" };
+  }
+  if (Number(ticket.inspector_tg_id) !== actorTgId) {
     return { ok: false, error: "locked_to_other_inspector" };
   }
 
@@ -611,6 +614,7 @@ async function rejectInspectionAndReturnToTech(
     .eq("id", ticketId)
     .eq("status", "resolved")
     .eq("inspection_status", "pending")
+    .eq("inspector_tg_id", actorTgId)
     .select("id", { count: "exact", head: true });
 
   if (!count || count === 0) {
@@ -1206,10 +1210,45 @@ async function handleCallback(query: Record<string, unknown>) {
     }
     await rememberCallbackCard(ticketId, chatId, msgId);
 
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode avaliar este chamado.");
+      return { ok: true };
+    }
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("status,inspection_status,inspector_tg_id,rating")
+      .eq("id", ticketId)
+      .single();
+    if (!ticket) return { ok: true };
+
+    if (ticket.status !== "resolved" || ticket.inspection_status !== "approved") {
+      await callbackAlert("Este chamado ainda nao esta aprovado para avaliacao.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (!ticket.inspector_tg_id) {
+      await callbackAlert("A avaliacao exige uma vistoria assumida por moderador.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (Number(ticket.inspector_tg_id) !== fromId) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode avaliar este chamado.");
+      return { ok: true };
+    }
+    if (ticket.rating) {
+      await updateTicketCard(ticketId, chatId);
+      await callbackOk("Chamado ja avaliado.");
+      return { ok: true };
+    }
+
     // 2E: atomic update — only write if rating is still null (prevents race condition)
     const { count: ratingCount } = await db.from("maintenance_tickets")
       .update({ rating, rated_by_tg_id: fromId, updated_at: new Date().toISOString() })
       .eq("id", ticketId)
+      .eq("status", "resolved")
+      .eq("inspection_status", "approved")
+      .eq("inspector_tg_id", fromId)
       .is("rating", null)
       .select("id", { count: "exact", head: true });
 
@@ -1222,6 +1261,7 @@ async function handleCallback(query: Record<string, unknown>) {
     }
     void name;
     await updateTicketCard(ticketId, chatId);
+    await callbackOk("Avaliacao registrada.");
     return { ok: true };
   }
 
@@ -1304,6 +1344,11 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId       = parts[0];
     const lockedInspId   = parts[1] ? Number(parts[1]) : null;
 
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas moderadores do grupo podem aprovar vistoria.");
+      return { ok: true };
+    }
+
     // Fix B: validate lock against DB inspector_tg_id too
     if (lockedInspId && lockedInspId !== fromId) {
       await callbackAlert("Apenas o vistoriador que assumiu pode aprovar.");
@@ -1311,20 +1356,42 @@ async function handleCallback(query: Record<string, unknown>) {
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,status_reason,inspector_tg_id").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,status,status_reason,inspection_status,inspector_tg_id").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
+    if (ticket.status !== "resolved" || ticket.inspection_status !== "pending") {
+      await callbackAlert("Este chamado nao esta mais aguardando vistoria.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (!ticket.inspector_tg_id) {
+      await callbackAlert("A vistoria precisa ser assumida por um moderador antes de aprovar.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+
     // Secondary DB-level lock check
-    if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
+    if (Number(ticket.inspector_tg_id) !== fromId) {
       await callbackAlert("Apenas o vistoriador que assumiu pode aprovar este chamado.");
       return { ok: true };
     }
 
-    await db.from("maintenance_tickets").update({
+    const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "approved",
       inspected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
+    })
+      .eq("id", ticketId)
+      .eq("status", "resolved")
+      .eq("inspection_status", "pending")
+      .eq("inspector_tg_id", fromId)
+      .select("id", { count: "exact", head: true });
+
+    if (!count || count === 0) {
+      await callbackAlert("Este chamado nao esta mais aguardando esta vistoria.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
 
     // 3C: audit
     await logEvent({
@@ -1346,6 +1413,11 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId     = parts[0];
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas moderadores do grupo podem reprovar vistoria.");
+      return { ok: true };
+    }
+
     if (lockedInspId && lockedInspId !== fromId) {
       await callbackAlert("Apenas o vistoriador que assumiu pode reprovar.");
       return { ok: true };
@@ -1354,6 +1426,8 @@ async function handleCallback(query: Record<string, unknown>) {
     const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId);
     if (result.ok) {
       await callbackAlert("Vistoria reprovada. O chamado voltou para o tecnico corrigir.");
+    } else if (result.error === "inspection_not_assumed") {
+      await callbackAlert("A vistoria precisa ser assumida por um moderador antes de reprovar.");
     } else if (result.error === "locked_to_other_inspector") {
       await callbackAlert("Apenas o vistoriador que assumiu pode reprovar este chamado.");
     } else if (result.error?.startsWith("not_pending_inspection")) {
@@ -1596,10 +1670,30 @@ async function handleReply(message: Record<string, unknown>) {
       });
       return { ok: true };
     }
+    if (!await isModerator(chatId, fromId)) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `ðŸ”’ Apenas moderadores do grupo podem reprovar vistoria\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
 
     const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId, userText);
     if (result.ok) {
       await cleanupPromptAndReply(message);
+    } else if (result.error === "inspection_not_assumed") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `âš ï¸ A vistoria precisa ser assumida por um moderador antes de reprovar\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    } else if (result.error === "locked_to_other_inspector") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `ðŸ”’ Apenas o vistoriador que assumiu pode reprovar este chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
     } else if (result.error?.startsWith("not_pending_inspection")) {
       await tg("sendMessage", {
         chat_id: chatId,
