@@ -161,6 +161,7 @@ type BotHealth = {
   failures_24h: number;
   open_count: number;
   in_progress_count: number;
+  unowned_in_progress_count: number;
   pending_inspection_count: number;
   missing_card_count: number;
   missing_card_ticket_ids: string[];
@@ -239,6 +240,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [botHealth, setBotHealth] = useState<BotHealth | null>(null);
   const [botHealthLoading, setBotHealthLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupAllLoading, setCleanupAllLoading] = useState(false);
   const [botMaintenanceLoading, setBotMaintenanceLoading] = useState(false);
   const [lastBotMaintenance, setLastBotMaintenance] = useState<BotMaintenanceResult | null>(null);
   const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
@@ -566,6 +568,27 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }
   }
 
+  async function cleanupAllTickets() {
+    if (!canDirect) return;
+    const typed = prompt('Esta acao apaga TODOS os chamados de manutencao do PMS/Supabase e os cards rastreados no Telegram. Digite LIMPAR TODOS para confirmar:');
+    if (typed !== 'LIMPAR TODOS') {
+      if (typed !== null) toast.error('Confirmacao invalida. Nada foi apagado.');
+      return;
+    }
+    setCleanupAllLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'cleanup_all_tickets', confirm: 'LIMPAR TODOS' });
+      toast.success(`Limpeza total: ${data.tickets_deleted ?? 0} chamados, ${data.telegram_cards_deleted ?? 0} cards removidos.`);
+      if ((data.telegram_cards_failed ?? 0) > 0) toast.error(`${data.telegram_cards_failed} cards nao puderam ser apagados do Telegram.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao limpar chamados.');
+    } finally {
+      setCleanupAllLoading(false);
+    }
+  }
+
   // Reincidencia: UHs com 2+ chamados (nao cancelados) nos ultimos 30 dias
   const reincidentUHs = useMemo(() => {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -664,7 +687,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             </p>
             {botHealth && (
               <p className="mt-1 text-xs font-bold text-blue-700">
-                {botHealth.missing_card_count ?? 0} chamados ativos sem card rastreado no Telegram.
+                {botHealth.missing_card_count ?? 0} chamados ativos sem card · {botHealth.unowned_in_progress_count ?? 0} em andamento sem Telegram vinculado.
               </p>
             )}
             {botHealth?.last_bot_maintenance_at && (
@@ -702,6 +725,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                   className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
                 >
                   {cleanupLoading ? 'Limpando...' : 'Limpar testes'}
+                </button>
+                <button
+                  onClick={cleanupAllTickets}
+                  disabled={cleanupAllLoading}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-black text-white transition hover:bg-red-500 disabled:opacity-50"
+                >
+                  {cleanupAllLoading ? 'Limpando tudo...' : 'Limpar todos'}
                 </button>
               </>
             )}

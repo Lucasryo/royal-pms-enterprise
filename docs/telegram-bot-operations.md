@@ -46,3 +46,11 @@ The PMS "Saude do bot" panel shows the last automation time, persistent failures
 ## Group Noise Policy
 
 Group messages should be reserved for operational events: assumed, resolved, parts, transfer, and inspection. Simple invalid actions should stay silent in the group and appear as button alerts.
+
+## Card Ownership Rules
+
+- Open card: only "Assumir" and "Ver detalhes".
+- In progress without `telegram_user_id`: the technician must tap "Assumir" to bind their Telegram user before changing the ticket.
+- In progress with `telegram_user_id`: only the owner can resolve, mark parts, confirm parts, add notes, or transfer.
+- Moderators can still intervene outside the card through PMS/admin commands.
+- "Limpar testes" only removes recent test tickets; "Limpar todos" removes all maintenance tickets, tracked Telegram cards, ticket events, and ticket notification logs after explicit confirmation.

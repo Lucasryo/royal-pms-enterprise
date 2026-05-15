@@ -544,6 +544,16 @@ async function ensureCallbackOwner(
   callbackAlert: (text: string) => Promise<void>,
 ): Promise<boolean> {
   if (isTicketOwnedBy(ticket, fromId)) return true;
+  await logTelegramNotification("owner_lock_blocked", "skipped", {
+    ticketId: ticket.id as string | undefined,
+    payload: {
+      action: "telegram_card_action",
+      from_id: fromId,
+      owner_tg_id: ticket.telegram_user_id ?? null,
+      owner_name: ticket.status_reason ?? null,
+      status: ticket.status ?? null,
+    },
+  });
   if (ticket.status !== "in_progress") {
     await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status ?? "desconhecido"}).`);
   } else {
@@ -862,7 +872,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
+  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -877,6 +887,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       logsRes,
       openRes,
       progressRes,
+      unownedProgressRes,
       pendingInspectionRes,
       openCardRes,
       pendingCardRes,
@@ -888,6 +899,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
         .limit(20),
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress").is("telegram_user_id", null),
       db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "resolved").eq("inspection_status", "pending"),
       db.from("maintenance_tickets")
         .select("id")
@@ -930,6 +942,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       persistent_failures: persistentFailures,
       open_count: openRes.count ?? 0,
       in_progress_count: progressRes.count ?? 0,
+      unowned_in_progress_count: unownedProgressRes.count ?? 0,
       pending_inspection_count: pendingInspectionRes.count ?? 0,
       missing_card_count: missingCardIds.length,
       missing_card_ticket_ids: missingCardIds.slice(0, 25),
@@ -1000,6 +1013,49 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     }
 
     return { ok: true, tickets_deleted: ids.length, telegram_cards_deleted: deletedCards, hours };
+  }
+
+  if ((body.type as string) === "cleanup_all_tickets") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    if (body.confirm !== "LIMPAR TODOS") return { ok: false, error: "confirmation_required" };
+
+    const { data: tickets } = await db
+      .from("maintenance_tickets")
+      .select("id,telegram_chat_id,telegram_message_id");
+
+    let deletedCards = 0;
+    let failedCards = 0;
+    const ids = (tickets ?? []).map(ticket => ticket.id as string);
+    for (const ticket of tickets ?? []) {
+      if (!ticket.telegram_message_id) continue;
+      const ok = await deleteChatMessage(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (ok) deletedCards++;
+      else failedCards++;
+    }
+
+    if (ids.length > 0) {
+      await db.from("maintenance_notification_logs").delete().in("ticket_id", ids);
+      await db.from("maintenance_ticket_events").delete().in("ticket_id", ids);
+      await db.from("maintenance_tickets").delete().in("id", ids);
+    }
+
+    await logTelegramNotification("cleanup_all_tickets", failedCards ? "failed" : ids.length ? "deleted" : "skipped", {
+      payload: {
+        tickets_deleted: ids.length,
+        telegram_cards_deleted: deletedCards,
+        telegram_cards_failed: failedCards,
+        actor_id: user.id,
+        actor_name: user.name,
+      },
+    });
+
+    return {
+      ok: true,
+      tickets_deleted: ids.length,
+      telegram_cards_deleted: deletedCards,
+      telegram_cards_failed: failedCards,
+    };
   }
 
   if ((body.type as string) === "public_report") {
@@ -1129,6 +1185,11 @@ async function handleCallback(query: Record<string, unknown>) {
   const rest     = data.slice(colonIdx + 1);
 
   let callbackAnswered = false;
+  const callbackOk = async (text?: string) => {
+    if (callbackAnswered) return;
+    callbackAnswered = true;
+    await tg("answerCallbackQuery", { callback_query_id: cbId, ...(text ? { text } : {}) });
+  };
   const callbackAlert = async (text: string) => {
     if (callbackAnswered) return;
     callbackAnswered = true;
@@ -1393,8 +1454,7 @@ async function handleCallback(query: Record<string, unknown>) {
   } else if (action === "parts_ok") {
     // 4C: técnico recebeu as peças — limpa flag e devolve ao fluxo normal
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("answerCallbackQuery", { callback_query_id: cbId,
-        text: `Chamado já está ${ticket.status}.`, show_alert: true });
+      await callbackAlert(`Chamado ja esta ${ticket.status}.`);
       return { ok: true };
     }
     await db.from("maintenance_tickets").update({
@@ -1402,16 +1462,8 @@ async function handleCallback(query: Record<string, unknown>) {
       updated_at: new Date().toISOString(),
     }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
     await updateTicketCard(ticketId, chatId);
+    await callbackOk("Pecas recebidas. Chamado retomado.");
     return { ok: true };
-    if (msgId) await tg("editMessageReplyMarkup", {
-      chat_id: chatId, message_id: msgId,
-      reply_markup: inProgressKb(ticketId, lockedTgUserId ?? undefined),
-    });
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `📦 *${esc(name)}* confirmou que as peças foram recebidas\\. Chamado retomado\\!`,
-      parse_mode: "MarkdownV2",
-    });
 
   } else if (action === "resolve") {
     // Fix 8: only allow resolve if ticket is in_progress
