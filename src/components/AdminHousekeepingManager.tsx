@@ -504,6 +504,8 @@ function HousekeepingPerformanceTab() {
   const [staff, setStaff] = useState<Pick<StaffMember, 'id' | 'name'>[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<BonusView>('monthly');
+  const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
 
   useEffect(() => { loadData(); }, []);
 
@@ -545,6 +547,40 @@ function HousekeepingPerformanceTab() {
       report.rating !== null
     );
   }, [reports]);
+
+  const reportMonthKey = (report: BonusReport) => {
+    const date = new Date(report.resolved_at ?? report.created_at);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const availableMonths = useMemo(() => {
+    const keys = Array.from(new Set([currentMonthKey, ...reports.map(reportMonthKey)])).sort().reverse();
+    return keys.map(key => {
+      const [year, month] = key.split('-');
+      const label = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      return { key, label };
+    });
+  }, [reports, currentMonthKey]);
+
+  const periodReports = useMemo(() => reports.filter(report => reportMonthKey(report) === selectedMonth), [reports, selectedMonth]);
+
+  const operationalRows = useMemo(() => {
+    return staff.map(member => {
+      const items = periodReports.filter(report => report.housekeeping_reported_by === member.id);
+      const approved = items.filter(report => report.status === 'resolved' && report.inspection_status === 'approved' && report.rating !== null);
+      const ratings = approved.map(report => Number(report.rating)).filter(rating => Number.isFinite(rating));
+      return {
+        id: member.id,
+        name: member.name,
+        pending: items.filter(report => report.status === 'open' || report.status === 'in_progress' || (report.status === 'resolved' && report.inspection_status === 'pending')).length,
+        returnPending: items.filter(report => report.inspection_status === 'rejected').length,
+        approved: approved.length,
+        avgRating: ratings.length ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : null,
+        total: items.length,
+      };
+    }).filter(row => row.total > 0 || row.approved > 0 || row.pending > 0 || row.returnPending > 0)
+      .sort((a, b) => b.approved - a.approved || b.total - a.total || a.name.localeCompare(b.name));
+  }, [periodReports, staff]);
 
   const pendingCount = reports.filter(report =>
     report.status === 'open' || report.status === 'in_progress' || (report.status === 'resolved' && report.inspection_status === 'pending')
@@ -634,6 +670,15 @@ function HousekeepingPerformanceTab() {
           </p>
         </div>
         <div className="flex gap-2">
+          <select
+            value={selectedMonth}
+            onChange={event => setSelectedMonth(event.target.value)}
+            className="shrink-0 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-black text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          >
+            {availableMonths.map(month => (
+              <option key={month.key} value={month.key}>{month.label}</option>
+            ))}
+          </select>
           <div className="flex max-w-full overflow-x-auto gap-2">
             {(['monthly', 'weekly'] as const).map(v => (
               <button
@@ -653,6 +698,37 @@ function HousekeepingPerformanceTab() {
             Imprimir
           </button>
         </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+        <table className="min-w-[680px] w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50">
+              <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-400">Camareira</th>
+              <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-amber-600">Pendentes</th>
+              <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-red-600">Retorno</th>
+              <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-emerald-600">Aprovados</th>
+              <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-amber-600">Media</th>
+              <th className="px-3 py-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-500">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {operationalRows.length > 0 ? operationalRows.map(row => (
+              <tr key={row.id}>
+                <td className="px-4 py-3 font-bold text-gray-900">{row.name}</td>
+                <td className="px-3 py-3 text-center font-black text-amber-700">{row.pending || '-'}</td>
+                <td className="px-3 py-3 text-center font-black text-red-700">{row.returnPending || '-'}</td>
+                <td className="px-3 py-3 text-center font-black text-emerald-700">{row.approved || '-'}</td>
+                <td className="px-3 py-3 text-center font-bold text-amber-600">{row.avgRating ? row.avgRating.toFixed(1) : '-'}</td>
+                <td className="px-3 py-3 text-center font-black text-gray-700">{row.total}</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm font-bold text-gray-400">Nenhum chamado de camareira neste mes.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       {view === 'monthly' && (

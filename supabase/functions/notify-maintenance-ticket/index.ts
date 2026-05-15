@@ -45,11 +45,19 @@ async function tg(method: string, body: Record<string, unknown>) {
   return data;
 }
 
+type TelegramApiResult = { ok?: boolean; result?: Record<string, unknown>; description?: string; error_code?: number };
+
 async function deleteChatMessage(chatId: unknown, messageId: unknown): Promise<boolean> {
   const numericMessageId = Number(messageId);
   if (!numericMessageId) return false;
   const data = await tg("deleteMessage", { chat_id: chatId, message_id: numericMessageId });
   return data?.ok === true;
+}
+
+async function deleteChatMessageResult(chatId: unknown, messageId: unknown): Promise<TelegramApiResult> {
+  const numericMessageId = Number(messageId);
+  if (!numericMessageId) return { ok: false, description: "missing message_id" };
+  return await tg("deleteMessage", { chat_id: chatId, message_id: numericMessageId }) as TelegramApiResult;
 }
 
 async function cleanupPromptAndReply(message: Record<string, unknown>): Promise<void> {
@@ -103,6 +111,39 @@ async function logTelegramNotification(
   } catch (e) {
     console.error("[logTelegramNotification] failed:", e);
   }
+}
+
+function normalizedTelegramEvent(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  payload: Record<string, unknown> = {},
+): string {
+  if (eventType === "ticket_card_send" && status === "sent" && payload.notify === true) return "new_ticket_push";
+  if (eventType === "ticket_card_send" && status === "skipped") return "card_skip_existing";
+  if (eventType === "ticket_card_edit") return "card_edit";
+  if (eventType === "ticket_card_delete" && status === "failed") return "card_delete_failed";
+  if (eventType === "ticket_card_delete") return "card_delete";
+  return eventType;
+}
+
+function telegramLogPayload(payload: Record<string, unknown>, method?: string, result?: unknown): Record<string, unknown> {
+  return {
+    ...payload,
+    ...(method ? { telegram_method: method } : {}),
+    telegram_error_description: result ? telegramErrorDescription(result) || null : payload.telegram_error_description ?? null,
+  };
+}
+
+async function logTelegramCardEvent(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  opts: { ticketId?: string | null; payload?: Record<string, unknown>; telegramMethod?: string; telegramResult?: unknown } = {},
+) {
+  const payload = telegramLogPayload(opts.payload ?? {}, opts.telegramMethod, opts.telegramResult);
+  await logTelegramNotification(normalizedTelegramEvent(eventType, status, payload), status, {
+    ticketId: opts.ticketId,
+    payload,
+  });
 }
 
 // 3B: cache com TTL de 5 min para evitar rate limit do Telegram
@@ -314,7 +355,7 @@ async function sendTicketCard(
   const ticketId = record.id as string;
   const existingMessageId = Number(record.telegram_message_id);
   if (ticketId && existingMessageId) {
-    await logTelegramNotification("ticket_card_send", "skipped", {
+    await logTelegramCardEvent("ticket_card_send", "skipped", {
       ticketId,
       payload: {
         reason: "card_already_exists",
@@ -331,7 +372,7 @@ async function sendTicketCard(
     if (!freshRecord) return false;
     const freshMessageId = Number(freshRecord.telegram_message_id);
     if (freshMessageId) {
-      await logTelegramNotification("ticket_card_send", "skipped", {
+      await logTelegramCardEvent("ticket_card_send", "skipped", {
         ticketId,
         payload: {
           reason: "card_already_exists",
@@ -352,9 +393,9 @@ async function sendTicketCard(
       .select("id");
 
     if (claimError) {
-      await logTelegramNotification("ticket_card_send", "failed", {
+      await logTelegramCardEvent("ticket_card_send", "failed", {
         ticketId,
-        payload: { reason: "send_claim_failed", error: claimError.message },
+        payload: { reason: "send_claim_failed", error: claimError.message, source: opts.source ?? null, notify: opts.notifyNew === true },
       });
       return false;
     }
@@ -363,7 +404,7 @@ async function sendTicketCard(
       await new Promise(resolve => setTimeout(resolve, 800));
       const afterClaim = await fetchTicket(ticketId);
       if (Number(afterClaim?.telegram_message_id)) return await updateTicketCard(ticketId, chatId);
-      await logTelegramNotification("ticket_card_send", "skipped", {
+      await logTelegramCardEvent("ticket_card_send", "skipped", {
         ticketId,
         payload: { reason: "send_in_progress", source: opts.source ?? null, notify: opts.notifyNew === true },
       });
@@ -387,8 +428,10 @@ async function sendTicketCard(
       telegram_card_updated_at: null,
     }).eq("id", ticketId).is("telegram_message_id", null);
   }
-  await logTelegramNotification("ticket_card_send", result?.ok ? "sent" : "failed", {
+  await logTelegramCardEvent("ticket_card_send", result?.ok ? "sent" : "failed", {
     ticketId: record.id as string,
+    telegramMethod: "sendMessage",
+    telegramResult: result,
     payload: {
       chat_id: chatId,
       message_id: result?.result?.message_id ?? null,
@@ -418,8 +461,10 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
       await db.from("maintenance_tickets").update({
         telegram_card_updated_at: new Date().toISOString(),
       }).eq("id", ticketId);
-      await logTelegramNotification("ticket_card_edit", "edited", {
+      await logTelegramCardEvent("ticket_card_edit", "edited", {
         ticketId,
+        telegramMethod: "editMessageText",
+        telegramResult: edited,
         payload: { chat_id: chatId, message_id: messageId },
       });
       return true;
@@ -428,14 +473,18 @@ async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT
       await db.from("maintenance_tickets").update({
         telegram_card_updated_at: new Date().toISOString(),
       }).eq("id", ticketId);
-      await logTelegramNotification("ticket_card_edit", "edited", {
+      await logTelegramCardEvent("ticket_card_edit", "edited", {
         ticketId,
+        telegramMethod: "editMessageText",
+        telegramResult: edited,
         payload: { chat_id: chatId, message_id: messageId, note: "not_modified" },
       });
       return true;
     }
-    await logTelegramNotification("ticket_card_edit", "failed", {
+    await logTelegramCardEvent("ticket_card_edit", "failed", {
       ticketId,
+      telegramMethod: "editMessageText",
+      telegramResult: edited,
       payload: { chat_id: chatId, message_id: messageId, telegram_error: edited },
     });
     if (!shouldReplaceMissingCard(edited)) return false;
@@ -456,9 +505,11 @@ async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CH
   const chatId = record.telegram_chat_id ?? fallbackChatId;
   const messageId = Number(record.telegram_message_id);
   if (messageId) {
-    const deleted = await deleteChatMessage(chatId, messageId);
-    await logTelegramNotification("ticket_card_delete", deleted ? "deleted" : "failed", {
+    const deletedResult = await deleteChatMessageResult(chatId, messageId);
+    await logTelegramCardEvent("ticket_card_delete", deletedResult?.ok ? "deleted" : "failed", {
       ticketId,
+      telegramMethod: "deleteMessage",
+      telegramResult: deletedResult,
       payload: { chat_id: chatId, message_id: messageId },
     });
   }
@@ -499,7 +550,7 @@ async function findRecentlyFailedCardTickets(limit = 50): Promise<string[]> {
     .select("ticket_id")
     .eq("channel", "telegram")
     .eq("status", "failed")
-    .in("event_type", ["ticket_card_send", "ticket_card_edit"])
+    .in("event_type", ["ticket_card_send", "ticket_card_edit", "new_ticket_push", "card_edit"])
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(200);
@@ -544,6 +595,96 @@ async function runBotMaintenance(limit = 50) {
     payload: summary,
   });
   return { ok: true, ...summary };
+}
+
+async function runBotSelfTest(authHeader: string | null) {
+  const user = await getInternalUser(authHeader);
+  if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+
+  const errors: string[] = [];
+  let ticketId: string | null = null;
+  let sentCard = false;
+  let editedCard = false;
+  let deletedCard = false;
+  let cleanedTicket = false;
+
+  try {
+    const { data: ticket, error: insertError } = await db.from("maintenance_tickets").insert({
+      room_number: "BOT-TEST",
+      title: "Teste automatico do bot",
+      description: `Chamado temporario criado pelo teste do bot em ${new Date().toISOString()}`,
+      priority: "low",
+      status: "open",
+      status_reason: null,
+      reported_by: null,
+      housekeeping_reported_by: null,
+    }).select("*").single();
+    if (insertError || !ticket) {
+      errors.push(`create_ticket: ${insertError?.message ?? "ticket not returned"}`);
+      return { ok: false, created_ticket: false, sent_card: false, edited_card: false, deleted_card: false, cleaned_ticket: false, errors };
+    }
+
+    ticketId = ticket.id as string;
+    sentCard = await sendTicketCard(ticket as Record<string, unknown>, CHAT_ID, { notifyNew: true, source: "bot_self_test" });
+    if (!sentCard) errors.push("send_card: Telegram nao confirmou o envio do card");
+
+    const { error: updateError } = await db.from("maintenance_tickets").update({
+      description: `Chamado temporario editado pelo teste do bot em ${new Date().toISOString()}`,
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId);
+    if (updateError) errors.push(`update_ticket: ${updateError.message}`);
+    else {
+      editedCard = await updateTicketCard(ticketId, CHAT_ID);
+      if (!editedCard) errors.push("edit_card: Telegram nao confirmou a edicao do card");
+    }
+
+    const fresh = await fetchTicket(ticketId);
+    const messageId = fresh?.telegram_message_id;
+    if (messageId) {
+      const deleted = await deleteChatMessageResult(fresh?.telegram_chat_id ?? CHAT_ID, messageId);
+      deletedCard = deleted?.ok === true;
+      await logTelegramCardEvent("ticket_card_delete", deletedCard ? "deleted" : "failed", {
+        ticketId,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
+        payload: {
+          chat_id: fresh?.telegram_chat_id ?? CHAT_ID,
+          message_id: messageId,
+          source: "bot_self_test",
+        },
+      });
+      if (!deletedCard) errors.push(`delete_card: ${telegramErrorDescription(deleted) || "Telegram nao confirmou a delecao"}`);
+    } else {
+      errors.push("delete_card: card sem message_id rastreado");
+    }
+
+    const { error: deleteError } = await db.from("maintenance_tickets").delete().eq("id", ticketId);
+    cleanedTicket = !deleteError;
+    if (deleteError) errors.push(`clean_ticket: ${deleteError.message}`);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (ticketId && !cleanedTicket) {
+      const { error } = await db.from("maintenance_tickets").delete().eq("id", ticketId);
+      cleanedTicket = !error;
+      if (error) errors.push(`final_cleanup: ${error.message}`);
+    }
+  }
+
+  const result = {
+    ok: errors.length === 0,
+    created_ticket: Boolean(ticketId),
+    sent_card: sentCard,
+    edited_card: editedCard,
+    deleted_card: deletedCard,
+    cleaned_ticket: cleanedTicket,
+    errors,
+  };
+  await logTelegramNotification("bot_self_test", result.ok ? "sent" : "failed", {
+    ticketId,
+    payload: { ...result, actor_id: user.id, actor_name: user.name },
+  });
+  return result;
 }
 
 function extractTelegramLogReason(payload: unknown): string | null {
@@ -947,7 +1088,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
+  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -955,6 +1096,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+  if ((body.type as string) === "bot_self_test")  return await runBotSelfTest(authHeader);
 
   if ((body.type as string) === "ticket_opened") {
     const ticketId = body.ticket_id as string;
@@ -1086,13 +1228,16 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     const ids = (tickets ?? []).map(ticket => ticket.id as string);
     for (const ticket of tickets ?? []) {
       if (!ticket.telegram_message_id) continue;
-      const ok = await deleteChatMessage(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
-      if (ok) deletedCards++;
-      await logTelegramNotification("ticket_card_delete", ok ? "deleted" : "failed", {
+      const deleted = await deleteChatMessageResult(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (deleted?.ok) deletedCards++;
+      await logTelegramCardEvent("ticket_card_delete", deleted?.ok ? "deleted" : "failed", {
         ticketId: ticket.id as string,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
         payload: {
           chat_id: ticket.telegram_chat_id ?? CHAT_ID,
           message_id: ticket.telegram_message_id,
+          source: "cleanup_test_tickets",
         },
       });
     }
@@ -1118,11 +1263,26 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     let deletedCards = 0;
     let failedCards = 0;
     const ids = (tickets ?? []).map(ticket => ticket.id as string);
+    const deleteErrors: string[] = [];
     for (const ticket of tickets ?? []) {
       if (!ticket.telegram_message_id) continue;
-      const ok = await deleteChatMessage(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
-      if (ok) deletedCards++;
-      else failedCards++;
+      const deleted = await deleteChatMessageResult(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (deleted?.ok) deletedCards++;
+      else {
+        failedCards++;
+        const reason = telegramErrorDescription(deleted) || "unknown";
+        deleteErrors.push(`${ticket.telegram_message_id}: ${reason}`);
+      }
+      await logTelegramCardEvent("ticket_card_delete", deleted?.ok ? "deleted" : "failed", {
+        ticketId: ticket.id as string,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
+        payload: {
+          chat_id: ticket.telegram_chat_id ?? CHAT_ID,
+          message_id: ticket.telegram_message_id,
+          source: "cleanup_all_tickets",
+        },
+      });
     }
 
     if (ids.length > 0) {
@@ -1136,6 +1296,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
         tickets_deleted: ids.length,
         telegram_cards_deleted: deletedCards,
         telegram_cards_failed: failedCards,
+        telegram_delete_errors: deleteErrors.slice(0, 10),
         actor_id: user.id,
         actor_name: user.name,
       },
@@ -1146,6 +1307,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       tickets_deleted: ids.length,
       telegram_cards_deleted: deletedCards,
       telegram_cards_failed: failedCards,
+      telegram_delete_errors: deleteErrors.slice(0, 10),
     };
   }
 

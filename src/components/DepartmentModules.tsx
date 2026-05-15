@@ -187,6 +187,15 @@ type BotMaintenancePayload = Partial<BotMaintenanceResult> & {
   missing_cards_checked?: number;
   recent_failures_checked?: number;
 };
+type BotSelfTestResult = {
+  ok: boolean;
+  created_ticket: boolean;
+  sent_card: boolean;
+  edited_card: boolean;
+  deleted_card: boolean;
+  cleaned_ticket: boolean;
+  errors: string[];
+};
 
 function BoardTab() {
   function openFullscreen() {
@@ -243,9 +252,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [cleanupAllLoading, setCleanupAllLoading] = useState(false);
   const [botMaintenanceLoading, setBotMaintenanceLoading] = useState(false);
   const [lastBotMaintenance, setLastBotMaintenance] = useState<BotMaintenanceResult | null>(null);
+  const [botSelfTestLoading, setBotSelfTestLoading] = useState(false);
+  const [lastBotSelfTest, setLastBotSelfTest] = useState<BotSelfTestResult | null>(null);
   const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
   const [showBotManual, setShowBotManual] = useState(false);
-  const [botLogMode, setBotLogMode] = useState<'all' | 'failures'>('failures');
+  const [botLogMode, setBotLogMode] = useState<'all' | 'failures' | 'pushes' | 'edits' | 'skips'>('failures');
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -573,6 +584,23 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     }
   }
 
+  async function runBotSelfTest() {
+    if (!canDirect) return;
+    setBotSelfTestLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'bot_self_test' }) as BotSelfTestResult;
+      setLastBotSelfTest(data);
+      if (data.ok) toast.success('Teste do bot concluido com sucesso.');
+      else toast.error(`Teste do bot terminou com ${data.errors?.length ?? 0} alerta(s).`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao testar o bot.');
+    } finally {
+      setBotSelfTestLoading(false);
+    }
+  }
+
   async function cleanupTestTickets() {
     if (!canDirect) return;
     const ok = confirm('Limpar chamados de teste das ultimas 24h e apagar cards rastreados no Telegram? Esta acao remove os registros de teste do PMS/Supabase.');
@@ -662,11 +690,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   [filtered]);
   const botRecentLogs = useMemo(() => {
     const logs = botHealth?.recent_logs ?? [];
-    return botLogMode === 'failures' ? logs.filter(log => log.status === 'failed') : logs;
+    if (botLogMode === 'failures') return logs.filter(log => log.status === 'failed');
+    if (botLogMode === 'pushes') return logs.filter(log => log.event_type === 'new_ticket_push');
+    if (botLogMode === 'edits') return logs.filter(log => log.event_type === 'card_edit');
+    if (botLogMode === 'skips') return logs.filter(log => log.event_type === 'card_skip_existing');
+    return logs;
   }, [botHealth, botLogMode]);
   const recentTicketPushLogs = useMemo(() => {
     return (botHealth?.recent_logs ?? []).filter(log =>
-      log.event_type === 'ticket_card_send' && log.payload?.notify === true
+      log.event_type === 'new_ticket_push' || (log.event_type === 'ticket_card_send' && log.payload?.notify === true)
     );
   }, [botHealth]);
 
@@ -752,6 +784,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                   {botMaintenanceLoading ? 'Verificando...' : 'Verificar agora'}
                 </button>
                 <button
+                  onClick={runBotSelfTest}
+                  disabled={botSelfTestLoading}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {botSelfTestLoading ? 'Testando...' : 'Teste do bot'}
+                </button>
+                <button
                   onClick={cleanupTestTickets}
                   disabled={cleanupLoading}
                   className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
@@ -774,6 +813,25 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             Atencao: {botHealth.failures_24h} falhas nas ultimas 24h e {botHealth.missing_card_count} chamados ativos sem card. Use Verificar agora se precisar recuperar imediatamente.
           </div>
         )}
+        {lastBotSelfTest && (
+          <div className={`mt-4 rounded-xl border p-4 ${lastBotSelfTest.ok ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+            <p className={`text-[10px] font-black uppercase tracking-widest ${lastBotSelfTest.ok ? 'text-emerald-700' : 'text-amber-700'}`}>Resultado do teste do bot</p>
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] font-black">
+              {([
+                ['Criou', lastBotSelfTest.created_ticket],
+                ['Enviou', lastBotSelfTest.sent_card],
+                ['Editou', lastBotSelfTest.edited_card],
+                ['Apagou', lastBotSelfTest.deleted_card],
+                ['Limpou', lastBotSelfTest.cleaned_ticket],
+              ] as Array<[string, boolean]>).map(([label, ok]) => (
+                <span key={String(label)} className={`rounded-lg px-2 py-1 text-center ${ok ? 'bg-white text-emerald-700' : 'bg-white text-red-600'}`}>{label}: {ok ? 'ok' : 'falha'}</span>
+              ))}
+            </div>
+            {lastBotSelfTest.errors?.length > 0 && (
+              <p className="mt-2 text-xs font-bold text-amber-800">{lastBotSelfTest.errors.join(' | ')}</p>
+            )}
+          </div>
+        )}
         {botHealth?.persistent_failures?.length ? (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Falhas persistentes</p>
@@ -793,18 +851,21 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
             <div className="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Historico do bot</p>
               <div className="inline-flex rounded-xl bg-neutral-100 p-1 text-[10px] font-black uppercase text-neutral-500">
-                <button
-                  onClick={() => setBotLogMode('failures')}
-                  className={`rounded-lg px-3 py-1.5 transition ${botLogMode === 'failures' ? 'bg-white text-red-600 shadow-sm' : 'hover:text-neutral-800'}`}
-                >
-                  Falhas
-                </button>
-                <button
-                  onClick={() => setBotLogMode('all')}
-                  className={`rounded-lg px-3 py-1.5 transition ${botLogMode === 'all' ? 'bg-white text-neutral-900 shadow-sm' : 'hover:text-neutral-800'}`}
-                >
-                  Todos
-                </button>
+                {[
+                  ['failures', 'Falhas'],
+                  ['pushes', 'Push'],
+                  ['edits', 'Edicoes'],
+                  ['skips', 'Dedupe'],
+                  ['all', 'Todos'],
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setBotLogMode(mode as typeof botLogMode)}
+                    className={`rounded-lg px-3 py-1.5 transition ${botLogMode === mode ? 'bg-white text-neutral-900 shadow-sm' : 'hover:text-neutral-800'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
             <table className="min-w-[620px] w-full text-left text-xs">
