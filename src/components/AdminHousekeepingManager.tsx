@@ -15,6 +15,7 @@ type StaffMember = {
 
 type StaffTicket = {
   id: string;
+  reported_by: string | null;
   status_reason: string | null;
   status: string;
   created_at: string;
@@ -107,8 +108,8 @@ function HousekeepingRosterTab() {
         .order('name', { ascending: true }),
       supabase
         .from('maintenance_tickets')
-        .select('id, status_reason, status, created_at, room_number, title')
-        .ilike('status_reason', 'Reportado por:%')
+        .select('id, reported_by, status_reason, status, created_at, room_number, title')
+        .not('reported_by', 'is', null)
         .order('created_at', { ascending: false }),
     ]);
 
@@ -117,11 +118,9 @@ function HousekeepingRosterTab() {
     if (ticketsRes.data) {
       const map: Record<string, StaffTicket[]> = {};
       for (const t of ticketsRes.data as StaffTicket[]) {
-        const match = t.status_reason?.match(/^Reportado por:\s*(.+?)(\s*\(|$)/);
-        const name = match?.[1]?.trim();
-        if (name) {
-          if (!map[name]) map[name] = [];
-          map[name].push(t);
+        if (t.reported_by) {
+          if (!map[t.reported_by]) map[t.reported_by] = [];
+          map[t.reported_by].push(t);
         }
       }
       setTicketsByStaff(map);
@@ -254,7 +253,7 @@ function HousekeepingRosterTab() {
 
           <div className="grid gap-2">
             {byFloor[floor].map(member => {
-              const tickets = ticketsByStaff[member.name] ?? [];
+              const tickets = ticketsByStaff[member.id] ?? [];
               const isExpanded = expandedId === member.id;
               return (
                 <div
@@ -490,21 +489,20 @@ function HousekeepingRosterTab() {
 
 type BonusReport = {
   id: string;
-  status_reason: string | null;
+  reported_by: string | null;
+  status: string;
+  inspection_status: string | null;
+  resolved_at: string | null;
   created_at: string;
   rating: number | null;
 };
 
 type BonusView = 'monthly' | 'weekly';
-
-function extractCamareiraName(statusReason: string | null): string | null {
-  if (!statusReason) return null;
-  const m = statusReason.match(/^Reportado por:\s*(.+?)(\s*\(|$)/);
-  return m?.[1]?.trim() ?? null;
-}
+const GOOD_HOUSEKEEPING_RATING = 4;
 
 function HousekeepingPerformanceTab() {
   const [reports, setReports] = useState<BonusReport[]>([]);
+  const [staff, setStaff] = useState<Pick<StaffMember, 'id' | 'name'>[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<BonusView>('monthly');
 
@@ -513,31 +511,56 @@ function HousekeepingPerformanceTab() {
   async function loadData() {
     setLoading(true);
     const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-    const { data, error } = await supabase
-      .from('maintenance_tickets')
-      .select('id, status_reason, created_at, rating')
-      .ilike('status_reason', 'Reportado por:%')
-      .gte('created_at', yearStart)
-      .order('created_at', { ascending: false })
-      .limit(5000);
-    if (error) {
-      console.error('Erro carregando desempenho:', error);
+    const [staffRes, ticketsRes] = await Promise.all([
+      supabase
+        .from('housekeeping_staff')
+        .select('id, name')
+        .order('name', { ascending: true }),
+      supabase
+        .from('maintenance_tickets')
+        .select('id, reported_by, status, inspection_status, resolved_at, created_at, rating')
+        .not('reported_by', 'is', null)
+        .or(`created_at.gte.${yearStart},resolved_at.gte.${yearStart}`)
+        .order('created_at', { ascending: false })
+        .limit(5000),
+    ]);
+    if (staffRes.error || ticketsRes.error) {
+      console.error('Erro carregando desempenho:', staffRes.error ?? ticketsRes.error);
       setLoading(false);
       return;
     }
-    setReports((data ?? []) as BonusReport[]);
+    setStaff((staffRes.data ?? []) as Pick<StaffMember, 'id' | 'name'>[]);
+    setReports((ticketsRes.data ?? []) as BonusReport[]);
     setLoading(false);
   }
+
+  const staffById = useMemo(() => {
+    return Object.fromEntries(staff.map(member => [member.id, member.name]));
+  }, [staff]);
+
+  const creditReports = useMemo(() => {
+    return reports.filter(report =>
+      report.reported_by &&
+      report.status === 'resolved' &&
+      report.inspection_status === 'approved' &&
+      Number(report.rating ?? 0) >= GOOD_HOUSEKEEPING_RATING
+    );
+  }, [reports]);
+
+  const pendingCount = reports.filter(report =>
+    report.status === 'open' || report.status === 'in_progress' || (report.status === 'resolved' && report.inspection_status === 'pending')
+  ).length;
+  const returnPendingCount = reports.filter(report => report.inspection_status === 'rejected').length;
 
   const monthlyData = useMemo(() => {
     const monthSet = new Set<string>();
     const byPerson: Record<string, Record<string, number>> = {};
     const ratingsByPerson: Record<string, number[]> = {};
 
-    for (const r of reports) {
-      const name = extractCamareiraName(r.status_reason);
+    for (const r of creditReports) {
+      const name = r.reported_by ? (staffById[r.reported_by] ?? 'Camareira sem cadastro') : null;
       if (!name) continue;
-      const date = new Date(r.created_at);
+      const date = new Date(r.resolved_at ?? r.created_at);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       monthSet.add(key);
       if (!byPerson[name]) byPerson[name] = {};
@@ -562,7 +585,7 @@ function HousekeepingPerformanceTab() {
     });
 
     return { months, monthLabels, byPerson, people, ratingsByPerson };
-  }, [reports]);
+  }, [creditReports, staffById]);
 
   const weeklyData = useMemo(() => {
     function isoWeek(date: Date): string {
@@ -576,10 +599,10 @@ function HousekeepingPerformanceTab() {
     const weekSet = new Set<string>();
     const byPerson: Record<string, Record<string, number>> = {};
 
-    for (const r of reports) {
-      const name = extractCamareiraName(r.status_reason);
+    for (const r of creditReports) {
+      const name = r.reported_by ? (staffById[r.reported_by] ?? 'Camareira sem cadastro') : null;
       if (!name) continue;
-      const wk = isoWeek(new Date(r.created_at));
+      const wk = isoWeek(new Date(r.resolved_at ?? r.created_at));
       weekSet.add(wk);
       if (!byPerson[name]) byPerson[name] = {};
       byPerson[name][wk] = (byPerson[name][wk] ?? 0) + 1;
@@ -593,9 +616,9 @@ function HousekeepingPerformanceTab() {
     });
 
     return { weeks, byPerson, people };
-  }, [reports]);
+  }, [creditReports, staffById]);
 
-  const grandTotal = reports.filter(r => extractCamareiraName(r.status_reason)).length;
+  const grandTotal = creditReports.length;
 
   if (loading) {
     return <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">Carregando relatório...</div>;
@@ -606,7 +629,10 @@ function HousekeepingPerformanceTab() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Relatório de bonificação</p>
-          <p className="text-lg font-black text-gray-900">{grandTotal} chamados reportados em {new Date().getFullYear()}</p>
+          <p className="text-lg font-black text-gray-900">{grandTotal} chamados validados em {new Date().getFullYear()}</p>
+          <p className="mt-1 text-xs font-bold text-gray-500">
+            {pendingCount} pendentes · {returnPendingCount} em retorno pendente · nota minima {GOOD_HOUSEKEEPING_RATING}
+          </p>
         </div>
         <div className="flex gap-2">
           <div className="flex max-w-full overflow-x-auto gap-2">
@@ -683,7 +709,7 @@ function HousekeepingPerformanceTab() {
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
-            Nenhum chamado reportado neste ano.
+            Nenhum chamado validado neste ano.
           </div>
         )
       )}
@@ -736,13 +762,13 @@ function HousekeepingPerformanceTab() {
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center text-sm font-bold text-gray-400">
-            Nenhum chamado reportado nas últimas 12 semanas.
+            Nenhum chamado validado nas ultimas 12 semanas.
           </div>
         )
       )}
 
       <p className="text-center text-[10px] text-gray-400 uppercase tracking-widest">
-        Base: chamados reportados via portal PIN · {new Date().getFullYear()}
+        Base: chamados via PIN resolvidos, aprovados e avaliados com nota {GOOD_HOUSEKEEPING_RATING}+ · {new Date().getFullYear()}
       </p>
     </div>
   );
@@ -866,14 +892,14 @@ function printHousekeepingPerformanceReport(
         <div style="text-align:right">
           <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.16em;color:#737373;margin:0">Emitido em</p>
           <p style="font-size:11px;font-weight:700;color:#0a0a0a;margin:2px 0 0">${now}</p>
-          <p style="font-size:9px;color:#737373;margin:4px 0 0">${grandTotal} chamados reportados no ano</p>
+          <p style="font-size:9px;color:#737373;margin:4px 0 0">${grandTotal} chamados validados no ano</p>
         </div>
       </div>
       <div style="border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
         ${tableHTML}
       </div>
       <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
-        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados reportados via portal PIN · ${year}</p>
+        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados via PIN resolvidos, aprovados e avaliados com nota ${GOOD_HOUSEKEEPING_RATING}+ · ${year}</p>
         <p style="font-size:9px;color:#d4d4d4;margin:0">Royal PMS Enterprise</p>
       </div>
     </div>`;

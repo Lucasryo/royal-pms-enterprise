@@ -21,7 +21,7 @@ async function validateQRTokenServer(token: string, roomNumber: string): Promise
   }
 }
 
-async function validatePin(pin: string): Promise<{ valid: boolean; name?: string; floor_number?: number }> {
+async function validatePin(pin: string): Promise<{ valid: boolean; id?: string; name?: string; floor_number?: number }> {
   try {
     const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
     const res = await fetch(`${supaUrl}/functions/v1/pin-validate`, {
@@ -46,6 +46,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
   const [authState, setAuthState] = useState<AuthState>('loading');
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
   const [staffName, setStaffName] = useState('');
+  const [staffId, setStaffId] = useState<string | null>(null);
   const [staffFloor, setStaffFloor] = useState<number | null>(null);
 
   // PIN login
@@ -110,6 +111,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
     }
 
     setStaffName(result.name ?? '');
+    setStaffId(result.id ?? null);
     setStaffFloor(result.floor_number ?? null);
     setAuthState('form');
   }
@@ -130,6 +132,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
               return;
             }
             setStaffName(result.name ?? '');
+            setStaffId(result.id ?? null);
             setStaffFloor(result.floor_number ?? null);
             setAuthState('form');
           });
@@ -145,6 +148,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
 
   function handleLogout() {
     setStaffName('');
+    setStaffId(null);
     setStaffFloor(null);
     setPin('');
     setPinError(null);
@@ -195,6 +199,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       description: [reporterLine, description.trim()].filter(Boolean).join('\n\n').slice(0, 2000),
       priority,
       status: 'open',
+      reported_by: staffId,
     };
     if (photoUrl) payload.resolution_notes = `Foto: ${photoUrl}`;
 

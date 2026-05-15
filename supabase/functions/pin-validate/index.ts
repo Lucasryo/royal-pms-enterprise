@@ -117,6 +117,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       valid: true,
+      id: data.id,
       name: data.name,
       floor_number: data.floor_number,
     }), {
