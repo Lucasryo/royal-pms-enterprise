@@ -498,7 +498,6 @@ type BonusReport = {
 };
 
 type BonusView = 'monthly' | 'weekly';
-const GOOD_HOUSEKEEPING_RATING = 4;
 
 function HousekeepingPerformanceTab() {
   const [reports, setReports] = useState<BonusReport[]>([]);
@@ -543,7 +542,7 @@ function HousekeepingPerformanceTab() {
       report.reported_by &&
       report.status === 'resolved' &&
       report.inspection_status === 'approved' &&
-      Number(report.rating ?? 0) >= GOOD_HOUSEKEEPING_RATING
+      report.rating !== null
     );
   }, [reports]);
 
@@ -631,7 +630,7 @@ function HousekeepingPerformanceTab() {
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Relatório de bonificação</p>
           <p className="text-lg font-black text-gray-900">{grandTotal} chamados validados em {new Date().getFullYear()}</p>
           <p className="mt-1 text-xs font-bold text-gray-500">
-            {pendingCount} pendentes · {returnPendingCount} em retorno pendente · nota minima {GOOD_HOUSEKEEPING_RATING}
+            {pendingCount} pendentes · {returnPendingCount} em retorno pendente · qualquer nota avaliada
           </p>
         </div>
         <div className="flex gap-2">
@@ -768,7 +767,7 @@ function HousekeepingPerformanceTab() {
       )}
 
       <p className="text-center text-[10px] text-gray-400 uppercase tracking-widest">
-        Base: chamados via PIN resolvidos, aprovados e avaliados com nota {GOOD_HOUSEKEEPING_RATING}+ · {new Date().getFullYear()}
+        Base: chamados via PIN resolvidos, aprovados e avaliados, sem corte fixo de nota · {new Date().getFullYear()}
       </p>
     </div>
   );
@@ -899,7 +898,7 @@ function printHousekeepingPerformanceReport(
         ${tableHTML}
       </div>
       <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center">
-        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados via PIN resolvidos, aprovados e avaliados com nota ${GOOD_HOUSEKEEPING_RATING}+ · ${year}</p>
+        <p style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.18em;color:#a3a3a3;margin:0">Base: chamados via PIN resolvidos, aprovados e avaliados, sem corte fixo de nota · ${year}</p>
         <p style="font-size:9px;color:#d4d4d4;margin:0">Royal PMS Enterprise</p>
       </div>
     </div>`;
