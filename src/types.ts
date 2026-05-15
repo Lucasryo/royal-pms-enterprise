@@ -344,6 +344,7 @@ export interface MaintenanceTicket {
   status: 'open' | 'in_progress' | 'resolved' | 'cancelled';
   assigned_to?: string;
   reported_by?: string;
+  housekeeping_reported_by?: string;
   due_at?: string;
   resolved_at?: string;
   started_at?: string;

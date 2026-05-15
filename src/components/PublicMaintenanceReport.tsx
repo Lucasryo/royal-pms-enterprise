@@ -199,7 +199,8 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
       description: [reporterLine, description.trim()].filter(Boolean).join('\n\n').slice(0, 2000),
       priority,
       status: 'open',
-      reported_by: staffId,
+      reported_by: null,
+      housekeeping_reported_by: staffId,
     };
     if (photoUrl) payload.resolution_notes = `Foto: ${photoUrl}`;
 

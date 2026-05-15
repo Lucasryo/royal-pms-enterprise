@@ -15,7 +15,7 @@ type StaffMember = {
 
 type StaffTicket = {
   id: string;
-  reported_by: string | null;
+  housekeeping_reported_by: string | null;
   status_reason: string | null;
   status: string;
   created_at: string;
@@ -108,8 +108,8 @@ function HousekeepingRosterTab() {
         .order('name', { ascending: true }),
       supabase
         .from('maintenance_tickets')
-        .select('id, reported_by, status_reason, status, created_at, room_number, title')
-        .not('reported_by', 'is', null)
+        .select('id, housekeeping_reported_by, status_reason, status, created_at, room_number, title')
+        .not('housekeeping_reported_by', 'is', null)
         .order('created_at', { ascending: false }),
     ]);
 
@@ -118,9 +118,9 @@ function HousekeepingRosterTab() {
     if (ticketsRes.data) {
       const map: Record<string, StaffTicket[]> = {};
       for (const t of ticketsRes.data as StaffTicket[]) {
-        if (t.reported_by) {
-          if (!map[t.reported_by]) map[t.reported_by] = [];
-          map[t.reported_by].push(t);
+        if (t.housekeeping_reported_by) {
+          if (!map[t.housekeeping_reported_by]) map[t.housekeeping_reported_by] = [];
+          map[t.housekeeping_reported_by].push(t);
         }
       }
       setTicketsByStaff(map);
@@ -489,7 +489,7 @@ function HousekeepingRosterTab() {
 
 type BonusReport = {
   id: string;
-  reported_by: string | null;
+  housekeeping_reported_by: string | null;
   status: string;
   inspection_status: string | null;
   resolved_at: string | null;
@@ -517,8 +517,8 @@ function HousekeepingPerformanceTab() {
         .order('name', { ascending: true }),
       supabase
         .from('maintenance_tickets')
-        .select('id, reported_by, status, inspection_status, resolved_at, created_at, rating')
-        .not('reported_by', 'is', null)
+        .select('id, housekeeping_reported_by, status, inspection_status, resolved_at, created_at, rating')
+        .not('housekeeping_reported_by', 'is', null)
         .or(`created_at.gte.${yearStart},resolved_at.gte.${yearStart}`)
         .order('created_at', { ascending: false })
         .limit(5000),
@@ -539,7 +539,7 @@ function HousekeepingPerformanceTab() {
 
   const creditReports = useMemo(() => {
     return reports.filter(report =>
-      report.reported_by &&
+      report.housekeeping_reported_by &&
       report.status === 'resolved' &&
       report.inspection_status === 'approved' &&
       report.rating !== null
@@ -557,7 +557,7 @@ function HousekeepingPerformanceTab() {
     const ratingsByPerson: Record<string, number[]> = {};
 
     for (const r of creditReports) {
-      const name = r.reported_by ? (staffById[r.reported_by] ?? 'Camareira sem cadastro') : null;
+      const name = r.housekeeping_reported_by ? (staffById[r.housekeeping_reported_by] ?? 'Camareira sem cadastro') : null;
       if (!name) continue;
       const date = new Date(r.resolved_at ?? r.created_at);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -599,7 +599,7 @@ function HousekeepingPerformanceTab() {
     const byPerson: Record<string, Record<string, number>> = {};
 
     for (const r of creditReports) {
-      const name = r.reported_by ? (staffById[r.reported_by] ?? 'Camareira sem cadastro') : null;
+      const name = r.housekeeping_reported_by ? (staffById[r.housekeeping_reported_by] ?? 'Camareira sem cadastro') : null;
       if (!name) continue;
       const wk = isoWeek(new Date(r.resolved_at ?? r.created_at));
       weekSet.add(wk);

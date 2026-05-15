@@ -1,19 +1,9 @@
-create or replace function public.is_active_housekeeping_staff(staff_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.housekeeping_staff hs
-    where hs.id = staff_id
-      and hs.is_active = true
-  );
-$$;
+alter table public.maintenance_tickets
+  add column if not exists housekeeping_reported_by uuid references public.housekeeping_staff(id) on delete set null;
 
-grant execute on function public.is_active_housekeeping_staff(uuid) to anon, authenticated;
+create index if not exists idx_maintenance_tickets_housekeeping_reported_by
+  on public.maintenance_tickets(housekeeping_reported_by)
+  where housekeeping_reported_by is not null;
 
 drop policy if exists "anon_can_open_maintenance_ticket" on public.maintenance_tickets;
 
@@ -28,6 +18,10 @@ create policy "anon_can_open_maintenance_ticket"
     and length(coalesce(description, '')) <= 2000
     and length(coalesce(room_number, '')) between 1 and 20
     and reported_by is null
+    and (
+      housekeeping_reported_by is null
+      or public.is_active_housekeeping_staff(housekeeping_reported_by)
+    )
     and assigned_to is null
     and resolved_at is null
   );
