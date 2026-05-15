@@ -306,16 +306,42 @@ function shouldReplaceMissingCard(result: unknown): boolean {
     || description.includes("message not found");
 }
 
-async function sendTicketCard(record: Record<string, unknown>, chatId: unknown = CHAT_ID): Promise<boolean> {
+async function sendTicketCard(
+  record: Record<string, unknown>,
+  chatId: unknown = CHAT_ID,
+  opts: { notifyNew?: boolean; source?: string } = {},
+): Promise<boolean> {
   const ticketId = record.id as string;
   const existingMessageId = Number(record.telegram_message_id);
-  if (ticketId && existingMessageId) return await updateTicketCard(ticketId, chatId);
+  if (ticketId && existingMessageId) {
+    await logTelegramNotification("ticket_card_send", "skipped", {
+      ticketId,
+      payload: {
+        reason: "card_already_exists",
+        source: opts.source ?? null,
+        notify: opts.notifyNew === true,
+        message_id: existingMessageId,
+      },
+    });
+    return await updateTicketCard(ticketId, chatId);
+  }
 
   if (ticketId) {
     const freshRecord = await fetchTicket(ticketId);
     if (!freshRecord) return false;
     const freshMessageId = Number(freshRecord.telegram_message_id);
-    if (freshMessageId) return await updateTicketCard(ticketId, chatId);
+    if (freshMessageId) {
+      await logTelegramNotification("ticket_card_send", "skipped", {
+        ticketId,
+        payload: {
+          reason: "card_already_exists",
+          source: opts.source ?? null,
+          notify: opts.notifyNew === true,
+          message_id: freshMessageId,
+        },
+      });
+      return await updateTicketCard(ticketId, chatId);
+    }
 
     const claimCutoff = new Date(Date.now() - 20_000).toISOString();
     const { data: claimedRows, error: claimError } = await db.from("maintenance_tickets")
@@ -339,7 +365,7 @@ async function sendTicketCard(record: Record<string, unknown>, chatId: unknown =
       if (Number(afterClaim?.telegram_message_id)) return await updateTicketCard(ticketId, chatId);
       await logTelegramNotification("ticket_card_send", "skipped", {
         ticketId,
-        payload: { reason: "send_in_progress" },
+        payload: { reason: "send_in_progress", source: opts.source ?? null, notify: opts.notifyNew === true },
       });
       return true;
     }
@@ -352,6 +378,7 @@ async function sendTicketCard(record: Record<string, unknown>, chatId: unknown =
     text: buildTicketCardText(record),
     parse_mode: "MarkdownV2",
     disable_web_page_preview: true,
+    disable_notification: opts.notifyNew === true ? false : undefined,
     reply_markup: ticketCardKb(record),
   });
   if (result?.ok) await saveTicketCardRef(record.id as string, chatId, result.result?.message_id);
@@ -365,6 +392,8 @@ async function sendTicketCard(record: Record<string, unknown>, chatId: unknown =
     payload: {
       chat_id: chatId,
       message_id: result?.result?.message_id ?? null,
+      notify: opts.notifyNew === true,
+      source: opts.source ?? null,
       telegram_error: result?.ok ? null : result,
     },
   });
@@ -918,7 +947,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
+  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -926,6 +955,22 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+
+  if ((body.type as string) === "ticket_opened") {
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("*")
+      .eq("id", ticketId)
+      .eq("status", "open")
+      .gte("created_at", tenMinutesAgo)
+      .single();
+    if (!ticket) return { ok: false, error: "ticket not found or too old" };
+    const ok = await sendTicketCard(ticket, CHAT_ID, { notifyNew: true, source: "ticket_opened" });
+    return { ok, ticket_id: ticketId };
+  }
 
   if ((body.type as string) === "bot_health") {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -1116,8 +1161,8 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       .gte("created_at", fiveMinutesAgo)
       .single();
     if (!ticket) return { ok: false, error: "ticket not found or too old" };
-    await sendTicketCard(ticket, CHAT_ID);
-    return { ok: true };
+    const ok = await sendTicketCard(ticket, CHAT_ID, { notifyNew: true, source: "public_report" });
+    return { ok, ticket_id: ticketId };
   }
 
   if ((body.type as string) === "request_inspection") {
@@ -1210,7 +1255,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
 
   void heading;
   void kb;
-  if (event === "INSERT") await sendTicketCard(record, CHAT_ID);
+  if (event === "INSERT") await sendTicketCard(record, CHAT_ID, { notifyNew: true, source: "db_insert" });
   else await updateTicketCard(id, CHAT_ID);
   return { ok: true };
 }

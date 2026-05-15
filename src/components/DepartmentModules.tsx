@@ -664,6 +664,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     const logs = botHealth?.recent_logs ?? [];
     return botLogMode === 'failures' ? logs.filter(log => log.status === 'failed') : logs;
   }, [botHealth, botLogMode]);
+  const recentTicketPushLogs = useMemo(() => {
+    return (botHealth?.recent_logs ?? []).filter(log =>
+      log.event_type === 'ticket_card_send' && log.payload?.notify === true
+    );
+  }, [botHealth]);
 
   // 1E: apenas admin/manager podem aprovar/reprovar vistorias
   const canInspect = () => profile.role === 'admin' || profile.role === 'manager';
@@ -716,6 +721,11 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
               <p className="mt-1 text-xs font-bold text-neutral-500">
                 Blindagem automatica: {new Date(botHealth.last_bot_maintenance_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
                 {botHealth.last_bot_maintenance ? ` · ${botHealth.last_bot_maintenance.repaired ?? 0}/${botHealth.last_bot_maintenance.checked ?? 0} recuperados` : ''}
+              </p>
+            )}
+            {recentTicketPushLogs.length > 0 && (
+              <p className="mt-1 text-xs font-bold text-emerald-700">
+                Ultimos pushes de novos chamados: {recentTicketPushLogs.slice(0, 3).map(log => `${log.status} ${new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}`).join(' · ')}
               </p>
             )}
             {lastBotMaintenance && (
