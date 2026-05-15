@@ -1458,7 +1458,7 @@ async function handleCallback(query: Record<string, unknown>) {
     .eq("id", ticketId).single();
   if (!ticket) return { ok: true };
 
-  const ownerOnlyActions = ["parts_ok", "resolve", "parts", "note", "transfer"];
+  const ownerOnlyActions = ["parts_ok", "resolve", "parts", "note"];
   if (ownerOnlyActions.includes(action) && !await ensureCallbackOwner(ticket, fromId, callbackAlert)) {
     return { ok: true };
   }
@@ -1601,9 +1601,25 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert("Este chamado nao esta em andamento e nao pode ser transferido.");
       return { ok: true };
     }
+    const isOwner = isTicketOwnedBy(ticket, fromId);
+    const isMod = await isModerator(chatId, fromId);
+    if (!isOwner && !isMod) {
+      await logTelegramNotification("owner_lock_blocked", "skipped", {
+        ticketId,
+        payload: {
+          action: "telegram_transfer",
+          from_id: fromId,
+          owner_tg_id: ticket.telegram_user_id ?? null,
+          owner_name: ticket.status_reason ?? null,
+          status: ticket.status ?? null,
+        },
+      });
+      await callbackAlert(ownerBlockMessage(ticket));
+      return { ok: true };
+    }
     const { count: transferCount } = await db.from("maintenance_tickets")
       .update({ status: "open", telegram_user_id: null, assigned_to: null, status_reason: null, updated_at: new Date().toISOString() })
-      .eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .eq("id", ticketId).eq("status", "in_progress")
       .select("id", { count: "exact", head: true });
     if (!transferCount || transferCount === 0) {
       await callbackAlert("Chamado ja foi alterado por outra acao.");
@@ -1612,16 +1628,20 @@ async function handleCallback(query: Record<string, unknown>) {
     await logEvent({
       ticketId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
-      event: "transferred", prevStatus: "in_progress", newStatus: "open",
-      notes: "técnico liberou chamado de volta para a fila",
+      event: isOwner ? "transferred" : "transferred_by_moderator", prevStatus: "in_progress", newStatus: "open",
+      notes: isOwner ? "tecnico liberou chamado de volta para a fila" : "moderador liberou chamado de volta para a fila",
     });
-    const uhPart = ticket.room_number ? ` — UH ${esc(ticket.room_number as string)}` : "";
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔄 *${esc(name)}* transferiu chamado de volta para a fila\\.\n📌 *${esc(ticket.title as string)}*${uhPart}\n\nOutro técnico pode assumir\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: openKb(ticketId),
-    });
+    const cardUpdated = await updateTicketCard(ticketId, chatId);
+    await callbackOk("Chamado voltou para a fila.");
+    if (!cardUpdated) {
+      const uhPart = ticket.room_number ? ` - UH ${esc(ticket.room_number as string)}` : "";
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `*${esc(name)}* transferiu chamado de volta para a fila\\.\n*${esc(ticket.title as string)}*${uhPart}\n\nOutro tecnico pode assumir\\:`,
+        parse_mode: "MarkdownV2",
+        reply_markup: openKb(ticketId),
+      });
+    }
   }
 
   return { ok: true };
