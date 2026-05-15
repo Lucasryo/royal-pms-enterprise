@@ -37,7 +37,7 @@ const formatAuditDetails = (details: unknown) => {
 
 export default function AdminDashboard({ profile, initialTab = 'documents' }: { 
   profile: UserProfile, 
-  initialTab?: 'documents' | 'banks' | 'finance' | 'assembly' | 'tariffs' | 'companies' | 'users' | 'guests' | 'stats' | 'tracking' | 'registration'
+  initialTab?: 'documents' | 'banks' | 'finance' | 'assembly' | 'tariffs' | 'companies' | 'users' | 'guests' | 'stats' | 'tracking' | 'registration' | 'user-registration'
 }) {
   const isFinancePowerUser = profile.role === 'admin' || profile.role === 'finance';
   const isBillingOperator = profile.role === 'faturamento';
@@ -2135,6 +2135,171 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
             className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Search className="w-5 h-5 text-neutral-900" />
+              <h2 className="font-bold text-neutral-900">Vincular Clientes</h2>
+            </div>
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400" />
+              <input
+                type="text"
+                placeholder="Buscar cliente..."
+                value={userSearchTerm}
+                onChange={(e) => setUserSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-4 py-1.5 border border-neutral-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-neutral-900 bg-neutral-50"
+              />
+            </div>
+            <p className="text-xs text-neutral-500 mb-4">
+              Selecione uma empresa para cada cliente cadastrado.
+            </p>
+            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+              {users
+                .filter(u => u.role === 'client' || u.role === 'external_client')
+                .filter(u => !userSearchTerm || u.name.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.email.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                .map(user => (
+                <div key={user.id} className="p-3 bg-neutral-50 rounded-lg border border-neutral-100">
+                  <div className="mb-2">
+                    <p className="text-sm font-medium text-neutral-900">{user.name}</p>
+                    <p className="text-xs text-neutral-500">{user.email}</p>
+                  </div>
+                  <select
+                    value={user.company_id || ''}
+                    onChange={(e) => handleUpdateUserCompany(user.id, e.target.value)}
+                    className="w-full px-3 py-1.5 border border-neutral-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+                  >
+                    <option value="">Sem Empresa</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+              {users.filter(u => u.role === 'client' || u.role === 'external_client').length === 0 && (
+                <p className="text-xs text-center text-neutral-400 py-4">Nenhum cliente cadastrado ainda.</p>
+              )}
+            </div>
+          </motion.section>
+
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <ProfileAccessMatrix />
+          </motion.div>
+        </div>
+      </motion.div>
+    ) : activeTab === 'user-registration' ? (
+      <motion.div
+        key="user-registration"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="grid grid-cols-1 lg:grid-cols-2 gap-8"
+      >
+        <div className="space-y-8">
+          {/* Cadastrar Usuario */}
+          <motion.section
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white p-4 sm:p-6 rounded-xl border border-neutral-200 shadow-sm"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Plus className="w-5 h-5 text-neutral-900" />
+              <h2 className="font-bold text-neutral-900">Cadastrar Usuário</h2>
+            </div>
+            <form onSubmit={handleAddUser} className="space-y-4">
+              <input
+                type="text"
+                placeholder="Nome Completo"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <input
+                type="email"
+                placeholder="E-mail"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <input
+                type="tel"
+                placeholder="Telefone / WhatsApp do colaborador"
+                value={newUserPhone}
+                onChange={(e) => setNewUserPhone(e.target.value)}
+                className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <input
+                type="password"
+                placeholder="Senha (min. 6 caracteres)"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <select
+                  value={newUserRole}
+                  onChange={(e) => {
+                    const role = e.target.value as UserRole;
+                    setNewUserRole(role);
+                    setNewUserPermissions(DEFAULT_PERMISSIONS[role] || DEFAULT_PERMISSIONS['client']);
+                  }}
+                  className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+                >
+                  <option value="client">Cliente</option>
+                  <option value="external_client">Cliente Externo</option>
+                  <option value="reservations">Reservas</option>
+                  <option value="faturamento">Faturamento</option>
+                  <option value="finance">Financeiro</option>
+                  <option value="reception">Recepcao</option>
+                  <option value="eventos">Eventos</option>
+                  <option value="restaurant">Restaurante</option>
+                  <option value="housekeeping">Governanca</option>
+                  <option value="maintenance">Manutencao</option>
+                  <option value="manager">Gerente</option>
+                  <option value="admin">Admin</option>
+                </select>
+                {(newUserRole === 'client' || newUserRole === 'external_client' || newUserRole === 'reservations') && (
+                  <select
+                    value={newUserCompanyId}
+                    onChange={(e) => setNewUserCompanyId(e.target.value)}
+                    className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
+                  >
+                    <option value="">Sem Empresa</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="border border-neutral-200 rounded-lg p-3">
+                <PermissionsSelector
+                  permissions={newUserPermissions}
+                  onChange={setNewUserPermissions}
+                  role={newUserRole}
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-neutral-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Cadastrar Usuário
+              </button>
+            </form>
+          </motion.section>
+        </div>
+
+        <div className="space-y-8">
+          {/* Vincular Clientes */}
+          <motion.section
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-white p-4 sm:p-6 rounded-xl border border-neutral-200 shadow-sm"
           >
             <div className="flex items-center gap-2 mb-4">
               <Search className="w-5 h-5 text-neutral-900" />

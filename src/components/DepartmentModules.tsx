@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, Utensils } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, UserPlus, Utensils } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -1409,7 +1409,6 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
         { id: 'documents', label: 'Faturas e documentos', icon: FileText, render: () => <AdminDashboard profile={profile} initialTab="documents" /> },
         { id: 'tracking', label: 'Rastreio e cobranca', icon: ClipboardList, render: () => <AdminDashboard profile={profile} initialTab="tracking" /> },
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
-        { id: 'registration', label: 'Cadastro de Empresas', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
         { id: 'banks', label: 'Contas Bancárias', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="banks" /> },
       ]}
     />
@@ -1457,6 +1456,7 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
       adminQueue
       tabs={[
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="users" /> },
+        { id: 'user-registration', label: 'Cadastro de Usuários', icon: UserPlus, render: () => <AdminDashboard profile={profile} initialTab="user-registration" /> },
         { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
       ]}
     />
