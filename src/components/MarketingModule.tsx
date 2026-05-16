@@ -291,9 +291,12 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
 
-  // Sanitização defensiva — remove <script>, <iframe>, e atributos on* / javascript:
-  const safeHtml = useMemo(() => {
+  // Sanitização defensiva + extração de <style> e conteúdo de <body>.
+  // O HTML do email costuma vir com seu próprio <html><head><body>; precisamos
+  // extrair só o <body> e preservar os <style> pra evitar nesting inválido.
+  const { safeBody, safeStyles } = useMemo(() => {
     let s = html || '';
+    // Strip script/iframe/handlers/javascript: antes de qualquer outra coisa
     s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
     s = s.replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
     s = s.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
@@ -301,7 +304,20 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
     s = s.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
     s = s.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
     s = s.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
-    return s;
+
+    // Extrai estilos do <head> (e qualquer style inline em outras posições)
+    const styleMatches = s.match(/<style[\s\S]*?<\/style>/gi) ?? [];
+    const styles = styleMatches.join('\n');
+
+    // Extrai o conteúdo de <body>. Se não houver tag <body>, usa tudo.
+    let body = s;
+    const bodyMatch = s.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) body = bodyMatch[1];
+
+    // Remove <head> e <html> tags soltas que possam ter sobrado
+    body = body.replace(/<\/?html[^>]*>/gi, '').replace(/<head[\s\S]*?<\/head>/gi, '');
+
+    return { safeBody: body, safeStyles: styles };
   }, [html]);
 
   const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
@@ -311,14 +327,14 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
     table{max-width:100%;border-collapse:collapse}
     blockquote{border-left:3px solid #d4d4d4;margin:8px 0;padding:4px 12px;color:#666}
     pre{white-space:pre-wrap;word-wrap:break-word}
-  </style></head><body>${safeHtml}<script>
+  </style>${safeStyles}</head><body>${safeBody}<script>
     (function(){
       function send(){
         try{ parent.postMessage({type:'email-iframe-height',h:document.documentElement.scrollHeight},'*'); }catch(e){}
       }
       window.addEventListener('load', send);
       window.addEventListener('resize', send);
-      setTimeout(send,100); setTimeout(send,500); setTimeout(send,1500);
+      setTimeout(send,100); setTimeout(send,500); setTimeout(send,1500); setTimeout(send,3000);
       // Re-mede quando imagens carregarem
       document.querySelectorAll('img').forEach(function(img){ img.addEventListener('load', send); img.addEventListener('error', send); });
     })();
