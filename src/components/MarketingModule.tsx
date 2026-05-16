@@ -378,7 +378,9 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
   return (
     <iframe
       ref={ref}
-      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      // allow-scripts é NECESSÁRIO pra rodar nosso medidor de altura (postMessage).
+      // Sem allow-same-origin: o script do email ainda não consegue acessar parent/cookies/etc.
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
       srcDoc={doc}
       scrolling="no"
       style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
