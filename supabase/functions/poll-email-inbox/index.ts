@@ -553,7 +553,9 @@ function decodeToBytes(content: string, encoding: string): Uint8Array {
   const enc = encoding.toLowerCase();
   if (enc.includes("base64")) {
     try {
-      const binary = atob(content.replace(/\s/g, ""));
+      // Strip ALL non-base64 chars (whitespace + qualquer leftover IMAP como ")")
+      const cleaned = content.replace(/[^A-Za-z0-9+/=]/g, "");
+      const binary = atob(cleaned);
       return Uint8Array.from(binary, c => c.charCodeAt(0));
     } catch {
       return new TextEncoder().encode(content);
@@ -572,14 +574,15 @@ function decodeToBytes(content: string, encoding: string): Uint8Array {
     }
     return new Uint8Array(bytes);
   }
-  // Detecção defensiva: se NÃO veio header de encoding mas o conteúdo só tem
-  // chars válidos de base64 (e tem tamanho razoável), tenta decodificar base64.
-  // Cobre emails de sistemas (Accenture STAR, etc) que enviam HTML em base64
-  // sem declarar Content-Transfer-Encoding propriamente.
-  const cleaned = content.replace(/\s/g, "");
-  if (cleaned.length >= 80 && /^[A-Za-z0-9+/=]+$/.test(cleaned) && cleaned.length % 4 === 0) {
+  // Detecção defensiva: se NÃO veio header de encoding mas o conteúdo é
+  // dominantemente base64 (ignorando whitespace e leftovers tipo ")" do IMAP).
+  // Cobre emails da Accenture STAR etc. que mandam HTML em base64 sem declarar.
+  const onlyBase64 = content.replace(/[^A-Za-z0-9+/=]/g, "");
+  const ratio = onlyBase64.length / Math.max(1, content.replace(/\s/g, "").length);
+  // Se >90% do conteúdo (sem whitespace) é base64-char, provavelmente é base64.
+  if (onlyBase64.length >= 80 && ratio > 0.9 && onlyBase64.length % 4 === 0) {
     try {
-      const binary = atob(cleaned);
+      const binary = atob(onlyBase64);
       const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
       // Confirma que decodificou pra texto legível (não bytes binários aleatórios)
       const sample = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 200));
