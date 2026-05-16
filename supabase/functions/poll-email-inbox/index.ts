@@ -78,13 +78,26 @@ serve(async (req) => {
       }
 
       const unseenUids = await client.searchUnseen();
+
+      // NÃO marca como lido no servidor IMAP (deixa unread no Locaweb webmail).
+      // Em vez disso, filtra os UIDs que já temos no DB para não processar de novo.
+      let candidateUids = unseenUids;
+      if (unseenUids.length > 0) {
+        const { data: known } = await adminClient
+          .from("inbox_messages")
+          .select("message_uid")
+          .eq("channel", "email")
+          .in("message_uid", unseenUids);
+        const knownSet = new Set((known ?? []).map((r: { message_uid: string | null }) => r.message_uid));
+        candidateUids = unseenUids.filter(uid => !knownSet.has(uid));
+      }
+
       let processed = 0;
 
-      for (const uid of unseenUids) {
+      for (const uid of candidateUids) {
         const raw = await client.fetchMessage(uid);
         const parsed = parseEmail(raw);
         if (!parsed.fromEmail || (!parsed.body && !parsed.bodyHtml)) {
-          await client.markSeen(uid);
           continue;
         }
 
@@ -120,8 +133,6 @@ serve(async (req) => {
         } else if (error.code !== "23505") {
           console.warn(`Failed to insert inbox message ${uid}: ${error.message}`);
         }
-
-        await client.markSeen(uid);
       }
 
       await client.logout();
