@@ -253,27 +253,60 @@ function parseHeaders(text: string) {
 }
 
 function extractReadableBody(body: string, contentType: string, encoding: string) {
-  const boundary = contentType.match(/boundary="?([^";]+)"?/i)?.[1];
+  // Normalize line endings first; IMAP usa CRLF e quebra os splitters baseados em \n\n.
+  const normalized = body.replace(/\r\n/g, "\n");
+  return cleanBody(extractFromMimeBlob(normalized, contentType, encoding));
+}
+
+function extractFromMimeBlob(body: string, contentType: string, encoding: string): string {
+  const boundary = contentType.match(/boundary="?([^";\s]+)"?/i)?.[1];
   if (boundary) {
-    const parts = body.split(`--${boundary}`);
-    const plain = parts.find((part) => /content-type:\s*text\/plain/i.test(part));
-    const html = parts.find((part) => /content-type:\s*text\/html/i.test(part));
-    return cleanBody(decodePart(plain || html || parts[0] || "", ""));
+    // Split na boundary, ignora o preâmbulo e o epílogo (após --boundary--).
+    const rawParts = body.split(`--${boundary}`);
+    const parts = rawParts
+      .map((p) => p.replace(/^\n/, "").replace(/\n$/, ""))
+      .filter((p) => p && !p.startsWith("--"));
+
+    // Procura recursivamente, preferindo text/plain, depois text/html, depois multipart aninhado.
+    const sub = parts.map((part) => {
+      const splitAt = part.indexOf("\n\n");
+      const partHeaders = parseHeaders(splitAt >= 0 ? part.slice(0, splitAt) : "");
+      const partContent = splitAt >= 0 ? part.slice(splitAt + 2) : part;
+      const partType = partHeaders["content-type"] ?? "";
+      const partEncoding = partHeaders["content-transfer-encoding"] ?? "";
+      return { partType, partEncoding, partContent };
+    });
+
+    const plain = sub.find((s) => /^text\/plain/i.test(s.partType));
+    if (plain) return decodeContent(plain.partContent, plain.partEncoding);
+
+    const nested = sub.find((s) => /^multipart\//i.test(s.partType));
+    if (nested) return extractFromMimeBlob(nested.partContent, nested.partType, nested.partEncoding);
+
+    const html = sub.find((s) => /^text\/html/i.test(s.partType));
+    if (html) return decodeContent(html.partContent, html.partEncoding);
+
+    if (sub[0]) return decodeContent(sub[0].partContent, sub[0].partEncoding);
+    return "";
   }
 
-  return cleanBody(decodePart(body, encoding));
+  return decodeContent(body, encoding);
+}
+
+function decodeContent(content: string, encoding: string) {
+  const enc = encoding.toLowerCase();
+  if (enc.includes("base64")) return decodeBase64(content);
+  if (enc.includes("quoted-printable")) return decodeQuotedPrintable(content);
+  return content;
 }
 
 function decodePart(part: string, fallbackEncoding: string) {
+  // Mantida por compatibilidade caso alguém chame; agora delega a extractFromMimeBlob.
   const splitAt = part.indexOf("\n\n");
   const headerText = splitAt >= 0 ? part.slice(0, splitAt) : "";
   const content = splitAt >= 0 ? part.slice(splitAt + 2) : part;
   const headers = parseHeaders(headerText);
-  const encoding = (headers["content-transfer-encoding"] || fallbackEncoding).toLowerCase();
-
-  if (encoding.includes("base64")) return decodeBase64(content);
-  if (encoding.includes("quoted-printable")) return decodeQuotedPrintable(content);
-  return content;
+  return decodeContent(content, headers["content-transfer-encoding"] || fallbackEncoding);
 }
 
 function decodeBase64(text: string) {
@@ -326,7 +359,21 @@ function emailPreview(email: ParsedEmail) {
 }
 
 function cleanBody(value: string) {
-  const withoutMarkup = value
+  // Remove leftover MIME boundaries (linhas que começam com "--_000_..." ou similares).
+  const withoutBoundaries = value
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(trimmed)) return false;
+      if (/^content-type\s*:/i.test(trimmed)) return false;
+      if (/^content-transfer-encoding\s*:/i.test(trimmed)) return false;
+      if (/^content-disposition\s*:/i.test(trimmed)) return false;
+      if (/^charset\s*=/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n");
+
+  const withoutMarkup = withoutBoundaries
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")

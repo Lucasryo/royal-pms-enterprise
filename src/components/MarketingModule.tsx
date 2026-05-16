@@ -187,6 +187,76 @@ function mapInboxMessage(row: InboxMessageRow): Message {
   };
 }
 
+// Limpa MIME bagunçado em emails antigos que ficaram no banco antes do fix no parser.
+// Remove boundaries, headers vazados e decodifica quoted-printable básico.
+function sanitizeEmailBody(text: string): string {
+  if (!text) return text;
+  let s = text.replace(/\r\n/g, '\n');
+
+  // Se houver boundary com "--_000_..." ou similar, corta tudo antes da primeira linha real.
+  const boundaryRe = /^--[_A-Za-z0-9.=+-]{6,}(--)?$/m;
+  if (boundaryRe.test(s)) {
+    // Tenta extrair conteúdo após primeiro bloco de headers (Content-Type/Encoding) e antes do próximo boundary.
+    const parts = s.split(/^--[_A-Za-z0-9.=+-]{6,}(?:--)?$/m);
+    // Pega a primeira parte que tenha texto visível depois de pular linhas de header
+    for (const part of parts) {
+      const stripped = part
+        .split('\n')
+        .filter(line => {
+          const t = line.trim();
+          if (/^content-type\s*:/i.test(t)) return false;
+          if (/^content-transfer-encoding\s*:/i.test(t)) return false;
+          if (/^content-disposition\s*:/i.test(t)) return false;
+          if (/^charset\s*=/i.test(t)) return false;
+          if (/^mime-version\s*:/i.test(t)) return false;
+          return true;
+        })
+        .join('\n')
+        .trim();
+      if (stripped.length > 10) {
+        s = stripped;
+        break;
+      }
+    }
+  }
+
+  // Decodifica quoted-printable resíduo (=XX e =\n)
+  if (/=[0-9A-F]{2}/i.test(s) && !/=\?[^?]+\?[BQ]\?/i.test(s)) {
+    try {
+      const compact = s.replace(/=\n/g, '');
+      const bytes: number[] = [];
+      for (let i = 0; i < compact.length; i++) {
+        if (compact[i] === '=' && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
+          bytes.push(parseInt(compact.slice(i + 1, i + 3), 16));
+          i += 2;
+        } else {
+          bytes.push(compact.charCodeAt(i));
+        }
+      }
+      s = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes));
+    } catch { /* mantém o original */ }
+  }
+
+  // Remove linhas de header / boundary que ainda escaparam
+  s = s
+    .split('\n')
+    .filter(line => {
+      const t = line.trim();
+      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(t)) return false;
+      if (/^content-type\s*:/i.test(t)) return false;
+      if (/^content-transfer-encoding\s*:/i.test(t)) return false;
+      if (/^content-disposition\s*:/i.test(t)) return false;
+      if (/^charset\s*=/i.test(t)) return false;
+      if (/^mime-version\s*:/i.test(t)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return s;
+}
+
 function mapContactToLead(row: MarketingContactRow): Lead {
   return {
     id: row.id,
@@ -299,6 +369,19 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
 
   // Drawer mobile do painel de contexto
   const [contextOpen, setContextOpen] = useState(false);
+
+  // Menu de contexto (clique direito) sobre uma mensagem
+  const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  useEffect(() => {
+    if (!msgMenu) return;
+    const close = () => setMsgMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [msgMenu]);
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
   const messages = selectedId ? (chatHistory[selectedId] ?? []) : [];
@@ -1125,16 +1208,22 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
               const inSpam = (msg.folder ?? 'inbox') === 'spam';
               const inTrash = (msg.folder ?? 'inbox') === 'trash';
               const busy = folderActionLoading === msg.id;
+              const renderedText = isEmail ? sanitizeEmailBody(msg.text) : msg.text;
               return (
                 <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`relative max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
+                  <div
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMsgMenu({ x: e.clientX, y: e.clientY, msg: { ...msg, text: renderedText } });
+                    }}
+                    className={`relative max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed cursor-context-menu ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
                     {isEmail && msg.subject && (
                       <div className="mb-2 border-b border-neutral-100 pb-2">
                         <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
                         <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
                       </div>
                     )}
-                    {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                    {renderedText && <p className="whitespace-pre-wrap break-words">{renderedText}</p>}
                     {!!msg.attachments?.length && (
                       <div className="mt-2 space-y-1.5">
                         {msg.attachments.map((att, ai) => (
@@ -1179,6 +1268,89 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Menu de contexto (clique direito sobre uma mensagem) */}
+          {msgMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: msgMenu.y, left: msgMenu.x }}
+              className="fixed z-50 w-56 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => {
+                  const q = (msgMenu.msg.text || '').split('\n').map(l => `> ${l}`).join('\n');
+                  setMessageInput(prev => (prev ? prev + '\n\n' : '') + q + '\n\n');
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <ArrowUpRight className="w-4 h-4 text-neutral-500" /> Responder citando
+              </button>
+              <button
+                onClick={() => {
+                  setComposeForm({
+                    to: '',
+                    subject: msgMenu.msg.subject ? `Fwd: ${msgMenu.msg.subject}` : 'Encaminhado',
+                    body: `\n\n--- Mensagem encaminhada ---\n${msgMenu.msg.text || ''}`,
+                  });
+                  setComposeOpen(true);
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Send className="w-4 h-4 text-neutral-500" /> Encaminhar (como e-mail)
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(msgMenu.msg.text || '').then(
+                    () => toast.success('Mensagem copiada'),
+                    () => toast.error('Falha ao copiar'),
+                  );
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4 text-neutral-500" /> Copiar texto
+              </button>
+              {selected?.channel === 'email' && msgMenu.msg.id && msgMenu.msg.type === 'in' && (
+                <>
+                  <div className="border-t border-neutral-100 my-1" />
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'spam' && (msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'spam'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                    >
+                      <AlertCircle className="w-4 h-4" /> Marcar como spam
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'trash'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" /> Mover para lixeira
+                    </button>
+                  )}
+                  {((msgMenu.msg.folder ?? 'inbox') === 'spam' || (msgMenu.msg.folder ?? 'inbox') === 'trash') && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'inbox'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                    >
+                      <ArrowUpRight className="w-4 h-4" /> Restaurar para entrada
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') === 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'delete'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-100 text-red-800 flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" /> Excluir permanentemente
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {/* AI suggestions */}
           {(loadingAI || aiSuggestions.length > 0) && (
@@ -3557,97 +3729,57 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
 
   return (
     <div className="overflow-x-clip">
-      <div className="flex min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-col min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
 
-        {/* ── Sidebar (desktop) ─────────────────────────────────────────── */}
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50/60">
-          <div className="px-5 py-5 border-b border-neutral-200">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">Royal PMS</p>
-            <h2 className="mt-0.5 text-base font-semibold text-neutral-900">Marketing & CRM</h2>
-          </div>
-          <nav className="flex-1 overflow-y-auto py-3">
-            {NAV_SECTIONS.map(section => (
-              <div key={section.label} className="px-3 mb-4">
-                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                <div className="space-y-0.5">
-                  {section.items.map(item => {
-                    const active = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                          active
-                            ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200'
-                            : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
-                        }`}
-                      >
-                        <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                        <span className="truncate">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-        </aside>
-
-        {/* ── Main column ───────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col">
-
-          {/* Top bar */}
-          <header className="border-b border-neutral-200 bg-white">
-            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="min-w-0">
-                  <p className="text-[11px] text-neutral-400 truncate">
-                    {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
-                  </p>
-                  <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
-                    <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
-                    {activeItem.label}
-                  </h1>
-                </div>
-              </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <KpiChip label="Novos" value={newLeads} tone="amber" />
-                <KpiChip label="Humano" value={needsHuman} tone="red" />
-                <KpiChip label="Total" value={totalLeads} tone="neutral" />
-              </div>
+        {/* Top bar (header + KPIs) */}
+        <header className="border-b border-neutral-200 bg-white">
+          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-neutral-400 truncate">
+                {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
+              </p>
+              <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
+                <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
+                {activeItem.label}
+              </h1>
             </div>
-            <p className="px-4 sm:px-6 pb-3 -mt-1 text-xs text-neutral-500 truncate">{activeItem.description}</p>
-          </header>
-
-          {/* Tab strip horizontal — sempre visível para descoberta das funções */}
-          <div className="lg:hidden border-b border-neutral-200 bg-white px-3 py-2 flex gap-1 overflow-x-auto scrollbar-none">
-            {TABS.map(item => {
-              const active = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    active ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-                  }`}
-                >
-                  <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-neutral-500'}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              <KpiChip label="Novos" value={newLeads} tone="amber" />
+              <KpiChip label="Humano" value={needsHuman} tone="red" />
+              <KpiChip label="Total" value={totalLeads} tone="neutral" />
+            </div>
           </div>
+        </header>
 
-          {/* Content area */}
-          <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
-            {activeTab === 'inbox' && <LeadInboxTab profile={profile} />}
-            {activeTab === 'contatos' && <ContatosShell />}
-            {activeTab === 'campanhas' && <CampanhasShell />}
-            {activeTab === 'automacoes' && <AutomacoesShell />}
-            {activeTab === 'analytics' && <AnalyticsTab />}
-            {activeTab === 'configs' && <ConfigsShell />}
-          </main>
-        </div>
+        {/* Top menu — sempre visível em todas as telas, sem sidebar */}
+        <nav className="border-b border-neutral-200 bg-white px-3 sm:px-4 py-2 flex gap-1 overflow-x-auto scrollbar-none">
+          {TABS.map(item => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                title={item.description}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  active ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                }`}
+              >
+                <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Content area — agora ocupa toda a largura */}
+        <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-3 sm:p-5">
+          {activeTab === 'inbox' && <LeadInboxTab profile={profile} />}
+          {activeTab === 'contatos' && <ContatosShell />}
+          {activeTab === 'campanhas' && <CampanhasShell />}
+          {activeTab === 'automacoes' && <AutomacoesShell />}
+          {activeTab === 'analytics' && <AnalyticsTab />}
+          {activeTab === 'configs' && <ConfigsShell />}
+        </main>
       </div>
     </div>
   );
