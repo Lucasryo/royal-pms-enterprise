@@ -736,6 +736,49 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
   const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
 
+  const [reparsing, setReparsing] = useState(false);
+  async function reparseLegacyEmails() {
+    if (reparsing) return;
+    setReparsing(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/poll-email-inbox`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'reparse', limit: 30 }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Falha ao reprocessar.');
+
+      const remaining = result.remaining ?? 0;
+      const reprocessed = result.reprocessed ?? 0;
+      const skipped = result.skipped ?? 0;
+      toast.success(`Reprocessados: ${reprocessed}${skipped ? ` (pulados: ${skipped})` : ''}. ${remaining > 0 ? `Faltam ${remaining}, clica de novo.` : 'Concluído.'}`);
+
+      // Recarrega mensagens da conversa atual se for email
+      if (selectedId && selected?.channel === 'email') {
+        const { data } = await supabase
+          .from('inbox_messages')
+          .select('*')
+          .eq('contact_id', selectedId)
+          .order('created_at', { ascending: true });
+        if (data) {
+          setChatHistory(prev => ({
+            ...prev,
+            [selectedId]: (data as InboxMessageRow[]).map(mapInboxMessage),
+          }));
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao reprocessar.');
+    } finally {
+      setReparsing(false);
+    }
+  }
+
   async function refreshEmailInbox() {
     setRefreshingInbox(true);
     try {
@@ -1256,9 +1299,14 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                 <MoreVertical className="w-4 h-4" />
               </button>
               {selected.channel === 'email' && (
-                <button onClick={refreshEmailInbox} disabled={refreshingInbox} title="Buscar novos e-mails" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
-                </button>
+                <>
+                  <button onClick={refreshEmailInbox} disabled={refreshingInbox} title="Buscar novos e-mails" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
+                  </button>
+                  <button onClick={reparseLegacyEmails} disabled={reparsing} title="Reprocessar emails antigos com o parser novo (em lotes de 30)" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 disabled:opacity-50 transition-colors">
+                    <RefreshCcw className={`w-3.5 h-3.5 ${reparsing ? 'animate-spin' : ''}`} /> <span className="hidden md:inline">Reprocessar antigos</span>
+                  </button>
+                </>
               )}
               {selected.status !== 'new' && (
                 <button onClick={markUnread} title="Marcar conversa como não lida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors">

@@ -51,6 +51,13 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json({ error: "Supabase is not configured." }, 500);
 
+  // Parse body opcional para suportar { mode: "reparse" }
+  let payload: { mode?: string; limit?: number } = {};
+  try {
+    const text = await req.text();
+    if (text) payload = JSON.parse(text);
+  } catch { /* ignora body inválido */ }
+
   try {
     const smtpConfig = await loadSmtpConfig();
     if (!smtpConfig?.imapHost || !smtpConfig.user || !smtpConfig.pass) {
@@ -62,6 +69,14 @@ serve(async (req) => {
     try {
       await client.login(smtpConfig.user, smtpConfig.pass);
       await client.selectInbox();
+
+      if (payload.mode === "reparse") {
+        const limit = Math.min(Math.max(payload.limit ?? 30, 1), 100);
+        const result = await reparseLegacy(client, limit);
+        await client.logout();
+        return json(result);
+      }
+
       const unseenUids = await client.searchUnseen();
       let processed = 0;
 
@@ -119,6 +134,76 @@ serve(async (req) => {
     return json({ error: message }, 500);
   }
 });
+
+// Re-baixa do IMAP os emails antigos que estão no banco com body_html=null
+// e reaplica o novo parser. Faz em batches (limit).
+async function reparseLegacy(client: ImapClient, limit: number) {
+  const { data: rows, error } = await adminClient
+    .from("inbox_messages")
+    .select("id, message_uid, contact_id, body, body_html")
+    .eq("channel", "email")
+    .eq("direction", "in")
+    .is("body_html", null)
+    .not("message_uid", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  if (!rows || rows.length === 0) {
+    return { mode: "reparse", reprocessed: 0, skipped: 0, remaining: 0 };
+  }
+
+  let reprocessed = 0;
+  let skipped = 0;
+  for (const row of rows as Array<{ id: string; message_uid: string }>) {
+    try {
+      const raw = await client.fetchMessage(row.message_uid);
+      // UID FETCH returns "(BODY[] {N}" body ")" on miss vs preserved body on hit.
+      // Se vier vazio (mensagem deletada do servidor), pula.
+      if (!raw || raw.length < 50) {
+        skipped += 1;
+        // Marca pra não tentar de novo: grava string vazia no body_html (não null)
+        await adminClient.from("inbox_messages").update({ body_html: "" }).eq("id", row.id);
+        continue;
+      }
+      const parsed = parseEmail(raw);
+      if (!parsed.body && !parsed.bodyHtml) {
+        skipped += 1;
+        await adminClient.from("inbox_messages").update({ body_html: "" }).eq("id", row.id);
+        continue;
+      }
+      const { error: updError } = await adminClient
+        .from("inbox_messages")
+        .update({
+          subject: parsed.subject || undefined,
+          body: parsed.body || row.body,
+          body_html: parsed.bodyHtml || "",
+        })
+        .eq("id", row.id);
+      if (updError) {
+        console.warn(`[reparse] update failed ${row.id}: ${updError.message}`);
+        skipped += 1;
+      } else {
+        reprocessed += 1;
+      }
+    } catch (err) {
+      skipped += 1;
+      console.warn(`[reparse] fetch failed uid=${row.message_uid}: ${err instanceof Error ? err.message : err}`);
+      // Não marca como processado — pode tentar de novo
+    }
+  }
+
+  // Conta quantos ainda faltam
+  const { count } = await adminClient
+    .from("inbox_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("channel", "email")
+    .eq("direction", "in")
+    .is("body_html", null)
+    .not("message_uid", "is", null);
+
+  return { mode: "reparse", reprocessed, skipped, remaining: count ?? 0 };
+}
 
 async function loadSmtpConfig() {
   const { data, error } = await adminClient
