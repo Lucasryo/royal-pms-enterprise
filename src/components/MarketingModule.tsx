@@ -493,6 +493,105 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
   const [assigning, setAssigning] = useState(false);
   const [showOnlyMine, setShowOnlyMine] = useState(false);
 
+  // Seleção múltipla de conversas pra ações em lote
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  function toggleLeadSelected(id: string) {
+    setSelectedLeads(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedLeads(new Set()); }
+
+  // Resultados de busca server-side (IDs de conversas que matched)
+  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  // Reset selecao ao trocar de filtro/canal
+  useEffect(() => { clearSelection(); }, [activeChannel, activeFilter, showOnlyMine]);
+
+  // Busca server-side por palavra-chave em subject/body dos emails (debounced)
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setSearchMatchIds(null); return; }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        // Busca em inbox_messages.body e inbox_messages.subject
+        const { data: msgMatches } = await supabase
+          .from('inbox_messages')
+          .select('contact_id')
+          .or(`subject.ilike.%${term}%,body.ilike.%${term}%`)
+          .limit(500);
+        // Tambem busca em marketing_contacts.name e .email
+        const { data: contactMatches } = await supabase
+          .from('marketing_contacts')
+          .select('id')
+          .or(`name.ilike.%${term}%,email.ilike.%${term}%`)
+          .limit(500);
+        const ids = new Set<string>();
+        for (const m of (msgMatches ?? []) as Array<{ contact_id: string | null }>) if (m.contact_id) ids.add(m.contact_id);
+        for (const c of (contactMatches ?? []) as Array<{ id: string }>) ids.add(c.id);
+        setSearchMatchIds(ids);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Bulk actions
+  async function bulkAction(action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'mark_spam' | 'mark_trash') {
+    if (selectedLeads.size === 0) return;
+    const ids = Array.from(selectedLeads);
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = 1; }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'mark_spam' || action === 'mark_trash') {
+      // Move TODAS as mensagens dessas conversas pra spam/trash via Edge Function
+      const folder = action === 'mark_spam' ? 'spam' : 'trash';
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+        // Pega todos message ids dessas conversas (so emails)
+        const { data: msgs } = await supabase
+          .from('inbox_messages')
+          .select('id, channel')
+          .in('contact_id', ids)
+          .eq('channel', 'email')
+          .eq('direction', 'in');
+        if (msgs && msgs.length > 0) {
+          for (const m of msgs as Array<{ id: string }>) {
+            await fetch(`${SUPABASE_URL}/functions/v1/imap-folder-action`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messageId: m.id, action: folder }),
+            }).catch(() => null);
+          }
+        }
+        toast.success(`${ids.length} conversa(s) movidas pra ${folder === 'spam' ? 'Spam' : 'Lixeira'}`);
+        clearSelection();
+        return;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Falha em mover.');
+        return;
+      }
+    }
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from('marketing_contacts').update(updates).in('id', ids);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+    } : l));
+    toast.success(`${ids.length} conversa(s) atualizadas`);
+    clearSelection();
+  }
+
   // Drawer mobile do painel de contexto
   const [contextOpen, setContextOpen] = useState(false);
 
@@ -802,7 +901,12 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
     if (showOnlyMine && l.assignedTo !== profile.id) return false;
     if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
-    if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery.trim().length >= 2) {
+      // Busca server-side definiu os matches; se este lead não está, esconde
+      if (searchMatchIds && !searchMatchIds.has(l.id)) return false;
+      // Enquanto a busca está em andamento, mantém visíveis pelo nome local
+      if (!searchMatchIds && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    }
     if (isEmailChannel && l.channel === 'email') {
       const counts = folderCounts[l.id];
       if (!counts) return emailFolder === 'inbox';
@@ -1173,10 +1277,23 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Buscar conversas..."
-              className="w-full pl-10 pr-3 py-2.5 bg-neutral-100 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              placeholder="Buscar em nome, email, assunto e corpo..."
+              className="w-full pl-10 pr-9 py-2.5 bg-neutral-100 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
+            {searching && (
+              <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 animate-spin" />
+            )}
+            {!searching && searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 hover:text-neutral-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
+          {searchQuery.trim().length >= 2 && searchMatchIds && (
+            <p className="text-xs text-neutral-500">
+              {searchMatchIds.size} resultado(s) encontrado(s)
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             {channelOptions.map(channel => {
               const count = channel.id === 'all' ? leads.length : leads.filter(lead => lead.channel === channel.id).length;
@@ -1258,49 +1375,96 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
           )}
         </div>
         <div className="flex-1 overflow-y-auto">
+          {/* Barra de ações em lote (visível quando há selecionadas) */}
+          {selectedLeads.size > 0 && (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 px-3 py-2 bg-amber-50 border-b border-amber-200">
+              <span className="text-xs font-semibold text-amber-900 mr-1">
+                {selectedLeads.size} selecionada{selectedLeads.size > 1 ? 's' : ''}:
+              </span>
+              <button onClick={() => bulkAction('mark_unread')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-amber-700 rounded border border-amber-200 hover:bg-amber-100">
+                <Bell className="w-3 h-3" /> Não lida
+              </button>
+              <button onClick={() => bulkAction('mark_needs_human')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <AlertCircle className="w-3 h-3" /> Escalar
+              </button>
+              <button onClick={() => bulkAction('mark_resolved')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-emerald-700 rounded border border-emerald-200 hover:bg-emerald-50">
+                <CheckCircle2 className="w-3 h-3" /> Resolver
+              </button>
+              <button onClick={() => bulkAction('mark_spam')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-orange-700 rounded border border-orange-200 hover:bg-orange-50">
+                <AlertCircle className="w-3 h-3" /> Spam
+              </button>
+              <button onClick={() => bulkAction('mark_trash')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <Trash2 className="w-3 h-3" /> Lixeira
+              </button>
+              <button onClick={clearSelection} className="ml-auto text-xs font-semibold text-neutral-600 hover:text-neutral-900 px-2 py-1">
+                Cancelar
+              </button>
+            </div>
+          )}
+
           {filteredLeads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-neutral-400 px-4 py-12">
               <Inbox className="w-12 h-12 mb-3 opacity-30" />
-              <p className="text-sm font-medium">Nenhuma conversa</p>
-              <p className="text-xs text-center mt-1">As mensagens recebidas por todos os canais aparecem aqui.</p>
+              <p className="text-sm font-medium">{searchQuery ? 'Nenhum resultado pra essa busca' : 'Nenhuma conversa'}</p>
+              <p className="text-xs text-center mt-1">{searchQuery ? 'Tenta outras palavras-chave.' : 'As mensagens recebidas por todos os canais aparecem aqui.'}</p>
             </div>
           ) : (
             filteredLeads.map(lead => {
               const ch = CHANNELS.find(c => c.id === lead.channel);
+              const isSelected = selectedLeads.has(lead.id);
+              const anySelected = selectedLeads.size > 0;
               return (
-                <button
+                <div
                   key={lead.id}
-                  onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
                   onContextMenu={(e) => { e.preventDefault(); setLeadMenu({ x: e.clientX, y: e.clientY, lead }); }}
-                  className={`w-full text-left p-4 border-b border-neutral-100 transition-colors cursor-context-menu ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-white'}`}
+                  className={`group w-full p-4 border-b border-neutral-100 transition-colors cursor-context-menu ${selectedId === lead.id ? 'bg-amber-50' : isSelected ? 'bg-amber-50/50' : 'hover:bg-white'}`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
-                      {lead.guestName[0]?.toUpperCase()}
+                    {/* Checkbox: visível sempre que houver algo selecionado, ou no hover */}
+                    <div className={`shrink-0 mt-1 ${anySelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleLeadSelected(lead.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-neutral-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-semibold text-neutral-900 truncate">{lead.guestName}</span>
-                        <span className="text-xs text-neutral-400 shrink-0 ml-2">{timeAgo(lead.lastMessageAt)}</span>
+                    <button
+                      onClick={() => {
+                        if (anySelected) { toggleLeadSelected(lead.id); return; }
+                        setSelectedId(lead.id);
+                        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l));
+                      }}
+                      className="flex-1 min-w-0 text-left flex items-start gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
+                        {lead.guestName[0]?.toUpperCase()}
                       </div>
-                      <p className="text-xs text-neutral-500 truncate leading-relaxed">{lead.lastMessage}</p>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span style={{ color: ch?.color }} className="flex items-center gap-1 text-xs font-semibold">
-                          <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
-                          <span>{ch?.name}</span>
-                        </span>
-                        {lead.assignedTo && (
-                          <span className="text-xs text-neutral-500 truncate">
-                            · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-neutral-900 truncate">{lead.guestName}</span>
+                          <span className="text-xs text-neutral-400 shrink-0 ml-2">{timeAgo(lead.lastMessageAt)}</span>
+                        </div>
+                        <p className="text-xs text-neutral-500 truncate leading-relaxed">{lead.lastMessage}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span style={{ color: ch?.color }} className="flex items-center gap-1 text-xs font-semibold">
+                            <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
+                            <span>{ch?.name}</span>
                           </span>
-                        )}
-                        {!!lead.unreadCount && (
-                          <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 rounded-full text-white text-xs font-semibold flex items-center justify-center">{lead.unreadCount}</span>
-                        )}
+                          {lead.assignedTo && (
+                            <span className="text-xs text-neutral-500 truncate">
+                              · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
+                            </span>
+                          )}
+                          {!!lead.unreadCount && (
+                            <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 rounded-full text-white text-xs font-semibold flex items-center justify-center">{lead.unreadCount}</span>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </button>
                   </div>
-                </button>
+                </div>
               );
             })
           )}
