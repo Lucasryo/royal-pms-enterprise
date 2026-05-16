@@ -327,36 +327,37 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
     table{max-width:100%;border-collapse:collapse}
     blockquote{border-left:3px solid #d4d4d4;margin:8px 0;padding:4px 12px;color:#666}
     pre{white-space:pre-wrap;word-wrap:break-word}
+    html,body{height:auto !important;min-height:0 !important}
   </style>${safeStyles}</head><body>${safeBody}<script>
     (function(){
+      var lastSent = 0;
       function measure(){
-        return Math.max(
-          document.documentElement.scrollHeight || 0,
-          document.body ? document.body.scrollHeight || 0 : 0,
-          document.documentElement.offsetHeight || 0,
-          document.body ? document.body.offsetHeight || 0 : 0
-        );
+        // Mede SOMENTE o body, nao o documentElement (que reflete o tamanho do iframe,
+        // criando loop). Arredonda pra evitar floating-point oscilation.
+        if (!document.body) return 0;
+        var h = document.body.scrollHeight;
+        return Math.ceil(h / 10) * 10;
       }
       function send(){
-        try{ parent.postMessage({type:'email-iframe-height',h:measure()},'*'); }catch(e){}
+        try{
+          var h = measure();
+          // Dedupe: so manda se mudou mais que 5px
+          if (Math.abs(h - lastSent) < 5) return;
+          lastSent = h;
+          parent.postMessage({type:'email-iframe-height',h:h},'*');
+        }catch(e){}
       }
       window.addEventListener('load', send);
-      window.addEventListener('resize', send);
-      setTimeout(send,50); setTimeout(send,300); setTimeout(send,1000); setTimeout(send,3000); setTimeout(send,6000);
-      // Re-mede a cada imagem que carrega/falha
+      setTimeout(send,50); setTimeout(send,300); setTimeout(send,1000); setTimeout(send,3000);
       document.querySelectorAll('img').forEach(function(img){
+        if (img.complete) return;
         img.addEventListener('load', send);
         img.addEventListener('error', send);
       });
-      // ResizeObserver pega qualquer mudanca de layout (fontes, imagens base64, etc)
-      if (typeof ResizeObserver !== 'undefined') {
-        var ro = new ResizeObserver(function(){ send(); });
-        if (document.body) ro.observe(document.body);
-        ro.observe(document.documentElement);
-      }
-      // MutationObserver pega injecao tardia (raro mas possivel)
-      if (typeof MutationObserver !== 'undefined' && document.body) {
-        new MutationObserver(send).observe(document.body, { childList:true, subtree:true, attributes:true });
+      // ResizeObserver no body. Como o body so depende do conteudo (nao do iframe),
+      // nao tem feedback loop quando o parent ajusta a altura do iframe.
+      if (typeof ResizeObserver !== 'undefined' && document.body) {
+        new ResizeObserver(function(){ send(); }).observe(document.body);
       }
     })();
   <\/script></body></html>`;
@@ -366,10 +367,10 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
       const data = e.data as { type?: string; h?: number };
       if (!data || data.type !== 'email-iframe-height' || typeof data.h !== 'number') return;
       if (!ref.current) return;
-      // Confirma que veio do nosso iframe
       if (e.source !== ref.current.contentWindow) return;
-      // Sem cap superior: o email expande inteiro dentro do balão e o usuário scrolla a lista de mensagens de fora.
-      setHeight(Math.max(80, data.h + 24));
+      const target = Math.max(80, Math.min(50000, data.h + 24));
+      // So atualiza se mudou mais que 10px (evita loop / micro-oscilação)
+      setHeight(prev => Math.abs(prev - target) < 10 ? prev : target);
     }
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
