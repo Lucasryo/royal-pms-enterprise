@@ -572,8 +572,22 @@ function decodeToBytes(content: string, encoding: string): Uint8Array {
     }
     return new Uint8Array(bytes);
   }
-  // 7bit, 8bit, binary, none: trata como string e codifica para UTF-8 bytes
-  // (a string já vem decodificada do socket TLS como UTF-8, então isso preserva)
+  // Detecção defensiva: se NÃO veio header de encoding mas o conteúdo só tem
+  // chars válidos de base64 (e tem tamanho razoável), tenta decodificar base64.
+  // Cobre emails de sistemas (Accenture STAR, etc) que enviam HTML em base64
+  // sem declarar Content-Transfer-Encoding propriamente.
+  const cleaned = content.replace(/\s/g, "");
+  if (cleaned.length >= 80 && /^[A-Za-z0-9+/=]+$/.test(cleaned) && cleaned.length % 4 === 0) {
+    try {
+      const binary = atob(cleaned);
+      const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+      // Confirma que decodificou pra texto legível (não bytes binários aleatórios)
+      const sample = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 200));
+      if (/[<>a-zA-Z]/.test(sample)) {
+        return bytes;
+      }
+    } catch { /* não é base64, segue */ }
+  }
   return new TextEncoder().encode(content);
 }
 
