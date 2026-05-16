@@ -1316,7 +1316,7 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
               );
             })}
           </div>
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          <div className="flex flex-wrap gap-1.5">
             {(() => {
               const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
               const counts = {
@@ -1326,24 +1326,25 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                 needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
                 resolved: baseLeads.filter(l => l.status === 'resolved').length,
               };
+              const baseBtn = 'flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all';
               return (
                 <>
                   <button
                     onClick={() => setShowOnlyMine(s => !s)}
-                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                    className={`${baseBtn} ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
                     title="Mostrar só conversas atribuídas a mim"
                   >
-                    <span>👤 Minhas</span>
-                    <span className={`rounded-full px-1.5 text-[10px] ${showOnlyMine ? 'bg-white/25' : 'bg-neutral-100 text-neutral-500'}`}>{counts.mine}</span>
+                    <span>Minhas</span>
+                    <span className={`tabular-nums ${showOnlyMine ? 'text-white/80' : 'text-neutral-400'}`}>{counts.mine}</span>
                   </button>
                   {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
                     <button
                       key={f}
                       onClick={() => setActiveFilter(f)}
-                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                      className={`${baseBtn} ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
                     >
                       <span>{f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}</span>
-                      <span className={`rounded-full px-1.5 text-[10px] ${activeFilter === f ? 'bg-white/25' : 'bg-neutral-100 text-neutral-500'}`}>{counts[f]}</span>
+                      <span className={`tabular-nums ${activeFilter === f ? 'text-white/80' : 'text-neutral-400'}`}>{counts[f]}</span>
                     </button>
                   ))}
                 </>
