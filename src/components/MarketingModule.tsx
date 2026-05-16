@@ -1,4 +1,4 @@
-import { ReactElement, useState, useEffect, useRef } from 'react';
+import React, { ReactElement, useState, useEffect, useRef } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
@@ -15,7 +15,7 @@ import {
   ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
   Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
   QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
-  CheckCircle, XCircle, Wifi, Key,
+  CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon,
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -52,6 +52,15 @@ interface Message {
   emailMessageId?: string | null;
   emailReferences?: string | null;
   folder?: 'inbox' | 'spam' | 'trash';
+  attachments?: Attachment[];
+}
+
+interface Attachment {
+  path: string;          // path no bucket inbox_attachments
+  name: string;
+  size: number;
+  mime: string;
+  url?: string;          // signed URL gerada on demand
 }
 
 type EmailFolder = 'inbox' | 'spam' | 'trash';
@@ -113,29 +122,6 @@ const CHANNELS = [
 const TEMPLATE_CATEGORIES = ['Saudação', 'Preços', 'Confirmação', 'Follow-up', 'Wi-Fi/PIX', 'Check-out', 'Personalizado'];
 const TEMPLATE_CHANNELS = ['WhatsApp', 'Instagram', 'Facebook', 'Todos'];
 
-const SEED_LEADS: Lead[] = [
-  { id: '1', guestName: 'Ana Beatriz Costa', channel: 'whatsapp', lastMessage: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', lastMessageAt: new Date(Date.now() - 5 * 60000).toISOString(), status: 'new', sentiment: 'happy', unreadCount: 3 },
-  { id: '2', guestName: 'Carlos Eduardo Lima', channel: 'instagram', lastMessage: 'Quanto custa a diária? Vi pelo stories.', lastMessageAt: new Date(Date.now() - 22 * 60000).toISOString(), status: 'needs_human', sentiment: 'neutral', unreadCount: 1 },
-  { id: '3', guestName: 'Marina Souza', channel: 'whatsapp', lastMessage: 'Infelizmente não consegui fazer meu check-in ainda.', lastMessageAt: new Date(Date.now() - 90 * 60000).toISOString(), status: 'needs_human', sentiment: 'mixed', unreadCount: 0 },
-  { id: '4', guestName: 'Roberto Ferreira', channel: 'facebook', lastMessage: 'Muito obrigado pelo atendimento! Nota 10.', lastMessageAt: new Date(Date.now() - 3 * 3600000).toISOString(), status: 'resolved', sentiment: 'happy', unreadCount: 0 },
-  { id: '5', guestName: 'Juliana Alves', channel: 'google', lastMessage: 'Queria saber se o café da manhã está incluso nas tarifas exibidas.', lastMessageAt: new Date(Date.now() - 5 * 3600000).toISOString(), status: 'ai_responded', sentiment: 'neutral', unreadCount: 0 },
-];
-
-const SEED_CAMPAIGNS: Campaign[] = [
-  { id: '1', name: 'Promoção Feriado Junho', status: 'active', reach: '2.847', conv: '12.3%', channel: 'WhatsApp', scheduledAt: '2026-06-01' },
-  { id: '2', name: 'Recuperação Carrinho Abandonado', status: 'active', reach: '891', conv: '8.7%', channel: 'WhatsApp' },
-  { id: '3', name: 'Reengajamento Aniversariantes', status: 'scheduled', reach: '0', conv: '0%', channel: 'Instagram', scheduledAt: '2026-05-20' },
-  { id: '4', name: 'Black Friday Antecipado', status: 'completed', reach: '5.120', conv: '18.4%', channel: 'WhatsApp' },
-];
-
-const SEED_TEMPLATES: Template[] = [
-  { id: '1', name: 'Boas-vindas Geral', category: 'Saudação', channel: 'WhatsApp', text: 'Olá [NOME]! 👋 Bem-vindo ao Royal PMS Palace Hotel. Como posso ajudar com sua reserva hoje?' },
-  { id: '2', name: 'Preços Executiva', category: 'Preços', channel: 'WhatsApp', text: 'Nossas tarifas para UH Executiva: Semana R$ 289 | Fim de semana R$ 359 | Pacotes especiais disponíveis. Café da manhã incluso.' },
-  { id: '3', name: 'Confirmação de Reserva', category: 'Confirmação', channel: 'WhatsApp', text: 'Reserva confirmada! ✅ Olá [NOME], sua estadia de [CHECKIN] a [CHECKOUT] está garantida. Check-in a partir das 14h. Até lá!' },
-  { id: '4', name: 'Follow-up 24h', category: 'Follow-up', channel: 'WhatsApp', text: 'Oi [NOME]! Vi que você mostrou interesse em nossa acomodação. Posso te ajudar a finalizar a reserva? Hoje temos disponibilidade especial 🏨' },
-  { id: '5', name: 'Wi-Fi e PIX', category: 'Wi-Fi/PIX', channel: 'WhatsApp', text: '📶 Wi-Fi: Rede Royal_Guest | Senha: BemVindo2026\n💰 PIX: contato@royalpms.com' },
-];
-
 function timeAgo(iso: string) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
   if (diff < 60) return 'agora';
@@ -157,6 +143,7 @@ type InboxMessageRow = {
   folder: EmailFolder | null;
   read: boolean;
   created_at: string;
+  attachments: Attachment[] | null;
 };
 
 type MarketingContactRow = {
@@ -172,6 +159,7 @@ type MarketingContactRow = {
   unread_count: number | null;
   tags: string[] | null;
   internal_notes: string | null;
+  assigned_to: string | null;
   created_at: string;
 };
 
@@ -195,6 +183,7 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     emailMessageId: row.email_message_id,
     emailReferences: row.email_references,
     folder: (row.folder ?? 'inbox') as EmailFolder,
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
   };
 }
 
@@ -212,6 +201,7 @@ function mapContactToLead(row: MarketingContactRow): Lead {
     unreadCount: row.unread_count || 0,
     tags: row.tags || undefined,
     internalNotes: row.internal_notes || undefined,
+    assignedTo: row.assigned_to || undefined,
   };
 }
 
@@ -236,9 +226,54 @@ function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
 
 // ─── LeadInbox Tab ────────────────────────────────────────────────────────────
 
-function LeadInboxTab() {
-  const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
-  const [selectedId, setSelectedId] = useState<string | null>('1');
+type AttachmentChipProps = {
+  attachment: Attachment;
+  darkBubble: boolean;
+  onResolveUrl: (a: Attachment) => Promise<string | null>;
+};
+
+const AttachmentChip: React.FC<AttachmentChipProps> = ({ attachment, darkBubble, onResolveUrl }) => {
+  const isImage = attachment.mime.startsWith('image/');
+  const [signedUrl, setSignedUrl] = useState<string | null>(attachment.url ?? null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (signedUrl) return;
+    let alive = true;
+    setLoading(true);
+    onResolveUrl(attachment).then(url => {
+      if (alive) setSignedUrl(url);
+    }).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [attachment.path]);
+
+  if (isImage && signedUrl) {
+    return (
+      <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="block max-w-[260px] rounded-lg overflow-hidden border border-white/20">
+        <img src={signedUrl} alt={attachment.name} className="w-full h-auto object-cover" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={signedUrl ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => { if (!signedUrl) e.preventDefault(); }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg max-w-[260px] ${darkBubble ? 'bg-white/10 hover:bg-white/15' : 'bg-neutral-100 hover:bg-neutral-200'} transition-colors`}
+    >
+      {isImage ? <ImageIcon className="w-4 h-4 shrink-0" /> : <FileIcon className="w-4 h-4 shrink-0" />}
+      <div className="min-w-0 flex-1">
+        <p className={`text-xs font-medium truncate ${darkBubble ? 'text-white' : 'text-neutral-900'}`}>{attachment.name}</p>
+        <p className={`text-xs ${darkBubble ? 'text-white/60' : 'text-neutral-500'}`}>{loading ? 'carregando…' : `${(attachment.size / 1024).toFixed(0)} KB`}</p>
+      </div>
+    </a>
+  );
+};
+
+function LeadInboxTab({ profile }: { profile: UserProfile }) {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeChannel, setActiveChannel] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
   const [emailFolder, setEmailFolder] = useState<EmailFolder>('inbox');
@@ -251,22 +286,24 @@ function LeadInboxTab() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
   const [composeSending, setComposeSending] = useState(false);
-  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
-    '1': [
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
-      { text: 'Olá Ana! Temos disponibilidade para o feriado de Corpus Christi (19-22 jun). UH Executiva: R$ 359/noite. Deseja reservar?', type: 'out', time: '14:33' },
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:35' },
-    ],
-    '2': [
-      { text: 'Quanto custa a diária? Vi pelo stories.', type: 'in', time: '13:15' },
-    ],
-    '3': [
-      { text: 'Infelizmente não consegui fazer meu check-in ainda.', type: 'in', time: '11:47' },
-    ],
-  });
+  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({});
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [loadingAI, setLoadingAI] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Anexos pendentes para envio na próxima mensagem
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Atribuição de conversa
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
+
+  // Drawer mobile do painel de contexto
+  const [contextOpen, setContextOpen] = useState(false);
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
   const messages = selectedId ? (chatHistory[selectedId] ?? []) : [];
@@ -329,6 +366,109 @@ function LeadInboxTab() {
     loadFolderCounts();
     return () => { alive = false; };
   }, []);
+
+  // Carrega lista de usuários atribuíveis (staff do hotel)
+  useEffect(() => {
+    let alive = true;
+    async function loadAssignables() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .in('role', ['admin', 'manager', 'reservations', 'reception', 'marketing', 'faturamento', 'finance', 'eventos'])
+        .order('name');
+      if (alive && data) setAssignableUsers(data as Array<{ id: string; name: string; role: string }>);
+    }
+    loadAssignables();
+    return () => { alive = false; };
+  }, []);
+
+  // ── Anexos ─────────────────────────────────────────────────────────────
+  async function handleFilePick(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const remaining = 5 - pendingAttachments.length;
+    if (remaining <= 0) {
+      toast.error('Máximo de 5 anexos por mensagem.');
+      return;
+    }
+    const filesToUpload = Array.from(files).slice(0, remaining);
+
+    setUploadingAttachment(true);
+    try {
+      const newAttachments: Attachment[] = [];
+      for (const file of filesToUpload) {
+        if (file.size > 20 * 1024 * 1024) {
+          toast.error(`"${file.name}" passa de 20MB. Ignorado.`);
+          continue;
+        }
+        const path = `${selectedId ?? 'compose'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+        const { error } = await supabase.storage
+          .from('inbox_attachments')
+          .upload(path, file, { contentType: file.type, upsert: false });
+        if (error) {
+          toast.error(`Falha ao enviar "${file.name}": ${error.message}`);
+          continue;
+        }
+        newAttachments.push({ path, name: file.name, size: file.size, mime: file.type });
+      }
+      if (newAttachments.length > 0) {
+        setPendingAttachments(prev => [...prev, ...newAttachments]);
+        toast.success(`${newAttachments.length} anexo(s) prontos para envio.`);
+      }
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function removePendingAttachment(idx: number) {
+    const att = pendingAttachments[idx];
+    if (!att) return;
+    setPendingAttachments(prev => prev.filter((_, i) => i !== idx));
+    // best-effort cleanup do storage
+    await supabase.storage.from('inbox_attachments').remove([att.path]).catch(() => null);
+  }
+
+  async function getAttachmentUrl(att: Attachment): Promise<string | null> {
+    if (att.url) return att.url;
+    const { data, error } = await supabase.storage
+      .from('inbox_attachments')
+      .createSignedUrl(att.path, 3600);
+    if (error || !data) return null;
+    return data.signedUrl;
+  }
+
+  // ── Atribuição ─────────────────────────────────────────────────────────
+  async function assignConversation(userId: string | null) {
+    if (!selectedId) return;
+    setAssigning(true);
+    try {
+      const { error } = await supabase
+        .from('marketing_contacts')
+        .update({ assigned_to: userId })
+        .eq('id', selectedId);
+      if (error) throw error;
+      setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, assignedTo: userId || undefined } : l));
+      toast.success(userId ? 'Conversa atribuída.' : 'Atribuição removida.');
+      setShowAssignPicker(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao atribuir.');
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function updateInternalNotes(text: string) {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ internal_notes: text })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao salvar notas.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, internalNotes: text } : l));
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -422,6 +562,7 @@ function LeadInboxTab() {
   const isEmailChannel = activeChannel === 'email';
 
   const filteredLeads = leads.filter(l => {
+    if (showOnlyMine && l.assignedTo !== profile.id) return false;
     if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
     if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -470,7 +611,7 @@ function LeadInboxTab() {
   }
 
   async function sendMessage() {
-    if (!messageInput.trim() || !selectedId || sendingMessage) return;
+    if ((!messageInput.trim() && pendingAttachments.length === 0) || !selectedId || sendingMessage) return;
     const text = messageInput.trim();
     const selectedLead = leads.find(l => l.id === selectedId);
     if (!selectedLead) return;
@@ -522,10 +663,13 @@ function LeadInboxTab() {
 
     const now = new Date().toISOString();
     const emailReferences = replyReferences || lastIncomingEmail?.emailMessageId || null;
-    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences };
+    const sentAttachments = pendingAttachments.slice();
+    const previewText = text || (sentAttachments.length ? `[${sentAttachments.length} anexo(s)]` : '');
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences, attachments: sentAttachments };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: previewText, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
+    setPendingAttachments([]);
 
     const { error } = await supabase.from('inbox_messages').insert([{
       contact_id: selectedId,
@@ -537,6 +681,7 @@ function LeadInboxTab() {
       email_message_id: outgoingMessageId,
       email_references: selectedLead.channel === 'email' ? emailReferences : null,
       read: true,
+      attachments: sentAttachments,
     }]);
 
     if (error) {
@@ -547,7 +692,7 @@ function LeadInboxTab() {
 
     await supabase
       .from('marketing_contacts')
-      .update({ last_message: text, last_message_at: now, status: 'ai_responded', unread_count: 0 })
+      .update({ last_message: previewText, last_message_at: now, status: 'ai_responded', unread_count: 0 })
       .eq('id', selectedId);
 
       toast.success(selectedLead.channel === 'email' ? 'E-mail enviado' : 'Mensagem enviada');
@@ -694,27 +839,29 @@ function LeadInboxTab() {
     toast.success('Conversa resolvida');
   }
 
+  const assignedUser = selected?.assignedTo ? assignableUsers.find(u => u.id === selected.assignedTo) : null;
+
   return (
-    <div className="flex h-[75vh] min-h-[500px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
-      {/* Sidebar */}
-      <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
-        <div className="p-4 border-b border-neutral-100 space-y-3">
+    <div className="flex h-[calc(100vh-12rem)] min-h-[600px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
+      {/* ─── Coluna 1: Filtros + lista ─────────────────────────────────── */}
+      <div className="w-80 shrink-0 border-r border-neutral-200 flex flex-col bg-neutral-50/40">
+        <div className="p-4 border-b border-neutral-200 space-y-3 bg-white">
           <button
             onClick={() => setComposeOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-semibold hover:bg-neutral-800 transition-colors"
           >
-            <Edit3 className="w-3.5 h-3.5" /> Novo e-mail
+            <Edit3 className="w-4 h-4" /> Novo e-mail
           </button>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Buscar..."
-              className="w-full pl-9 pr-3 py-2 bg-neutral-50 rounded-xl text-xs font-medium border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              placeholder="Buscar conversas..."
+              className="w-full pl-10 pr-3 py-2.5 bg-neutral-100 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-2 gap-2">
             {channelOptions.map(channel => {
               const count = channel.id === 'all' ? leads.length : leads.filter(lead => lead.channel === channel.id).length;
               return (
@@ -725,30 +872,37 @@ function LeadInboxTab() {
                     const nextLead = leads.find(lead => (channel.id === 'all' || lead.channel === channel.id) && (activeFilter === 'all' || lead.status === activeFilter));
                     setSelectedId(nextLead?.id ?? null);
                   }}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-semibold uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 border border-neutral-200 hover:bg-neutral-50'}`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }}>{channel.icon}</span>
+                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }} className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
                     <span className="truncate">{channel.name}</span>
                   </span>
-                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${activeChannel === channel.id ? 'bg-white/15 text-white' : 'bg-white text-neutral-500'}`}>{count}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${activeChannel === channel.id ? 'bg-white/20 text-white' : 'bg-neutral-100 text-neutral-500'}`}>{count}</span>
                 </button>
               );
             })}
           </div>
-          <div className="flex gap-1 overflow-x-auto scrollbar-none">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => setShowOnlyMine(s => !s)}
+              className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+              title={showOnlyMine ? 'Mostrando só suas conversas' : 'Mostrar só minhas'}
+            >
+              {showOnlyMine ? '👤 Minhas' : 'Todas'}
+            </button>
             {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setActiveFilter(f)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
               >
                 {f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}
               </button>
             ))}
           </div>
           {isEmailChannel && (
-            <div className="flex gap-1 border-t border-neutral-100 pt-3">
+            <div className="flex gap-1.5 border-t border-neutral-200 pt-3">
               {(['inbox', 'spam', 'trash'] as const).map(f => {
                 const total = Object.values(folderCounts).reduce<number>((sum, c) => sum + (c?.[f] || 0), 0);
                 const labels = { inbox: 'Entrada', spam: 'Spam', trash: 'Lixeira' } as const;
@@ -758,12 +912,12 @@ function LeadInboxTab() {
                   <button
                     key={f}
                     onClick={() => setEmailFolder(f)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-neutral-500 border border-neutral-200 hover:bg-neutral-50'}`}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-300' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
                   >
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-3.5 h-3.5" />
                     <span>{labels[f]}</span>
                     {total > 0 && (
-                      <span className={`text-[9px] px-1 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
+                      <span className={`text-[10px] px-1.5 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
                     )}
                   </button>
                 );
@@ -772,74 +926,144 @@ function LeadInboxTab() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredLeads.map(lead => {
-            const ch = CHANNELS.find(c => c.id === lead.channel);
-            return (
-              <button
-                key={lead.id}
-                onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
-                className={`w-full text-left p-3 border-b border-neutral-50 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-neutral-50'}`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center shrink-0 text-xs font-semibold text-neutral-600">
-                    {lead.guestName[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-neutral-900 truncate">{lead.guestName}</span>
-                      <span className="text-[9px] text-neutral-400 shrink-0 ml-1">{timeAgo(lead.lastMessageAt)}</span>
+          {filteredLeads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-neutral-400 px-4 py-12">
+              <Inbox className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">Nenhuma conversa</p>
+              <p className="text-xs text-center mt-1">As mensagens recebidas por todos os canais aparecem aqui.</p>
+            </div>
+          ) : (
+            filteredLeads.map(lead => {
+              const ch = CHANNELS.find(c => c.id === lead.channel);
+              return (
+                <button
+                  key={lead.id}
+                  onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
+                  className={`w-full text-left p-4 border-b border-neutral-100 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-white'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
+                      {lead.guestName[0]?.toUpperCase()}
                     </div>
-                    <p className="text-[10px] text-neutral-500 truncate leading-snug">{lead.lastMessage}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span style={{ color: ch?.color }} className="flex items-center gap-0.5 text-[9px] font-bold">{ch?.icon}{ch?.name}</span>
-                      <SentimentIcon s={lead.sentiment} />
-                      {!!lead.unreadCount && (
-                        <span className="ml-auto w-4 h-4 bg-amber-500 rounded-full text-white text-[9px] font-semibold flex items-center justify-center">{lead.unreadCount}</span>
-                      )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-neutral-900 truncate">{lead.guestName}</span>
+                        <span className="text-xs text-neutral-400 shrink-0 ml-2">{timeAgo(lead.lastMessageAt)}</span>
+                      </div>
+                      <p className="text-xs text-neutral-500 truncate leading-relaxed">{lead.lastMessage}</p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span style={{ color: ch?.color }} className="flex items-center gap-1 text-xs font-semibold">
+                          <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
+                          <span>{ch?.name}</span>
+                        </span>
+                        <SentimentIcon s={lead.sentiment} />
+                        {lead.assignedTo && (
+                          <span className="text-xs text-neutral-500 truncate">
+                            · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
+                          </span>
+                        )}
+                        {!!lead.unreadCount && (
+                          <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 rounded-full text-white text-xs font-semibold flex items-center justify-center">{lead.unreadCount}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
-      {/* Chat area */}
+      {/* ─── Coluna 2: Conversa ─────────────────────────────────────────── */}
       {selected ? (
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 bg-white">
           {/* Header */}
-          <div className="px-5 py-3 border-b border-neutral-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center font-semibold text-sm text-neutral-700">{selected.guestName[0]}</div>
-              <div>
-                <p className="font-bold text-sm text-neutral-900">{selected.guestName}</p>
-                <div className="flex items-center gap-2">
+          <div className="px-5 py-3.5 border-b border-neutral-200 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center font-semibold text-base text-neutral-700 shrink-0">{selected.guestName[0]?.toUpperCase()}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-base text-neutral-900 truncate">{selected.guestName}</p>
+                <div className="flex items-center gap-2 flex-wrap">
                   {(() => {
                     const channel = CHANNELS.find(c => c.id === selected.channel);
-                    return channel ? <span style={{ color: channel.color }} className="flex items-center gap-1 text-[10px] font-bold">{channel.icon}{channel.name}</span> : null;
+                    return channel ? (
+                      <span style={{ color: channel.color }} className="flex items-center gap-1 text-xs font-semibold">
+                        <span className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
+                        <span>{channel.name}</span>
+                      </span>
+                    ) : null;
                   })()}
                   <StatusBadge status={selected.status} />
                   <SentimentIcon s={selected.sentiment} />
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative">
+                <button
+                  onClick={() => setShowAssignPicker(s => !s)}
+                  disabled={assigning}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${assignedUser ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}`}
+                  title={assignedUser ? `Atribuída a ${assignedUser.name}` : 'Atribuir conversa'}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{assignedUser ? assignedUser.name : 'Atribuir'}</span>
+                </button>
+                {showAssignPicker && (
+                  <div className="absolute right-0 top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-lg z-20">
+                    <button
+                      onClick={() => assignConversation(profile.id)}
+                      disabled={assigning}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-50 border-b border-neutral-100"
+                    >
+                      ⚡ Atribuir a mim
+                    </button>
+                    {assignedUser && (
+                      <button
+                        onClick={() => assignConversation(null)}
+                        disabled={assigning}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 border-b border-neutral-100"
+                      >
+                        Remover atribuição
+                      </button>
+                    )}
+                    {assignableUsers.map(u => (
+                      <button
+                        key={u.id}
+                        onClick={() => assignConversation(u.id)}
+                        disabled={assigning}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 ${selected.assignedTo === u.id ? 'bg-indigo-50 font-semibold text-indigo-900' : 'text-neutral-700'}`}
+                      >
+                        <div>{u.name}</div>
+                        <div className="text-xs text-neutral-500">{u.role}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setContextOpen(o => !o)}
+                className="lg:hidden p-1.5 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                title="Contexto do contato"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
               {selected.channel === 'email' && (
-                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 disabled:opacity-50 transition-colors">
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> Atualizar
+                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
                 </button>
               )}
               {selected.status !== 'resolved' && (
-                <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Resolver
+                <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Resolver</span>
                 </button>
               )}
             </div>
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-neutral-50/30">
             {visibleMessages.map((msg, i) => {
               const isEmail = selected?.channel === 'email';
               const canAct = isEmail && msg.type === 'in' && !!msg.id;
@@ -848,15 +1072,22 @@ function LeadInboxTab() {
               const busy = folderActionLoading === msg.id;
               return (
                 <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`relative max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
+                  <div className={`relative max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
                     {isEmail && msg.subject && (
                       <div className="mb-2 border-b border-neutral-100 pb-2">
-                        <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
                         <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
                       </div>
                     )}
-                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                    <p className="text-[9px] mt-2 text-neutral-400">{msg.time}</p>
+                    {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                    {!!msg.attachments?.length && (
+                      <div className="mt-2 space-y-1.5">
+                        {msg.attachments.map((att, ai) => (
+                          <AttachmentChip key={ai} attachment={att} darkBubble={msg.type === 'out'} onResolveUrl={getAttachmentUrl} />
+                        ))}
+                      </div>
+                    )}
+                    <p className={`text-xs mt-2 ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>{msg.time}</p>
                     {canAct && (
                       <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-0.5 bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
                         {!inSpam && !inTrash && (
@@ -887,33 +1118,69 @@ function LeadInboxTab() {
             })}
             {visibleMessages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-neutral-400">
-                <Inbox className="w-10 h-10 mb-2 opacity-30" />
-                <p className="text-xs">Nenhuma mensagem nesta pasta</p>
+                <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">Nenhuma mensagem nesta pasta</p>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
 
           {/* AI suggestions */}
-          <div className="px-4 py-2 border-t border-neutral-100 bg-amber-50/50">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Sugestões IA</p>
-            {loadingAI ? (
-              <div className="flex gap-2">
-                {[1,2,3].map(i => <div key={i} className="h-7 w-40 bg-amber-100 rounded-lg animate-pulse" />)}
-              </div>
-            ) : (
-              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                {aiSuggestions.map((s, i) => (
-                  <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-xs text-neutral-700 hover:border-amber-500 transition-colors max-w-[220px] text-left truncate">
-                    {s}
-                  </button>
+          {(loadingAI || aiSuggestions.length > 0) && (
+            <div className="px-4 py-2.5 border-t border-neutral-200 bg-amber-50/40">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Sugestões IA</p>
+              {loadingAI ? (
+                <div className="flex gap-2">
+                  {[1,2,3].map(i => <div key={i} className="h-8 w-44 bg-amber-100 rounded-lg animate-pulse" />)}
+                </div>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+                  {aiSuggestions.map((s, i) => (
+                    <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-sm text-neutral-700 hover:border-amber-500 transition-colors max-w-[240px] text-left truncate">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pending attachments preview */}
+          {pendingAttachments.length > 0 && (
+            <div className="px-4 pt-3 pb-1 border-t border-neutral-200 bg-white">
+              <div className="flex flex-wrap gap-2">
+                {pendingAttachments.map((att, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-100 text-sm border border-neutral-200">
+                    {att.mime.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-amber-600" /> : <FileIcon className="w-4 h-4 text-neutral-600" />}
+                    <span className="font-medium text-neutral-800 truncate max-w-[180px]">{att.name}</span>
+                    <span className="text-xs text-neutral-500">{(att.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removePendingAttachment(i)} className="text-neutral-400 hover:text-red-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Input */}
-          <div className="p-4 border-t border-neutral-100 flex items-end gap-3">
+          <div className="p-4 border-t border-neutral-200 flex items-end gap-2 bg-white">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={e => handleFilePick(e.target.files)}
+              accept="image/*,application/pdf,audio/*,video/*,.doc,.docx,.xls,.xlsx"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAttachment || sendingMessage}
+              className="p-2.5 rounded-2xl text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+              title="Anexar arquivo"
+            >
+              {uploadingAttachment ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+            </button>
             <textarea
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
@@ -921,24 +1188,98 @@ function LeadInboxTab() {
               placeholder={selected.channel === 'email' ? 'Escreva a resposta por e-mail...' : 'Escreva uma mensagem...'}
               disabled={sendingMessage}
               rows={2}
-              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-sans"
+              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border border-neutral-200 focus:border-amber-500 focus:bg-white focus:ring-0 outline-none font-sans"
             />
             <button
               onClick={sendMessage}
-              disabled={!messageInput.trim() || sendingMessage}
+              disabled={(!messageInput.trim() && pendingAttachments.length === 0) || sendingMessage}
               className="p-3 bg-neutral-900 text-white rounded-2xl hover:bg-neutral-800 disabled:opacity-40 transition-all"
             >
-              {sendingMessage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {sendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-neutral-400">
+        <div className="flex-1 flex items-center justify-center text-neutral-400 bg-neutral-50/30">
           <div className="text-center">
-            <Inbox className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-bold">Selecione uma conversa</p>
+            <Inbox className="w-16 h-16 mx-auto mb-3 opacity-30" />
+            <p className="font-semibold text-base text-neutral-500">Selecione uma conversa</p>
+            <p className="text-sm text-neutral-400 mt-1">As mensagens dos seus canais aparecem aqui.</p>
           </div>
         </div>
+      )}
+
+      {/* ─── Coluna 3: Contexto do contato (desktop) ─────────────────── */}
+      {selected && (
+        <aside className={`${contextOpen ? 'flex absolute inset-y-0 right-0 z-20 w-80 shadow-2xl' : 'hidden'} lg:flex lg:static lg:w-72 shrink-0 border-l border-neutral-200 bg-neutral-50/40 flex-col overflow-y-auto`}>
+          <div className="lg:hidden flex items-center justify-between p-4 border-b border-neutral-200 bg-white">
+            <p className="text-sm font-semibold text-neutral-900">Contexto</p>
+            <button onClick={() => setContextOpen(false)} className="p-1 rounded-lg hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Contato</p>
+              <p className="text-sm font-semibold text-neutral-900">{selected.guestName}</p>
+              {selected.guestEmail && (
+                <a href={`mailto:${selected.guestEmail}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Mail className="w-3.5 h-3.5" /> {selected.guestEmail}
+                </a>
+              )}
+              {selected.guestPhone && (
+                <a href={`tel:${selected.guestPhone}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Phone className="w-3.5 h-3.5" /> {selected.guestPhone}
+                </a>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Atendente</p>
+              {assignedUser ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-semibold text-indigo-700">{assignedUser.name[0]?.toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-neutral-900 truncate">{assignedUser.name}</p>
+                    <p className="text-xs text-neutral-500">{assignedUser.role}</p>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowAssignPicker(true)} className="text-sm text-amber-700 hover:underline">Sem atendente — atribuir</button>
+              )}
+            </div>
+
+            {selected.tags && selected.tags.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.tags.map(t => (
+                    <span key={t} className="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Notas internas</p>
+              <textarea
+                key={selected.id}
+                defaultValue={selected.internalNotes ?? ''}
+                onBlur={e => updateInternalNotes(e.target.value)}
+                rows={4}
+                placeholder="Notas visíveis só para a equipe..."
+                className="w-full resize-none px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Estado da conversa</p>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Status:</span><StatusBadge status={selected.status} /></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Canal:</span><span className="font-medium">{CHANNELS.find(c => c.id === selected.channel)?.name ?? selected.channel}</span></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Não lidas:</span><span className="font-medium">{selected.unreadCount ?? 0}</span></div>
+              </div>
+            </div>
+          </div>
+        </aside>
       )}
 
       {composeOpen && (
@@ -1568,102 +1909,118 @@ function TemplatesTab() {
 
 function AnalyticsTab() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
+  const [metrics, setMetrics] = useState({ total: 0, resolved: 0, needsHuman: 0, newCount: 0 });
+  const [daily, setDaily] = useState<Array<{ date: string; conversations: number }>>([]);
+  const [loading, setLoading] = useState(true);
 
-  const metrics = {
-    '7d': { total: 148, botResolved: 112, escalated: 36, avgResp: 2.4, satisfaction: 4.7, conversion: 12.3 },
-    '30d': { total: 524, botResolved: 398, escalated: 126, avgResp: 3.1, satisfaction: 4.5, conversion: 10.8 },
-    '90d': { total: 1847, botResolved: 1401, escalated: 446, avgResp: 2.9, satisfaction: 4.6, conversion: 11.2 },
-  }[period];
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    async function load() {
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const [total, resolved, needsHuman, newCount, msgs] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'resolved').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new').gte('last_message_at', since),
+        supabase.from('inbox_messages').select('created_at').gte('created_at', since).limit(5000),
+      ]);
+      if (!alive) return;
 
-  const dailyData = Array.from({ length: period === '7d' ? 7 : period === '30d' ? 30 : 90 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    return { date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), conversations: Math.floor(Math.random() * 30 + 10), resolved: Math.floor(Math.random() * 25 + 5) };
-  }).reverse();
+      // Group messages by day
+      const buckets: Record<string, number> = {};
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        buckets[key] = 0;
+      }
+      for (const row of (msgs.data ?? []) as Array<{ created_at: string }>) {
+        const key = row.created_at.slice(0, 10);
+        if (key in buckets) buckets[key]++;
+      }
+      const dailySeries = Object.entries(buckets).map(([key, n]) => ({
+        date: new Date(key).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        conversations: n,
+      }));
 
-  const maxVal = Math.max(...dailyData.map(d => d.conversations));
+      setMetrics({
+        total: total.count ?? 0,
+        resolved: resolved.count ?? 0,
+        needsHuman: needsHuman.count ?? 0,
+        newCount: newCount.count ?? 0,
+      });
+      setDaily(dailySeries);
+      setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [period]);
 
-  const intents = [
-    { intent: 'Consulta de preço', count: 89 },
-    { intent: 'Disponibilidade', count: 67 },
-    { intent: 'Check-in/out', count: 43 },
-    { intent: 'Serviços', count: 31 },
-    { intent: 'Cancelamento', count: 18 },
-  ];
+  const maxVal = Math.max(1, ...daily.map(d => d.conversations));
+  const hasData = metrics.total > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics do Bot</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Desempenho</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Desempenho de conversas</h2>
         </div>
         <div className="flex bg-neutral-100 rounded-xl p-1">
           {(['7d', '30d', '90d'] as const).map(p => (
-            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
+            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
               {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Conversas', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Bot resolveu', value: metrics.botResolved.toString(), icon: Bot, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Escalados', value: metrics.escalated.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Resp. média', value: `${metrics.avgResp}min`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Satisfação', value: metrics.satisfaction.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Conversão', value: `${metrics.conversion}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+      {!hasData && !loading ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
+          <BarChart3 className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
+          <p className="text-base font-semibold text-neutral-700">Sem dados ainda no período</p>
+          <p className="text-sm text-neutral-500 mt-1">Os indicadores aparecem assim que houver contatos e mensagens registrados.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Conversas no período', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
+              { label: 'Novas', value: metrics.newCount.toString(), icon: Sparkles, color: 'text-amber-600', bg: 'bg-amber-50' },
+              { label: 'Aguardando humano', value: metrics.needsHuman.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+              { label: 'Resolvidas', value: metrics.resolved.toString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            ].map(stat => (
+              <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 sm:p-5 shadow-sm">
+                <div className={`w-9 h-9 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                </div>
+                <p className="text-xl sm:text-2xl font-semibold text-neutral-950">{stat.value}</p>
+                <p className="text-xs text-neutral-500 font-medium mt-0.5">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <h3 className="font-semibold text-sm text-neutral-900 mb-4">Mensagens por dia</h3>
+            <div className="flex items-end gap-1 h-32">
+              {daily.slice(-30).map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
+                    style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: d.conversations > 0 ? 4 : 1 }}
+                    title={`${d.date}: ${d.conversations} mensagens`}
+                  />
+                </div>
+              ))}
             </div>
-            <p className="text-xl font-semibold text-neutral-950">{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+            <div className="flex justify-between mt-2 text-xs text-neutral-400">
+              <span>{daily.slice(-30)[0]?.date}</span>
+              <span>{daily.slice(-1)[0]?.date}</span>
+            </div>
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Bar chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
-          <div className="flex items-end gap-1 h-32">
-            {dailyData.slice(-14).map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
-                  style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: 4 }}
-                  title={`${d.date}: ${d.conversations} conversas`}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-2 text-[9px] text-neutral-400">
-            <span>{dailyData.slice(-14)[0]?.date}</span>
-            <span>{dailyData.slice(-1)[0]?.date}</span>
-          </div>
-        </div>
-
-        {/* Top intents */}
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Top Intenções</h3>
-          <div className="space-y-3">
-            {intents.map((intent, i) => (
-              <div key={i} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-medium text-neutral-700 truncate">{intent.intent}</span>
-                  <span className="font-semibold text-neutral-900 ml-2">{intent.count}</span>
-                </div>
-                <div className="w-full bg-neutral-100 rounded-full h-1.5">
-                  <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${(intent.count / intents[0].count) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1671,82 +2028,18 @@ function AnalyticsTab() {
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
 function NPSTab() {
-  const [scores] = useState([
-    { id: '1', guest: 'Ana Beatriz', score: 9, comment: 'Excelente atendimento, muito rápido!', channel: 'WhatsApp', date: '2026-05-10' },
-    { id: '2', guest: 'Carlos Lima', score: 7, comment: 'Bom, mas poderia melhorar o check-in.', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '3', guest: 'Marina Souza', score: 10, comment: 'Perfeito em todos os aspectos!', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '4', guest: 'Roberto F.', score: 6, comment: 'Wi-fi um pouco lento.', channel: 'Instagram', date: '2026-05-08' },
-    { id: '5', guest: 'Juliana Alves', score: 8, comment: 'Gostei muito do café da manhã.', channel: 'WhatsApp', date: '2026-05-07' },
-  ]);
-
-  const promoters = scores.filter(s => s.score >= 9).length;
-  const passives = scores.filter(s => s.score >= 7 && s.score <= 8).length;
-  const detractors = scores.filter(s => s.score <= 6).length;
-  const nps = Math.round(((promoters - detractors) / scores.length) * 100);
-  const avg = (scores.reduce((a, b) => a + b.score, 0) / scores.length).toFixed(1);
-
-  function scoreColor(s: number) {
-    if (s >= 9) return 'text-emerald-600 bg-emerald-50';
-    if (s >= 7) return 'text-amber-600 bg-amber-50';
-    return 'text-red-600 bg-red-50';
-  }
-
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Satisfação dos Hóspedes</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">NPS</p>
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfação dos hóspedes</h2>
       </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'NPS Score', value: `${nps}`, icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
-          { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
-            </div>
-            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* NPS bar */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
-        <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
-        </div>
-        <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
-          <span className="text-red-500">Detratores (0-6)</span>
-          <span className="text-amber-500">Neutros (7-8)</span>
-          <span className="text-emerald-500">Promotores (9-10)</span>
-        </div>
-      </div>
-
-      {/* Responses */}
-      <div className="space-y-3">
-        {scores.map(s => (
-          <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-sm shrink-0 ${scoreColor(s.score)}`}>
-              {s.score}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm text-neutral-900">{s.guest}</p>
-              <p className="text-xs text-neutral-500 mt-0.5">{s.comment}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[9px] text-neutral-400">{s.date}</p>
-              <p className="text-[9px] font-bold text-neutral-500">{s.channel}</p>
-            </div>
-          </div>
-        ))}
+      <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
+        <Award className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
+        <p className="text-base font-semibold text-neutral-700">Nenhuma fonte de NPS conectada ainda</p>
+        <p className="text-sm text-neutral-500 mt-1 max-w-md mx-auto">
+          Quando uma fonte de NPS (ex: pesquisa pós-estadia) estiver integrada, as notas e comentários aparecem aqui.
+        </p>
       </div>
     </div>
   );
@@ -3176,10 +3469,34 @@ type TabId = typeof NAV_SECTIONS[number]['items'][number]['id'];
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
   const [navOpen, setNavOpen] = useState(false);
+  const [kpis, setKpis] = useState<{ total: number; new: number; needsHuman: number }>({ total: 0, new: 0, needsHuman: 0 });
 
-  const totalLeads = SEED_LEADS.length;
-  const newLeads = SEED_LEADS.filter(l => l.status === 'new').length;
-  const needsHuman = SEED_LEADS.filter(l => l.status === 'needs_human').length;
+  useEffect(() => {
+    let alive = true;
+    async function loadKpis() {
+      const [total, neu, human] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human'),
+      ]);
+      if (!alive) return;
+      setKpis({
+        total: total.count ?? 0,
+        new: neu.count ?? 0,
+        needsHuman: human.count ?? 0,
+      });
+    }
+    loadKpis();
+    const ch = supabase
+      .channel('marketing_kpis')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_contacts' }, () => loadKpis())
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, []);
+
+  const totalLeads = kpis.total;
+  const newLeads = kpis.new;
+  const needsHuman = kpis.needsHuman;
 
   const activeItem = TABS.find(t => t.id === activeTab)!;
   const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === activeTab))!;
@@ -3286,7 +3603,7 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
 
           {/* Content area */}
           <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
-            {activeTab === 'inbox' && <LeadInboxTab />}
+            {activeTab === 'inbox' && <LeadInboxTab profile={profile} />}
             {activeTab === 'contatos' && <ContatosShell />}
             {activeTab === 'campanhas' && <CampanhasShell />}
             {activeTab === 'automacoes' && <AutomacoesShell />}
