@@ -1316,41 +1316,65 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
               );
             })}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {(() => {
-              const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
-              const counts = {
-                mine: baseLeads.filter(l => l.assignedTo === profile.id).length,
-                all: baseLeads.length,
-                new: baseLeads.filter(l => l.status === 'new').length,
-                needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
-                resolved: baseLeads.filter(l => l.status === 'resolved').length,
-              };
-              const baseBtn = 'flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all';
-              return (
-                <>
-                  <button
-                    onClick={() => setShowOnlyMine(s => !s)}
-                    className={`${baseBtn} ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                    title="Mostrar só conversas atribuídas a mim"
-                  >
-                    <span>Minhas</span>
-                    <span className={`tabular-nums ${showOnlyMine ? 'text-white/80' : 'text-neutral-400'}`}>{counts.mine}</span>
-                  </button>
-                  {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setActiveFilter(f)}
-                      className={`${baseBtn} ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                    >
-                      <span>{f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}</span>
-                      <span className={`tabular-nums ${activeFilter === f ? 'text-white/80' : 'text-neutral-400'}`}>{counts[f]}</span>
-                    </button>
-                  ))}
-                </>
-              );
-            })()}
-          </div>
+          {(() => {
+            const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
+            const counts = {
+              mine: baseLeads.filter(l => l.assignedTo === profile.id).length,
+              all: baseLeads.length,
+              new: baseLeads.filter(l => l.status === 'new').length,
+              needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
+              resolved: baseLeads.filter(l => l.status === 'resolved').length,
+            };
+            const items: Array<{ id: 'all' | 'new' | 'needs_human' | 'resolved'; label: string; count: number }> = [
+              { id: 'all', label: 'Tudo', count: counts.all },
+              { id: 'new', label: 'Novos', count: counts.new },
+              { id: 'needs_human', label: 'Humano', count: counts.needs_human },
+              { id: 'resolved', label: 'OK', count: counts.resolved },
+            ];
+            return (
+              <>
+                {/* Segmented control — 4 segmentos com largura fixa, sem vazar */}
+                <div className="grid grid-cols-4 gap-0 bg-neutral-100 p-1 rounded-xl">
+                  {items.map(it => {
+                    const active = activeFilter === it.id;
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => setActiveFilter(it.id)}
+                        className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          active ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'
+                        }`}
+                      >
+                        <span className="text-[11px] leading-none">{it.label}</span>
+                        <span className={`text-sm leading-tight tabular-nums mt-0.5 ${active ? 'text-amber-600' : 'text-neutral-400'}`}>
+                          {it.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Toggle "Minhas" — separado, discreto */}
+                <button
+                  onClick={() => setShowOnlyMine(s => !s)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    showOnlyMine ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-transparent text-neutral-500 hover:bg-neutral-100'
+                  }`}
+                  title="Mostrar só conversas atribuídas a mim"
+                >
+                  <span className="flex items-center gap-2">
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Só as minhas
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="tabular-nums text-amber-600">{counts.mine}</span>
+                    <span className={`inline-block w-7 h-4 rounded-full transition-colors ${showOnlyMine ? 'bg-amber-500' : 'bg-neutral-300'} relative`}>
+                      <span className={`absolute top-0.5 ${showOnlyMine ? 'right-0.5' : 'left-0.5'} w-3 h-3 rounded-full bg-white transition-all`} />
+                    </span>
+                  </span>
+                </button>
+              </>
+            );
+          })()}
           {isEmailChannel && (
             <div className="flex gap-1.5 border-t border-neutral-200 pt-3">
               {(['inbox', 'spam', 'trash'] as const).map(f => {
