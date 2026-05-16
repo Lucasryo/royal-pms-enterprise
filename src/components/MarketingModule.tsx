@@ -329,14 +329,35 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
     pre{white-space:pre-wrap;word-wrap:break-word}
   </style>${safeStyles}</head><body>${safeBody}<script>
     (function(){
+      function measure(){
+        return Math.max(
+          document.documentElement.scrollHeight || 0,
+          document.body ? document.body.scrollHeight || 0 : 0,
+          document.documentElement.offsetHeight || 0,
+          document.body ? document.body.offsetHeight || 0 : 0
+        );
+      }
       function send(){
-        try{ parent.postMessage({type:'email-iframe-height',h:document.documentElement.scrollHeight},'*'); }catch(e){}
+        try{ parent.postMessage({type:'email-iframe-height',h:measure()},'*'); }catch(e){}
       }
       window.addEventListener('load', send);
       window.addEventListener('resize', send);
-      setTimeout(send,100); setTimeout(send,500); setTimeout(send,1500); setTimeout(send,3000);
-      // Re-mede quando imagens carregarem
-      document.querySelectorAll('img').forEach(function(img){ img.addEventListener('load', send); img.addEventListener('error', send); });
+      setTimeout(send,50); setTimeout(send,300); setTimeout(send,1000); setTimeout(send,3000); setTimeout(send,6000);
+      // Re-mede a cada imagem que carrega/falha
+      document.querySelectorAll('img').forEach(function(img){
+        img.addEventListener('load', send);
+        img.addEventListener('error', send);
+      });
+      // ResizeObserver pega qualquer mudanca de layout (fontes, imagens base64, etc)
+      if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(function(){ send(); });
+        if (document.body) ro.observe(document.body);
+        ro.observe(document.documentElement);
+      }
+      // MutationObserver pega injecao tardia (raro mas possivel)
+      if (typeof MutationObserver !== 'undefined' && document.body) {
+        new MutationObserver(send).observe(document.body, { childList:true, subtree:true, attributes:true });
+      }
     })();
   <\/script></body></html>`;
 
