@@ -331,7 +331,8 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
       if (!ref.current) return;
       // Confirma que veio do nosso iframe
       if (e.source !== ref.current.contentWindow) return;
-      setHeight(Math.min(2000, Math.max(80, data.h + 24)));
+      // Sem cap superior: o email expande inteiro dentro do balão e o usuário scrolla a lista de mensagens de fora.
+      setHeight(Math.max(80, data.h + 24));
     }
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -342,6 +343,7 @@ const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html,
       ref={ref}
       sandbox="allow-popups allow-popups-to-escape-sandbox"
       srcDoc={doc}
+      scrolling="no"
       style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
       title="email-body"
     />
