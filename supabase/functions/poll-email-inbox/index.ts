@@ -218,22 +218,67 @@ async function loadSmtpConfig() {
 }
 
 async function upsertContact(email: ParsedEmail) {
+  // Detecta se este email é resposta de uma thread existente.
+  // Procura por qualquer Message-ID referenciado em References/In-Reply-To
+  // que já exista em inbox_messages — se achar, herda o contact_id (mesmo thread).
+  const refIds = (email.references ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
+  if (refIds.length > 0) {
+    const { data: existing } = await adminClient
+      .from("inbox_messages")
+      .select("contact_id")
+      .in("email_message_id", refIds)
+      .eq("channel", "email")
+      .limit(1);
+    if (existing && existing[0]?.contact_id) {
+      // Reply para thread existente — atualiza dados do contato sem criar nova row.
+      const { data: c, error } = await adminClient
+        .from("marketing_contacts")
+        .update({
+          name: email.fromName || email.fromEmail,
+          last_message: emailPreview(email),
+          last_message_at: new Date().toISOString(),
+          status: "new",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing[0].contact_id)
+        .select("id, unread_count")
+        .single();
+      if (!error && c) return c as { id: string; unread_count: number | null };
+    }
+  }
+
+  // Novo thread — cria nova row dedicada (thread_root_message_id = message id deste email).
+  // Permite múltiplas conversas do mesmo email aparecerem como cards separados.
+  const threadRoot = email.messageId;
   const { data, error } = await adminClient
     .from("marketing_contacts")
-    .upsert({
+    .insert({
       email: email.fromEmail,
       name: email.fromName || email.fromEmail,
       channel: "email",
+      thread_root_message_id: threadRoot,
       last_message: emailPreview(email),
       last_message_at: new Date().toISOString(),
       status: "new",
       sentiment: "neutral",
       updated_at: new Date().toISOString(),
-    }, { onConflict: "email" })
+    })
     .select("id, unread_count")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // Edge case: já existe row com mesmo (email, thread_root_message_id) → faz upsert
+    if (error.code === "23505") {
+      const { data: existing2 } = await adminClient
+        .from("marketing_contacts")
+        .select("id, unread_count")
+        .eq("email", email.fromEmail)
+        .eq("thread_root_message_id", threadRoot ?? "")
+        .maybeSingle();
+      if (existing2) return existing2 as { id: string; unread_count: number | null };
+    }
+    throw error;
+  }
   return data as { id: string; unread_count: number | null };
 }
 
