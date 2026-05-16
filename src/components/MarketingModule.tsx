@@ -175,10 +175,16 @@ function formatPreview(subject: string | null | undefined, body: string) {
 }
 
 function mapInboxMessage(row: InboxMessageRow): Message {
+  const rawBody = row.body ?? '';
+  const rawHtml = row.body_html ?? '';
+  // Safety net: alguns emails antigos foram salvos com o corpo ainda em base64
+  // (parser velho não pegou Content-Transfer-Encoding: base64).
+  const decodedBody = maybeBase64Decode(rawBody);
+  const decodedHtml = maybeBase64Decode(rawHtml);
   return {
     id: row.id,
-    text: row.body,
-    html: row.body_html ?? null,
+    text: decodedBody,
+    html: decodedHtml || null,
     type: row.direction,
     time: formatMessageTime(row.created_at),
     subject: row.subject,
@@ -188,6 +194,27 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     folder: (row.folder ?? 'inbox') as EmailFolder,
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
   };
+}
+
+// Detecta se um string é base64 (HTML/texto encodado que escapou do parser) e decodifica.
+function maybeBase64Decode(text: string): string {
+  if (!text || text.length < 40) return text;
+  if (text.includes('<') || text.includes('>')) return text; // já tem tags = não é só base64
+  const cleaned = text.replace(/\s/g, '');
+  // Base64 só tem A-Z a-z 0-9 + / =
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) return text;
+  if (cleaned.length < 40) return text;
+  try {
+    const decoded = atob(cleaned);
+    // Converte para UTF-8 corretamente
+    const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+    const result = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    // Se o decode parece texto/HTML válido (contém alguma letra ascii ou tag), usa
+    if (/[<>a-zA-Z]/.test(result) && result.length > 10) return result;
+    return text;
+  } catch {
+    return text;
+  }
 }
 
 // Limpa MIME bagunçado em emails antigos que ficaram no banco antes do fix no parser.
