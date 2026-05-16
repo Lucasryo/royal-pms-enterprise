@@ -1338,15 +1338,20 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
               const busy = folderActionLoading === msg.id;
               const renderedText = isEmail ? sanitizeEmailBody(msg.text) : msg.text;
               const hasHtml = isEmail && !!msg.html;
-              const isWideEmail = hasHtml;
+              // Para emails: cards full-width estilo cliente de email, sem alinhamento de chat.
+              // Para WhatsApp/IG/etc: bubble tradicional de chat com alinhamento direita/esquerda.
               return (
-                <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
+                <div key={msg.id ?? i} className={isEmail ? 'group block' : `group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setMsgMenu({ x: e.clientX, y: e.clientY, msg: { ...msg, text: renderedText } });
                     }}
-                    className={`relative ${isWideEmail ? 'max-w-[92%] w-full' : 'max-w-[78%]'} px-4 py-3 rounded-2xl text-sm leading-relaxed cursor-context-menu ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
+                    className={`relative cursor-context-menu ${
+                      isEmail
+                        ? `w-full px-5 py-4 rounded-xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-800 border border-neutral-200 shadow-sm'}`
+                        : `max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`
+                    }`}>
                     {isEmail && msg.subject && (
                       <div className="mb-2 border-b border-neutral-100 pb-2">
                         <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
