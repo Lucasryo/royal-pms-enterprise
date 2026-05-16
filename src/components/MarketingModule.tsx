@@ -1,4 +1,4 @@
-import React, { ReactElement, useState, useEffect, useRef } from 'react';
+import React, { ReactElement, useState, useEffect, useRef, useMemo } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
@@ -45,6 +45,7 @@ interface Lead {
 interface Message {
   id?: string;
   text: string;
+  html?: string | null;
   type: 'in' | 'out';
   time: string;
   subject?: string | null;
@@ -138,6 +139,7 @@ type InboxMessageRow = {
   direction: 'in' | 'out';
   subject: string | null;
   body: string;
+  body_html: string | null;
   email_message_id: string | null;
   email_references: string | null;
   folder: EmailFolder | null;
@@ -176,6 +178,7 @@ function mapInboxMessage(row: InboxMessageRow): Message {
   return {
     id: row.id,
     text: row.body,
+    html: row.body_html ?? null,
     type: row.direction,
     time: formatMessageTime(row.created_at),
     subject: row.subject,
@@ -280,6 +283,70 @@ function StatusBadge({ status }: { status: Lead['status'] }) {
 
 
 // ─── LeadInbox Tab ────────────────────────────────────────────────────────────
+
+// Renderiza HTML de email num iframe sandboxed (sem scripts, sem same-origin).
+// Auto-ajusta altura ao conteúdo. Sanitização extra: remove <script> e on*= handlers
+// antes mesmo de mandar para o iframe (defesa em profundidade).
+const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html, darkBubble }) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(200);
+
+  // Sanitização defensiva — remove <script>, <iframe>, e atributos on* / javascript:
+  const safeHtml = useMemo(() => {
+    let s = html || '';
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
+    s = s.replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+    s = s.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
+    s = s.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
+    return s;
+  }, [html]);
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
+    body{margin:0;padding:12px;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:${darkBubble ? '#f5f5f5' : '#171717'};background:transparent;word-wrap:break-word;overflow-wrap:anywhere}
+    img{max-width:100%;height:auto}
+    a{color:${darkBubble ? '#fbbf24' : '#b45309'}}
+    table{max-width:100%;border-collapse:collapse}
+    blockquote{border-left:3px solid #d4d4d4;margin:8px 0;padding:4px 12px;color:#666}
+    pre{white-space:pre-wrap;word-wrap:break-word}
+  </style></head><body>${safeHtml}<script>
+    (function(){
+      function send(){
+        try{ parent.postMessage({type:'email-iframe-height',h:document.documentElement.scrollHeight},'*'); }catch(e){}
+      }
+      window.addEventListener('load', send);
+      window.addEventListener('resize', send);
+      setTimeout(send,100); setTimeout(send,500); setTimeout(send,1500);
+      // Re-mede quando imagens carregarem
+      document.querySelectorAll('img').forEach(function(img){ img.addEventListener('load', send); img.addEventListener('error', send); });
+    })();
+  <\/script></body></html>`;
+
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      const data = e.data as { type?: string; h?: number };
+      if (!data || data.type !== 'email-iframe-height' || typeof data.h !== 'number') return;
+      if (!ref.current) return;
+      // Confirma que veio do nosso iframe
+      if (e.source !== ref.current.contentWindow) return;
+      setHeight(Math.min(2000, Math.max(80, data.h + 24)));
+    }
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  return (
+    <iframe
+      ref={ref}
+      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={doc}
+      style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
+      title="email-body"
+    />
+  );
+};
 
 type AttachmentChipProps = {
   attachment: Attachment;
@@ -1220,6 +1287,8 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
               const inTrash = (msg.folder ?? 'inbox') === 'trash';
               const busy = folderActionLoading === msg.id;
               const renderedText = isEmail ? sanitizeEmailBody(msg.text) : msg.text;
+              const hasHtml = isEmail && !!msg.html;
+              const isWideEmail = hasHtml;
               return (
                 <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
                   <div
@@ -1227,14 +1296,18 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                       e.preventDefault();
                       setMsgMenu({ x: e.clientX, y: e.clientY, msg: { ...msg, text: renderedText } });
                     }}
-                    className={`relative max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed cursor-context-menu ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
+                    className={`relative ${isWideEmail ? 'max-w-[92%] w-full' : 'max-w-[78%]'} px-4 py-3 rounded-2xl text-sm leading-relaxed cursor-context-menu ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}>
                     {isEmail && msg.subject && (
                       <div className="mb-2 border-b border-neutral-100 pb-2">
                         <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
                         <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
                       </div>
                     )}
-                    {renderedText && <p className="whitespace-pre-wrap break-words">{renderedText}</p>}
+                    {hasHtml ? (
+                      <EmailHtmlFrame html={msg.html!} darkBubble={msg.type === 'out'} />
+                    ) : (
+                      renderedText && <p className="whitespace-pre-wrap break-words">{renderedText}</p>
+                    )}
                     {!!msg.attachments?.length && (
                       <div className="mt-2 space-y-1.5">
                         {msg.attachments.map((att, ai) => (

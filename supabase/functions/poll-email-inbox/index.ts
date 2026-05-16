@@ -14,6 +14,8 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB cap por imagem inline
+
 type SmtpConfig = {
   host: string;
   port: string;
@@ -28,9 +30,20 @@ type ParsedEmail = {
   fromEmail: string;
   fromName: string;
   subject: string;
-  body: string;
+  body: string;       // text/plain (sempre presente, pode ser stripped de HTML)
+  bodyHtml: string | null; // text/html sanitizado, com cid: resolvidos como data URLs
   messageId: string | null;
   references: string | null;
+};
+
+type MimePart = {
+  contentType: string;   // ex: "text/html"
+  charset: string;       // ex: "utf-8" (lowercase)
+  encoding: string;      // ex: "quoted-printable"
+  contentId: string | null;
+  disposition: string;   // "inline" | "attachment" | ""
+  filename: string | null;
+  raw: string;           // conteúdo bruto (encoded)
 };
 
 serve(async (req) => {
@@ -55,7 +68,7 @@ serve(async (req) => {
       for (const uid of unseenUids) {
         const raw = await client.fetchMessage(uid);
         const parsed = parseEmail(raw);
-        if (!parsed.fromEmail || !parsed.body) {
+        if (!parsed.fromEmail || (!parsed.body && !parsed.bodyHtml)) {
           await client.markSeen(uid);
           continue;
         }
@@ -70,6 +83,7 @@ serve(async (req) => {
             direction: "in",
             subject: parsed.subject,
             body: parsed.body,
+            body_html: parsed.bodyHtml,
             message_uid: uid,
             email_message_id: parsed.messageId,
             email_references: parsed.references,
@@ -138,6 +152,8 @@ async function upsertContact(email: ParsedEmail) {
   return data as { id: string; unread_count: number | null };
 }
 
+// ─── IMAP Client ──────────────────────────────────────────────────────────────
+
 class ImapClient {
   private conn: Deno.TlsConn | null = null;
   private decoder = new TextDecoder();
@@ -186,9 +202,7 @@ class ImapClient {
   close() {
     try {
       this.conn?.close();
-    } catch {
-      // Connection may already be closed by LOGOUT.
-    }
+    } catch { /* já fechado */ }
   }
 
   private async command(command: string) {
@@ -225,20 +239,53 @@ function quote(value: string) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+// ─── Email parsing ────────────────────────────────────────────────────────────
+
 function parseEmail(raw: string): ParsedEmail {
   const normalized = raw.replace(/\r\n/g, "\n");
   const splitAt = normalized.indexOf("\n\n");
   const headerText = splitAt >= 0 ? normalized.slice(0, splitAt) : "";
   const bodyText = splitAt >= 0 ? normalized.slice(splitAt + 2) : normalized;
   const headers = parseHeaders(headerText);
+
   const from = decodeHeader(headers.from ?? "");
   const fromEmail = extractEmail(from);
   const fromName = from.replace(/<[^>]+>/g, "").replace(/"/g, "").trim();
   const subject = decodeHeader(headers.subject ?? "");
-  const body = extractReadableBody(bodyText, headers["content-type"] ?? "", headers["content-transfer-encoding"] ?? "");
   const messageId = cleanMessageId(headers["message-id"] ?? "");
   const references = cleanReferences(headers.references ?? headers["in-reply-to"] ?? "");
-  return { fromEmail, fromName, subject, body, messageId, references };
+
+  const topContentType = headers["content-type"] ?? "text/plain; charset=utf-8";
+  const topEncoding = headers["content-transfer-encoding"] ?? "";
+
+  const parts = collectMimeParts(bodyText, topContentType, topEncoding);
+
+  // Decodifica parts text/plain e text/html
+  const plainParts = parts.filter(p => /^text\/plain/i.test(p.contentType));
+  const htmlParts = parts.filter(p => /^text\/html/i.test(p.contentType));
+  const inlineImages = parts.filter(p =>
+    /^image\//i.test(p.contentType) && (p.disposition === "inline" || p.contentId)
+  );
+
+  const bodyPlain = plainParts.length > 0
+    ? decodePartToText(plainParts[0])
+    : (htmlParts.length > 0 ? cleanHtmlToText(decodePartToText(htmlParts[0])) : "");
+
+  let bodyHtml: string | null = null;
+  if (htmlParts.length > 0) {
+    const rawHtml = decodePartToText(htmlParts[0]);
+    bodyHtml = inlineCidImages(rawHtml, inlineImages);
+  }
+
+  return {
+    fromEmail,
+    fromName,
+    subject,
+    body: cleanBody(bodyPlain),
+    bodyHtml,
+    messageId,
+    references,
+  };
 }
 
 function parseHeaders(text: string) {
@@ -252,90 +299,179 @@ function parseHeaders(text: string) {
   return headers;
 }
 
-function extractReadableBody(body: string, contentType: string, encoding: string) {
-  // Normalize line endings first; IMAP usa CRLF e quebra os splitters baseados em \n\n.
-  const normalized = body.replace(/\r\n/g, "\n");
-  return cleanBody(extractFromMimeBlob(normalized, contentType, encoding));
-}
-
-function extractFromMimeBlob(body: string, contentType: string, encoding: string): string {
+// Coleta todas as parts MIME recursivamente, achatando multipart aninhado.
+function collectMimeParts(body: string, contentType: string, encoding: string): MimePart[] {
   const boundary = contentType.match(/boundary="?([^";\s]+)"?/i)?.[1];
-  if (boundary) {
-    // Split na boundary, ignora o preâmbulo e o epílogo (após --boundary--).
-    const rawParts = body.split(`--${boundary}`);
-    const parts = rawParts
-      .map((p) => p.replace(/^\n/, "").replace(/\n$/, ""))
-      .filter((p) => p && !p.startsWith("--"));
 
-    // Procura recursivamente, preferindo text/plain, depois text/html, depois multipart aninhado.
-    const sub = parts.map((part) => {
-      const splitAt = part.indexOf("\n\n");
-      const partHeaders = parseHeaders(splitAt >= 0 ? part.slice(0, splitAt) : "");
-      const partContent = splitAt >= 0 ? part.slice(splitAt + 2) : part;
-      const partType = partHeaders["content-type"] ?? "";
-      const partEncoding = partHeaders["content-transfer-encoding"] ?? "";
-      return { partType, partEncoding, partContent };
-    });
-
-    const plain = sub.find((s) => /^text\/plain/i.test(s.partType));
-    if (plain) return decodeContent(plain.partContent, plain.partEncoding);
-
-    const nested = sub.find((s) => /^multipart\//i.test(s.partType));
-    if (nested) return extractFromMimeBlob(nested.partContent, nested.partType, nested.partEncoding);
-
-    const html = sub.find((s) => /^text\/html/i.test(s.partType));
-    if (html) return decodeContent(html.partContent, html.partEncoding);
-
-    if (sub[0]) return decodeContent(sub[0].partContent, sub[0].partEncoding);
-    return "";
+  if (!boundary) {
+    // Não é multipart — é uma part única
+    return [{
+      contentType: contentType.replace(/;.*$/, "").trim().toLowerCase(),
+      charset: extractCharset(contentType),
+      encoding: encoding.toLowerCase(),
+      contentId: null,
+      disposition: "",
+      filename: null,
+      raw: body,
+    }];
   }
 
-  return decodeContent(body, encoding);
-}
+  const rawParts = body.split(`--${boundary}`);
+  const result: MimePart[] = [];
+  for (const raw of rawParts) {
+    const p = raw.replace(/^\n/, "").replace(/\n$/, "");
+    if (!p || p.startsWith("--")) continue;
 
-function decodeContent(content: string, encoding: string) {
-  const enc = encoding.toLowerCase();
-  if (enc.includes("base64")) return decodeBase64(content);
-  if (enc.includes("quoted-printable")) return decodeQuotedPrintable(content);
-  return content;
-}
+    const splitAt = p.indexOf("\n\n");
+    const partHeaders = parseHeaders(splitAt >= 0 ? p.slice(0, splitAt) : "");
+    const partContent = splitAt >= 0 ? p.slice(splitAt + 2) : p;
+    const partType = partHeaders["content-type"] ?? "text/plain";
 
-function decodePart(part: string, fallbackEncoding: string) {
-  // Mantida por compatibilidade caso alguém chame; agora delega a extractFromMimeBlob.
-  const splitAt = part.indexOf("\n\n");
-  const headerText = splitAt >= 0 ? part.slice(0, splitAt) : "";
-  const content = splitAt >= 0 ? part.slice(splitAt + 2) : part;
-  const headers = parseHeaders(headerText);
-  return decodeContent(content, headers["content-transfer-encoding"] || fallbackEncoding);
-}
-
-function decodeBase64(text: string) {
-  try {
-    const binary = atob(text.replace(/\s/g, ""));
-    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
-  } catch {
-    return text;
-  }
-}
-
-function decodeQuotedPrintable(text: string) {
-  const compact = text.replace(/=\n/g, "");
-  const bytes: number[] = [];
-  for (let i = 0; i < compact.length; i += 1) {
-    if (compact[i] === "=" && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
-      bytes.push(Number.parseInt(compact.slice(i + 1, i + 3), 16));
-      i += 2;
+    if (/^multipart\//i.test(partType)) {
+      // Recursão
+      result.push(...collectMimeParts(partContent, partType, partHeaders["content-transfer-encoding"] ?? ""));
     } else {
-      bytes.push(compact.charCodeAt(i));
+      result.push({
+        contentType: partType.replace(/;.*$/, "").trim().toLowerCase(),
+        charset: extractCharset(partType),
+        encoding: (partHeaders["content-transfer-encoding"] ?? "").toLowerCase(),
+        contentId: cleanContentId(partHeaders["content-id"] ?? ""),
+        disposition: (partHeaders["content-disposition"] ?? "").split(";")[0].trim().toLowerCase(),
+        filename: extractFilename(partHeaders["content-disposition"] ?? partHeaders["content-type"] ?? ""),
+        raw: partContent,
+      });
     }
   }
-  return new TextDecoder().decode(new Uint8Array(bytes));
+  return result;
 }
 
-function decodeHeader(value: string) {
-  return value.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (_match, _charset, encoding, encoded) => {
-    if (encoding.toUpperCase() === "B") return decodeBase64(encoded);
-    return decodeQuotedPrintable(encoded.replace(/_/g, " "));
+function extractCharset(contentType: string): string {
+  return (contentType.match(/charset="?([^";\s]+)"?/i)?.[1] ?? "utf-8").toLowerCase();
+}
+
+function extractFilename(headerValue: string): string | null {
+  return headerValue.match(/filename="?([^";]+)"?/i)?.[1]?.trim() ?? null;
+}
+
+function cleanContentId(value: string): string | null {
+  const match = value.match(/<?([^<>\s]+@?[^<>\s]*)>?/);
+  return match?.[1] ? match[1].trim() : null;
+}
+
+// Decodifica part text/* respeitando charset
+function decodePartToText(part: MimePart): string {
+  const bytes = decodeToBytes(part.raw, part.encoding);
+  return bytesToString(bytes, part.charset);
+}
+
+function decodePartToBytes(part: MimePart): Uint8Array {
+  return decodeToBytes(part.raw, part.encoding);
+}
+
+function decodeToBytes(content: string, encoding: string): Uint8Array {
+  const enc = encoding.toLowerCase();
+  if (enc.includes("base64")) {
+    try {
+      const binary = atob(content.replace(/\s/g, ""));
+      return Uint8Array.from(binary, c => c.charCodeAt(0));
+    } catch {
+      return new TextEncoder().encode(content);
+    }
+  }
+  if (enc.includes("quoted-printable")) {
+    const compact = content.replace(/=\r?\n/g, "");
+    const bytes: number[] = [];
+    for (let i = 0; i < compact.length; i += 1) {
+      if (compact[i] === "=" && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
+        bytes.push(Number.parseInt(compact.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        bytes.push(compact.charCodeAt(i));
+      }
+    }
+    return new Uint8Array(bytes);
+  }
+  // 7bit, 8bit, binary, none: trata como string e codifica para UTF-8 bytes
+  // (a string já vem decodificada do socket TLS como UTF-8, então isso preserva)
+  return new TextEncoder().encode(content);
+}
+
+function bytesToString(bytes: Uint8Array, charset: string): string {
+  const cs = normalizeCharset(charset);
+  try {
+    return new TextDecoder(cs, { fatal: false }).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  }
+}
+
+function normalizeCharset(charset: string): string {
+  const cs = charset.toLowerCase().trim();
+  if (cs === "us-ascii" || cs === "ascii") return "windows-1252"; // mais permissivo
+  if (cs === "iso-8859-1" || cs === "latin1") return "windows-1252";
+  return cs;
+}
+
+// Substitui src="cid:xxx" no HTML pelas data URLs das imagens inline correspondentes
+function inlineCidImages(html: string, inlineImages: MimePart[]): string {
+  if (inlineImages.length === 0) return html;
+
+  let result = html;
+  for (const img of inlineImages) {
+    if (!img.contentId) continue;
+    const bytes = decodePartToBytes(img);
+    if (bytes.length > MAX_INLINE_IMAGE_BYTES) continue;
+    const dataUrl = `data:${img.contentType};base64,${bytesToBase64(bytes)}`;
+    // Replace todas as ocorrências de cid:CONTENTID (com ou sem aspas)
+    const escapedCid = img.contentId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`cid:${escapedCid}`, "gi");
+    result = result.replace(re, dataUrl);
+  }
+
+  // Remove qualquer `[cid:xxx]` ou `cid:xxx` órfão restante (referências sem anexo correspondente)
+  result = result.replace(/\[cid:[^\]]+\]/gi, "");
+  result = result.replace(/src=["']?cid:[^"'\s>]+["']?/gi, "src=\"\"");
+
+  return result;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Decodifica header MIME encoded-word: =?charset?B/Q?...?=
+function decodeHeader(value: string): string {
+  if (!value) return "";
+  // Junta encoded-words adjacentes (whitespace entre eles deve ser ignorado)
+  const collapsed = value.replace(/\?=\s+=\?/g, "?==?");
+  return collapsed.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_match, charset, encoding, encoded) => {
+    const cs = normalizeCharset(charset);
+    if (encoding.toUpperCase() === "B") {
+      try {
+        const binary = atob(encoded.replace(/\s/g, ""));
+        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+        return new TextDecoder(cs, { fatal: false }).decode(bytes);
+      } catch {
+        return encoded;
+      }
+    }
+    // Q-encoding: =XX (hex), _ vira espaço
+    const text = encoded.replace(/_/g, " ");
+    const bytes: number[] = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "=" && /^[0-9A-F]{2}$/i.test(text.slice(i + 1, i + 3))) {
+        bytes.push(Number.parseInt(text.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        bytes.push(text.charCodeAt(i));
+      }
+    }
+    return new TextDecoder(cs, { fatal: false }).decode(new Uint8Array(bytes));
   });
 }
 
@@ -354,40 +490,28 @@ function cleanReferences(value: string) {
 }
 
 function emailPreview(email: ParsedEmail) {
-  const body = email.body.replace(/\s+/g, " ").trim();
+  const body = (email.body || "").replace(/\s+/g, " ").trim();
   return email.subject ? `${email.subject} - ${body}`.slice(0, 500) : body.slice(0, 500);
 }
 
-function cleanBody(value: string) {
-  // Remove leftover MIME boundaries (linhas que começam com "--_000_..." ou similares).
-  const withoutBoundaries = value
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(trimmed)) return false;
-      if (/^content-type\s*:/i.test(trimmed)) return false;
-      if (/^content-transfer-encoding\s*:/i.test(trimmed)) return false;
-      if (/^content-disposition\s*:/i.test(trimmed)) return false;
-      if (/^charset\s*=/i.test(trimmed)) return false;
-      return true;
-    })
-    .join("\n");
-
-  const withoutMarkup = withoutBoundaries
+function cleanHtmlToText(html: string): string {
+  return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16)));
+    .replace(/&quot;/g, "\"")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(Number.parseInt(code, 16)));
+}
 
-  return normalizeEmailBody(withoutMarkup)
-    .slice(0, 12000);
+function cleanBody(value: string) {
+  return normalizeEmailBody(value).slice(0, 20000);
 }
 
 function normalizeEmailBody(value: string) {
@@ -395,7 +519,7 @@ function normalizeEmailBody(value: string) {
     .replace(/\r\n/g, "\n")
     .replace(/\t/g, " ")
     .split("\n")
-    .map((line) => line.replace(/\s+$/g, ""));
+    .map(line => line.replace(/\s+$/g, ""));
 
   const cleaned: string[] = [];
   for (const line of lines) {
@@ -410,8 +534,8 @@ function normalizeEmailBody(value: string) {
 
   return cleaned
     .join("\n")
-    .replace(/[ \u00a0]{2,}/g, " ")
-    .replace(/\n[ \u00a0]+/g, "\n")
+    .replace(/[  ]{2,}/g, " ")
+    .replace(/\n[  ]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
