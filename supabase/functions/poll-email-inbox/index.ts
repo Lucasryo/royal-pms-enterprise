@@ -437,7 +437,7 @@ function parseEmail(raw: string): ParsedEmail {
     /^image\//i.test(p.contentType) && (p.disposition === "inline" || p.contentId)
   );
 
-  const bodyPlain = plainParts.length > 0
+  let bodyPlain = plainParts.length > 0
     ? decodePartToText(plainParts[0])
     : (htmlParts.length > 0 ? cleanHtmlToText(decodePartToText(htmlParts[0])) : "");
 
@@ -446,6 +446,17 @@ function parseEmail(raw: string): ParsedEmail {
     const rawHtml = decodePartToText(htmlParts[0]);
     bodyHtml = inlineCidImages(rawHtml, inlineImages);
   }
+
+  // Safety net: se o body decodificado parece HTML mas não pegamos como text/html
+  // (ex: email com Content-Type errado), promove pra bodyHtml.
+  if (!bodyHtml && bodyPlain && /<html|<body|<table|<div|<p[\s>]|<br/i.test(bodyPlain)) {
+    bodyHtml = inlineCidImages(bodyPlain, inlineImages);
+    bodyPlain = cleanHtmlToText(bodyPlain);
+  }
+
+  // Ultima defesa: se body_html STILL parece base64 (parser nao pegou), decodifica aqui.
+  if (bodyHtml) bodyHtml = ensureDecoded(bodyHtml);
+  bodyPlain = ensureDecoded(bodyPlain);
 
   return {
     fromEmail,
@@ -456,6 +467,24 @@ function parseEmail(raw: string): ParsedEmail {
     messageId,
     references,
   };
+}
+
+// Última defesa contra base64 residual em qualquer texto. Decodifica se >90% dos chars
+// forem base64 e o resultado parecer texto legível.
+function ensureDecoded(text: string): string {
+  if (!text || text.length < 80 || text.includes("<")) return text;
+  const onlyBase64 = text.replace(/[^A-Za-z0-9+/=]/g, "");
+  const ratio = onlyBase64.length / Math.max(1, text.replace(/\s/g, "").length);
+  if (ratio < 0.9) return text;
+  let cleaned = onlyBase64;
+  while (cleaned.length % 4 !== 0) cleaned += "=";
+  try {
+    const binary = atob(cleaned);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (/[<>a-zA-Z]/.test(decoded) && decoded.length > 10) return decoded;
+  } catch { /* mantém original */ }
+  return text;
 }
 
 function parseHeaders(text: string) {
