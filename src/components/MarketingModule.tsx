@@ -188,39 +188,46 @@ function mapInboxMessage(row: InboxMessageRow): Message {
 }
 
 // Limpa MIME bagunçado em emails antigos que ficaram no banco antes do fix no parser.
-// Remove boundaries, headers vazados e decodifica quoted-printable básico.
+// Casos reais que aparecem: boundaries quebradas em várias linhas, headers MIME vazados.
 function sanitizeEmailBody(text: string): string {
   if (!text) return text;
   let s = text.replace(/\r\n/g, '\n');
 
-  // Se houver boundary com "--_000_..." ou similar, corta tudo antes da primeira linha real.
-  const boundaryRe = /^--[_A-Za-z0-9.=+-]{6,}(--)?$/m;
-  if (boundaryRe.test(s)) {
-    // Tenta extrair conteúdo após primeiro bloco de headers (Content-Type/Encoding) e antes do próximo boundary.
-    const parts = s.split(/^--[_A-Za-z0-9.=+-]{6,}(?:--)?$/m);
-    // Pega a primeira parte que tenha texto visível depois de pular linhas de header
-    for (const part of parts) {
-      const stripped = part
-        .split('\n')
-        .filter(line => {
-          const t = line.trim();
-          if (/^content-type\s*:/i.test(t)) return false;
-          if (/^content-transfer-encoding\s*:/i.test(t)) return false;
-          if (/^content-disposition\s*:/i.test(t)) return false;
-          if (/^charset\s*=/i.test(t)) return false;
-          if (/^mime-version\s*:/i.test(t)) return false;
-          return true;
-        })
-        .join('\n')
-        .trim();
-      if (stripped.length > 10) {
-        s = stripped;
-        break;
+  // Caso 1: se houver headers MIME vazados (Content-Type + Content-Transfer-Encoding),
+  // pula tudo até a primeira linha em branco depois do último header — é onde o corpo real começa.
+  const headerRegex = /^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/im;
+  while (headerRegex.test(s)) {
+    const lines = s.split('\n');
+    let lastHeaderIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/i.test(lines[i])) {
+        lastHeaderIdx = i;
       }
     }
+    if (lastHeaderIdx < 0) break;
+    // Achar a próxima linha em branco depois do último header
+    let bodyStart = lastHeaderIdx + 1;
+    while (bodyStart < lines.length && lines[bodyStart].trim() !== '') bodyStart++;
+    while (bodyStart < lines.length && lines[bodyStart].trim() === '') bodyStart++;
+    if (bodyStart >= lines.length) break;
+    s = lines.slice(bodyStart).join('\n');
   }
 
-  // Decodifica quoted-printable resíduo (=XX e =\n)
+  // Caso 2: linhas que parecem fragmento de boundary
+  // (underscores+alfanum, prefixadas por -- ou começando por _xxx_)
+  s = s
+    .split('\n')
+    .filter(line => {
+      const t = line.trim();
+      if (t === '--') return false;
+      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(t)) return false;
+      if (/^_[A-Za-z0-9]{3,}_[A-Za-z0-9._=+-]{8,}$/.test(t)) return false;
+      if (/^[a-zA-Z0-9]{1,8}_$/.test(t)) return false; // fragmento órfão tipo "amp_"
+      return true;
+    })
+    .join('\n');
+
+  // Caso 3: decodifica quoted-printable resíduo (=XX e =\n)
   if (/=[0-9A-F]{2}/i.test(s) && !/=\?[^?]+\?[BQ]\?/i.test(s)) {
     try {
       const compact = s.replace(/=\n/g, '');
@@ -237,24 +244,7 @@ function sanitizeEmailBody(text: string): string {
     } catch { /* mantém o original */ }
   }
 
-  // Remove linhas de header / boundary que ainda escaparam
-  s = s
-    .split('\n')
-    .filter(line => {
-      const t = line.trim();
-      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(t)) return false;
-      if (/^content-type\s*:/i.test(t)) return false;
-      if (/^content-transfer-encoding\s*:/i.test(t)) return false;
-      if (/^content-disposition\s*:/i.test(t)) return false;
-      if (/^charset\s*=/i.test(t)) return false;
-      if (/^mime-version\s*:/i.test(t)) return false;
-      return true;
-    })
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  return s;
+  return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function mapContactToLead(row: MarketingContactRow): Lead {
@@ -372,16 +362,36 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
 
   // Menu de contexto (clique direito) sobre uma mensagem
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  // Menu de contexto sobre um item da lista de conversas
+  const [leadMenu, setLeadMenu] = useState<{ x: number; y: number; lead: Lead } | null>(null);
   useEffect(() => {
-    if (!msgMenu) return;
-    const close = () => setMsgMenu(null);
+    if (!msgMenu && !leadMenu) return;
+    const close = () => { setMsgMenu(null); setLeadMenu(null); };
     window.addEventListener('click', close);
     window.addEventListener('scroll', close, true);
     return () => {
       window.removeEventListener('click', close);
       window.removeEventListener('scroll', close, true);
     };
-  }, [msgMenu]);
+  }, [msgMenu, leadMenu]);
+
+  async function leadAction(lead: Lead, action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'assign_to_me' | 'unassign') {
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = Math.max(1, lead.unreadCount ?? 1); }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'assign_to_me') { updates.assigned_to = profile.id; }
+    if (action === 'unassign') { updates.assigned_to = null; }
+    const { error } = await supabase.from('marketing_contacts').update(updates).eq('id', lead.id);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => l.id === lead.id ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+      assignedTo: 'assigned_to' in updates ? (updates.assigned_to as string | null) ?? undefined : l.assignedTo,
+    } : l));
+    toast.success('Conversa atualizada');
+  }
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
   const messages = selectedId ? (chatHistory[selectedId] ?? []) : [];
@@ -1069,7 +1079,8 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                 <button
                   key={lead.id}
                   onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
-                  className={`w-full text-left p-4 border-b border-neutral-100 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-white'}`}
+                  onContextMenu={(e) => { e.preventDefault(); setLeadMenu({ x: e.clientX, y: e.clientY, lead }); }}
+                  className={`w-full text-left p-4 border-b border-neutral-100 transition-colors cursor-context-menu ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-white'}`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
@@ -1268,6 +1279,64 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Menu de contexto (clique direito em um item da lista de conversas) */}
+          {leadMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: leadMenu.y, left: leadMenu.x }}
+              className="fixed z-50 w-60 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => { setSelectedId(leadMenu.lead.id); setLeadMenu(null); }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Inbox className="w-4 h-4 text-neutral-500" /> Abrir conversa
+              </button>
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.status !== 'new' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_unread'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                >
+                  <Bell className="w-4 h-4" /> Marcar como não lida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_resolved'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Marcar como resolvida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'needs_human' && leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_needs_human'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4" /> Escalar (precisa humano)
+                </button>
+              )}
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.assignedTo !== profile.id && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'assign_to_me'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-indigo-50 text-indigo-700 flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" /> Atribuir a mim
+                </button>
+              )}
+              {leadMenu.lead.assignedTo && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'unassign'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 text-neutral-700 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" /> Remover atribuição
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Menu de contexto (clique direito sobre uma mensagem) */}
           {msgMenu && (
