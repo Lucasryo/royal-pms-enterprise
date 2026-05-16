@@ -229,9 +229,25 @@ async function loadSmtpConfig() {
 }
 
 async function upsertContact(email: ParsedEmail) {
-  // Detecta se este email é resposta de uma thread existente.
-  // Procura por qualquer Message-ID referenciado em References/In-Reply-To
-  // que já exista em inbox_messages — se achar, herda o contact_id (mesmo thread).
+  async function reuseContact(id: string) {
+    const { data: c, error } = await adminClient
+      .from("marketing_contacts")
+      .update({
+        name: email.fromName || email.fromEmail,
+        last_message: emailPreview(email),
+        last_message_at: new Date().toISOString(),
+        status: "new",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select("id, unread_count")
+      .single();
+    if (!error && c) return c as { id: string; unread_count: number | null };
+    return null;
+  }
+
+  // 1) References/In-Reply-To: se algum ref bate com um email_message_id já no DB,
+  //    junta na mesma conversa.
   const refIds = (email.references ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
   if (refIds.length > 0) {
     const { data: existing } = await adminClient
@@ -241,25 +257,39 @@ async function upsertContact(email: ParsedEmail) {
       .eq("channel", "email")
       .limit(1);
     if (existing && existing[0]?.contact_id) {
-      // Reply para thread existente — atualiza dados do contato sem criar nova row.
-      const { data: c, error } = await adminClient
-        .from("marketing_contacts")
-        .update({
-          name: email.fromName || email.fromEmail,
-          last_message: emailPreview(email),
-          last_message_at: new Date().toISOString(),
-          status: "new",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existing[0].contact_id)
-        .select("id, unread_count")
-        .single();
-      if (!error && c) return c as { id: string; unread_count: number | null };
+      const c = await reuseContact(existing[0].contact_id);
+      if (c) return c;
     }
   }
 
-  // Novo thread — cria nova row dedicada (thread_root_message_id = message id deste email).
-  // Permite múltiplas conversas do mesmo email aparecerem como cards separados.
+  // 2) Fallback: mesmo subject normalizado (sem Re:/Fwd:) em uma conversa dos
+  //    últimos 30 dias, envolvendo o mesmo email (seja como remetente do contato
+  //    ou como contraparte de alguma mensagem que mande/receba esse endereço).
+  const norm = normalizeSubject(email.subject);
+  if (norm.length > 2) {
+    const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Busca mensagens recentes cujo subject normalizado bata, junto com o contato.
+    const { data: candidates } = await adminClient
+      .from("inbox_messages")
+      .select("contact_id, subject, marketing_contacts!inner(email)")
+      .eq("channel", "email")
+      .ilike("subject", `%${norm.slice(0, 60)}%`)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (candidates && candidates.length > 0) {
+      for (const cand of candidates as Array<{ contact_id: string; subject: string | null; marketing_contacts: { email: string | null } | null }>) {
+        if (normalizeSubject(cand.subject) === norm) {
+          // Match — usa essa contact_id
+          const c = await reuseContact(cand.contact_id);
+          if (c) return c;
+        }
+      }
+    }
+  }
+
+  // 3) Novo thread → cria nova row.
   const threadRoot = email.messageId;
   const { data, error } = await adminClient
     .from("marketing_contacts")
@@ -278,7 +308,6 @@ async function upsertContact(email: ParsedEmail) {
     .single();
 
   if (error) {
-    // Edge case: já existe row com mesmo (email, thread_root_message_id) → faz upsert
     if (error.code === "23505") {
       const { data: existing2 } = await adminClient
         .from("marketing_contacts")
@@ -445,7 +474,6 @@ function collectMimeParts(body: string, contentType: string, encoding: string): 
   const boundary = contentType.match(/boundary="?([^";\s]+)"?/i)?.[1];
 
   if (!boundary) {
-    // Não é multipart — é uma part única
     return [{
       contentType: contentType.replace(/;.*$/, "").trim().toLowerCase(),
       charset: extractCharset(contentType),
@@ -459,17 +487,24 @@ function collectMimeParts(body: string, contentType: string, encoding: string): 
 
   const rawParts = body.split(`--${boundary}`);
   const result: MimePart[] = [];
-  for (const raw of rawParts) {
+  // O primeiro elemento é o "preâmbulo" MIME (texto antes do primeiro --boundary,
+  // tipicamente "This is a multipart message in MIME format."). Sempre ignorar.
+  for (let idx = 1; idx < rawParts.length; idx++) {
+    const raw = rawParts[idx];
     const p = raw.replace(/^\n/, "").replace(/\n$/, "");
-    if (!p || p.startsWith("--")) continue;
+    if (!p || p.startsWith("--")) continue; // boundary final (--)
 
     const splitAt = p.indexOf("\n\n");
     const partHeaders = parseHeaders(splitAt >= 0 ? p.slice(0, splitAt) : "");
+
+    // Uma part MIME válida deve ter pelo menos um header reconhecido.
+    // Se não tem, é lixo (preâmbulo escapado, separador mal-formado, etc).
+    if (Object.keys(partHeaders).length === 0) continue;
+
     const partContent = splitAt >= 0 ? p.slice(splitAt + 2) : p;
     const partType = partHeaders["content-type"] ?? "text/plain";
 
     if (/^multipart\//i.test(partType)) {
-      // Recursão
       result.push(...collectMimeParts(partContent, partType, partHeaders["content-transfer-encoding"] ?? ""));
     } else {
       result.push({
@@ -484,6 +519,11 @@ function collectMimeParts(body: string, contentType: string, encoding: string): 
     }
   }
   return result;
+}
+
+// Normaliza assunto: tira prefixos Re:/Fwd:/RES:/ENC: aninhados, trim, lowercase.
+function normalizeSubject(s: string | null | undefined): string {
+  return (s ?? "").replace(/^((re|fwd?|res|enc|fw|encaminhada):\s*)+/gi, "").trim().toLowerCase();
 }
 
 function extractCharset(contentType: string): string {
