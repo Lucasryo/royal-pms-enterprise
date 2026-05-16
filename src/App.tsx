@@ -358,20 +358,11 @@ export default function App() {
       { id: 'reservations' as ViewType, label: 'Reservas', icon: CalendarDays },
       { id: 'reception' as ViewType, label: 'Recepção', icon: KeyRound },
       { id: 'maintenance' as ViewType, label: 'Manutenção', icon: Wrench },
-      { id: 'checkin' as ViewType, label: 'Check-in/out', icon: KeyRound },
       { id: 'housekeeping' as ViewType, label: 'Governança', icon: BedDouble },
-      { id: 'operations' as ViewType, label: 'Operações', icon: ClipboardList },
       { id: 'pos' as ViewType, label: 'POS Restaurante', icon: Utensils },
       { id: 'events' as ViewType, label: 'Eventos', icon: Globe },
-      { id: 'guests' as ViewType, label: 'Hóspedes', icon: UserCircle },
-      { id: 'companies' as ViewType, label: 'Empresas', icon: Building2 },
-      { id: 'tracking' as ViewType, label: 'Rastreio', icon: Search },
       { id: 'finance' as ViewType, label: 'Finanças', icon: FileText },
       { id: 'prio-billing' as ViewType, label: 'Faturamento Prio', icon: Receipt },
-      { id: 'tariffs' as ViewType, label: 'Tarifas', icon: DollarSign },
-      { id: 'registration' as ViewType, label: 'Cadastro', icon: UserPlus },
-      { id: 'staff' as ViewType, label: 'Equipe', icon: Users },
-      { id: 'audit' as ViewType, label: 'Auditoria', icon: ShieldCheck },
       { id: 'admin-control' as ViewType, label: 'Admin', icon: ShieldCheck },
       { id: 'reports' as ViewType, label: 'Relatórios', icon: BarChart3 },
       { id: 'maintenance-qr' as ViewType, label: 'QR Manutenção', icon: Wrench },
@@ -379,7 +370,7 @@ export default function App() {
       { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
-    const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
+    const hiddenLegacyViews: ViewType[] = ['housekeeping'];
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
