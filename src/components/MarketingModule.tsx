@@ -467,6 +467,19 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
   const [contextOpen, setContextOpen] = useState(false);
 
   // Menu de contexto (clique direito) sobre uma mensagem
+  // Set de IDs (ou índices) de mensagens de email expandidas. A última sempre aparece expandida.
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+  function toggleExpand(key: string) {
+    setExpandedMsgs(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  // Reset expansão ao trocar de conversa
+  useEffect(() => { setExpandedMsgs(new Set()); }, [selectedId]);
+
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
   // Menu de contexto sobre um item da lista de conversas
   const [leadMenu, setLeadMenu] = useState<{ x: number; y: number; lead: Lead } | null>(null);
@@ -1365,84 +1378,148 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-neutral-50/30">
-            {visibleMessages.map((msg, i) => {
-              const isEmail = selected?.channel === 'email';
-              const canAct = isEmail && msg.type === 'in' && !!msg.id;
-              const inSpam = (msg.folder ?? 'inbox') === 'spam';
-              const inTrash = (msg.folder ?? 'inbox') === 'trash';
-              const busy = folderActionLoading === msg.id;
-              const renderedText = isEmail ? sanitizeEmailBody(msg.text) : msg.text;
-              const hasHtml = isEmail && !!msg.html;
-              // Para emails: cards full-width estilo cliente de email, sem alinhamento de chat.
-              // Para WhatsApp/IG/etc: bubble tradicional de chat com alinhamento direita/esquerda.
-              return (
-                <div key={msg.id ?? i} className={isEmail ? 'group block' : `group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMsgMenu({ x: e.clientX, y: e.clientY, msg: { ...msg, text: renderedText } });
-                    }}
-                    className={`relative cursor-context-menu ${
-                      isEmail
-                        ? `w-full px-5 py-4 rounded-xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-800 border border-neutral-200 shadow-sm'}`
-                        : `max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`
-                    }`}>
-                    {isEmail && msg.subject && (
-                      <div className="mb-2 border-b border-neutral-100 pb-2">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
-                        <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
-                      </div>
-                    )}
-                    {hasHtml ? (
-                      <EmailHtmlFrame html={msg.html!} darkBubble={msg.type === 'out'} />
-                    ) : (
-                      renderedText && <p className="whitespace-pre-wrap break-words">{renderedText}</p>
-                    )}
-                    {!!msg.attachments?.length && (
-                      <div className="mt-2 space-y-1.5">
-                        {msg.attachments.map((att, ai) => (
-                          <AttachmentChip key={ai} attachment={att} darkBubble={msg.type === 'out'} onResolveUrl={getAttachmentUrl} />
-                        ))}
-                      </div>
-                    )}
-                    <p className={`text-xs mt-2 ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>{msg.time}</p>
-                    {canAct && (
-                      <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-0.5 bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
-                        {!inSpam && !inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'spam')} disabled={busy} title="Marcar como spam" className="p-1.5 text-neutral-500 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {!inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'trash')} disabled={busy} title="Mover para lixeira" className="p-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {(inSpam || inTrash) && (
-                          <button onClick={() => performFolderAction(msg, 'inbox')} disabled={busy} title="Restaurar" className="p-1.5 text-neutral-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50">
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'delete')} disabled={busy} title="Excluir permanentemente" className="p-1.5 text-neutral-500 hover:bg-red-100 hover:text-red-700 disabled:opacity-50">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
+          {/* Messages — Email: estilo Gmail (lista vertical, ultimo expandido, anteriores colapsados).
+              Chat: bubbles tradicionais. */}
+          <div className="flex-1 overflow-y-auto bg-neutral-50/30">
+            {selected?.channel === 'email' ? (
+              <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-3">
+                {visibleMessages.length > 0 && (
+                  <h2 className="text-xl sm:text-2xl font-semibold text-neutral-900 mb-3 break-words">
+                    {visibleMessages[visibleMessages.length - 1]?.subject || 'Sem assunto'}
+                  </h2>
+                )}
+                {visibleMessages.map((msg, i) => {
+                  const key = msg.id ?? `idx-${i}`;
+                  const isLatest = i === visibleMessages.length - 1;
+                  const isExpanded = expandedMsgs.has(key) || isLatest;
+                  const inSpam = (msg.folder ?? 'inbox') === 'spam';
+                  const inTrash = (msg.folder ?? 'inbox') === 'trash';
+                  const canAct = msg.type === 'in' && !!msg.id;
+                  const busy = folderActionLoading === msg.id;
+                  const senderName = msg.type === 'out' ? 'Você' : (selected?.guestName ?? 'Contato');
+                  const senderEmail = msg.type === 'out' ? '' : (selected?.guestEmail ?? '');
+                  const preview = sanitizeEmailBody(msg.text).replace(/\s+/g, ' ').trim().slice(0, 140);
+
+                  return (
+                    <article
+                      key={key}
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className="bg-white border border-neutral-200 rounded-xl shadow-sm overflow-hidden"
+                    >
+                      {/* Header da mensagem (sempre visível, clicável pra colapsar/expandir) */}
+                      <header
+                        onClick={() => toggleExpand(key)}
+                        className={`flex items-start gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-neutral-50 transition-colors ${isExpanded ? 'border-b border-neutral-100' : ''}`}
+                      >
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold ${msg.type === 'out' ? 'bg-neutral-900 text-white' : 'bg-gradient-to-br from-amber-200 to-amber-300 text-amber-900'}`}>
+                          {senderName[0]?.toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-sm font-semibold text-neutral-900 truncate">
+                              {senderName}
+                              {senderEmail && <span className="ml-2 text-xs font-normal text-neutral-500">&lt;{senderEmail}&gt;</span>}
+                            </p>
+                            <span className="text-xs text-neutral-400 shrink-0">{msg.time}</span>
+                          </div>
+                          {!isExpanded && (
+                            <p className="text-xs text-neutral-500 truncate mt-0.5">{preview || 'Sem conteúdo de texto'}</p>
+                          )}
+                          {isExpanded && (
+                            <p className="text-xs text-neutral-500 mt-0.5">
+                              Para: {msg.type === 'out' ? (selected?.guestEmail ?? '—') : 'Você'}
+                            </p>
+                          )}
+                        </div>
+                      </header>
+
+                      {isExpanded && (
+                        <>
+                          {/* Corpo do email */}
+                          <div className="px-4 sm:px-5 py-4">
+                            {msg.html ? (
+                              <EmailHtmlFrame html={msg.html} darkBubble={false} />
+                            ) : (
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-800">{sanitizeEmailBody(msg.text)}</p>
+                            )}
+                            {!!msg.attachments?.length && (
+                              <div className="mt-3 pt-3 border-t border-neutral-100 space-y-1.5">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1">Anexos</p>
+                                {msg.attachments.map((att, ai) => (
+                                  <AttachmentChip key={ai} attachment={att} darkBubble={false} onResolveUrl={getAttachmentUrl} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Ações por mensagem (apenas email IN) */}
+                          {canAct && (
+                            <div className="flex items-center gap-1.5 px-4 sm:px-5 py-2 border-t border-neutral-100 bg-neutral-50/60">
+                              {!inSpam && !inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'spam'); }} disabled={busy} title="Marcar como spam" className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded">
+                                  <AlertCircle className="w-3.5 h-3.5" /> Spam
+                                </button>
+                              )}
+                              {!inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'trash'); }} disabled={busy} title="Mover para lixeira" className="flex items-center gap-1 px-2 py-1 text-xs text-red-700 hover:bg-red-50 rounded">
+                                  <Trash2 className="w-3.5 h-3.5" /> Lixeira
+                                </button>
+                              )}
+                              {(inSpam || inTrash) && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'inbox'); }} disabled={busy} title="Restaurar" className="flex items-center gap-1 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded">
+                                  <ArrowUpRight className="w-3.5 h-3.5" /> Restaurar
+                                </button>
+                              )}
+                              {inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'delete'); }} disabled={busy} title="Excluir permanentemente" className="flex items-center gap-1 px-2 py-1 text-xs text-red-800 hover:bg-red-100 rounded">
+                                  <X className="w-3.5 h-3.5" /> Excluir
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </article>
+                  );
+                })}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem nesta pasta</p>
                   </div>
-                </div>
-              );
-            })}
-            {visibleMessages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-neutral-400">
-                <Inbox className="w-12 h-12 mb-3 opacity-30" />
-                <p className="text-sm">Nenhuma mensagem nesta pasta</p>
+                )}
+                <div ref={bottomRef} />
+              </div>
+            ) : (
+              // Chat (WhatsApp/IG/etc) — bubbles tradicionais
+              <div className="p-5 space-y-3">
+                {visibleMessages.map((msg, i) => (
+                  <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className={`relative cursor-context-menu max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}
+                    >
+                      {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                      {!!msg.attachments?.length && (
+                        <div className="mt-2 space-y-1.5">
+                          {msg.attachments.map((att, ai) => (
+                            <AttachmentChip key={ai} attachment={att} darkBubble={msg.type === 'out'} onResolveUrl={getAttachmentUrl} />
+                          ))}
+                        </div>
+                      )}
+                      <p className={`text-xs mt-2 ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>{msg.time}</p>
+                    </div>
+                  </div>
+                ))}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem</p>
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
             )}
-            <div ref={bottomRef} />
           </div>
 
           {/* Menu de contexto (clique direito em um item da lista de conversas) */}
