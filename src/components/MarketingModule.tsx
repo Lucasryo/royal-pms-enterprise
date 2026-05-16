@@ -218,11 +218,6 @@ function StatusBadge({ status }: { status: Lead['status'] }) {
   return <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
-function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
-  if (s === 'happy') return <Smile className="w-3.5 h-3.5 text-emerald-500" />;
-  if (s === 'mixed') return <Meh className="w-3.5 h-3.5 text-amber-500" />;
-  return <Frown className="w-3.5 h-3.5 text-red-500" />;
-}
 
 // ─── LeadInbox Tab ────────────────────────────────────────────────────────────
 
@@ -833,10 +828,46 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
     }
   }
 
-  function markResolved() {
+  async function markResolved() {
     if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'resolved', unread_count: 0 })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como resolvida.');
+      return;
+    }
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'resolved' as const, unreadCount: 0 } : l));
     toast.success('Conversa resolvida');
+  }
+
+  async function markUnread() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'new', unread_count: Math.max(1, selected?.unreadCount ?? 1) })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como não lida.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'new' as const, unreadCount: Math.max(1, l.unreadCount ?? 1) } : l));
+    toast.success('Marcada como não lida');
+  }
+
+  async function markNeedsHuman() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'needs_human' })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao escalar.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'needs_human' as const } : l));
+    toast.success('Marcada como precisa de humano');
   }
 
   const assignedUser = selected?.assignedTo ? assignableUsers.find(u => u.id === selected.assignedTo) : null;
@@ -884,22 +915,38 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             })}
           </div>
           <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
-            <button
-              onClick={() => setShowOnlyMine(s => !s)}
-              className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-              title={showOnlyMine ? 'Mostrando só suas conversas' : 'Mostrar só minhas'}
-            >
-              {showOnlyMine ? '👤 Minhas' : 'Todas'}
-            </button>
-            {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-              >
-                {f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}
-              </button>
-            ))}
+            {(() => {
+              const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
+              const counts = {
+                mine: baseLeads.filter(l => l.assignedTo === profile.id).length,
+                all: baseLeads.length,
+                new: baseLeads.filter(l => l.status === 'new').length,
+                needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
+                resolved: baseLeads.filter(l => l.status === 'resolved').length,
+              };
+              return (
+                <>
+                  <button
+                    onClick={() => setShowOnlyMine(s => !s)}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showOnlyMine ? 'bg-amber-500 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                    title="Mostrar só conversas atribuídas a mim"
+                  >
+                    <span>👤 Minhas</span>
+                    <span className={`rounded-full px-1.5 text-[10px] ${showOnlyMine ? 'bg-white/25' : 'bg-neutral-100 text-neutral-500'}`}>{counts.mine}</span>
+                  </button>
+                  {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setActiveFilter(f)}
+                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                    >
+                      <span>{f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}</span>
+                      <span className={`rounded-full px-1.5 text-[10px] ${activeFilter === f ? 'bg-white/25' : 'bg-neutral-100 text-neutral-500'}`}>{counts[f]}</span>
+                    </button>
+                  ))}
+                </>
+              );
+            })()}
           </div>
           {isEmailChannel && (
             <div className="flex gap-1.5 border-t border-neutral-200 pt-3">
@@ -956,7 +1003,6 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                           <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
                           <span>{ch?.name}</span>
                         </span>
-                        <SentimentIcon s={lead.sentiment} />
                         {lead.assignedTo && (
                           <span className="text-xs text-neutral-500 truncate">
                             · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
@@ -995,7 +1041,6 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                     ) : null;
                   })()}
                   <StatusBadge status={selected.status} />
-                  <SentimentIcon s={selected.sentiment} />
                 </div>
               </div>
             </div>
@@ -1050,12 +1095,22 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                 <MoreVertical className="w-4 h-4" />
               </button>
               {selected.channel === 'email' && (
-                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                <button onClick={refreshEmailInbox} disabled={refreshingInbox} title="Buscar novos e-mails" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
                   <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
                 </button>
               )}
+              {selected.status !== 'new' && (
+                <button onClick={markUnread} title="Marcar conversa como não lida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors">
+                  <Bell className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Não lida</span>
+                </button>
+              )}
+              {selected.status !== 'needs_human' && selected.status !== 'resolved' && (
+                <button onClick={markNeedsHuman} title="Marcar que precisa de atendimento humano" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors">
+                  <AlertCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Escalar</span>
+                </button>
+              )}
               {selected.status !== 'resolved' && (
-                <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                <button onClick={markResolved} title="Marcar conversa como resolvida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
                   <CheckCircle2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Resolver</span>
                 </button>
               )}
@@ -3468,7 +3523,6 @@ type TabId = typeof NAV_SECTIONS[number]['items'][number]['id'];
 
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
-  const [navOpen, setNavOpen] = useState(false);
   const [kpis, setKpis] = useState<{ total: number; new: number; needsHuman: number }>({ total: 0, new: 0, needsHuman: 0 });
 
   useEffect(() => {
@@ -3546,14 +3600,6 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
           <header className="border-b border-neutral-200 bg-white">
             <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5">
               <div className="flex items-center gap-3 min-w-0">
-                {/* Mobile menu toggle */}
-                <button
-                  onClick={() => setNavOpen(v => !v)}
-                  className="lg:hidden p-2 -ml-1 rounded-lg text-neutral-600 hover:bg-neutral-100"
-                  aria-label="Abrir menu"
-                >
-                  <LayoutGrid className="w-5 h-5" />
-                </button>
                 <div className="min-w-0">
                   <p className="text-[11px] text-neutral-400 truncate">
                     {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
@@ -3573,33 +3619,24 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
             <p className="px-4 sm:px-6 pb-3 -mt-1 text-xs text-neutral-500 truncate">{activeItem.description}</p>
           </header>
 
-          {/* Mobile nav drawer (inline collapsible) */}
-          {navOpen && (
-            <div className="lg:hidden border-b border-neutral-200 bg-neutral-50/60 px-3 py-3 max-h-[60vh] overflow-y-auto">
-              {NAV_SECTIONS.map(section => (
-                <div key={section.label} className="mb-3">
-                  <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {section.items.map(item => {
-                      const active = activeTab === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => { setActiveTab(item.id); setNavOpen(false); }}
-                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                            active ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200' : 'bg-white/60 text-neutral-600 border border-transparent'
-                          }`}
-                        >
-                          <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Tab strip horizontal — sempre visível para descoberta das funções */}
+          <div className="lg:hidden border-b border-neutral-200 bg-white px-3 py-2 flex gap-1 overflow-x-auto scrollbar-none">
+            {TABS.map(item => {
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    active ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                  }`}
+                >
+                  <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
           {/* Content area */}
           <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
