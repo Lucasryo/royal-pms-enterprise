@@ -3706,6 +3706,83 @@ interface SmtpConfig {
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
 function IntegracoesTab() {
+  // ─── Estado dos webhooks Meta ────────────────────────────────────────────
+  type MetaCfg = { verify_token: string; access_token: string; app_secret: string; phone_number_id?: string; business_account_id?: string; page_id?: string };
+  const metaChannels: Array<{ id: 'whatsapp' | 'instagram' | 'facebook'; name: string; color: string; icon: ReactElement; extraFields: Array<{ key: keyof MetaCfg; label: string; placeholder: string }> }> = [
+    { id: 'whatsapp', name: 'WhatsApp Business', color: 'bg-emerald-500', icon: <MessageSquare className="w-4 h-4" />, extraFields: [
+      { key: 'phone_number_id', label: 'Phone Number ID', placeholder: '106988195493619' },
+      { key: 'business_account_id', label: 'Business Account ID', placeholder: '102290129340398' },
+    ]},
+    { id: 'instagram', name: 'Instagram Messaging', color: 'bg-pink-500', icon: <Instagram className="w-4 h-4" />, extraFields: [
+      { key: 'page_id', label: 'Instagram Business ID', placeholder: '17841400008460056' },
+    ]},
+    { id: 'facebook', name: 'Facebook Messenger', color: 'bg-blue-600', icon: <Facebook className="w-4 h-4" />, extraFields: [
+      { key: 'page_id', label: 'Facebook Page ID', placeholder: '102290129340398' },
+    ]},
+  ];
+  const [metaCfgs, setMetaCfgs] = useState<Record<string, MetaCfg>>({});
+  const [metaSaving, setMetaSaving] = useState<string | null>(null);
+  const [metaTesting, setMetaTesting] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const ids = metaChannels.map(c => `${c.id}_config`);
+      const { data } = await supabase.from('app_settings').select('id, value').in('id', ids);
+      if (!alive || !data) return;
+      const next: Record<string, MetaCfg> = {};
+      for (const row of data as Array<{ id: string; value: string }>) {
+        const ch = row.id.replace('_config', '');
+        try { next[ch] = JSON.parse(row.value); } catch { next[ch] = { verify_token: '', access_token: '', app_secret: '' }; }
+      }
+      setMetaCfgs(next);
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  function metaWebhookUrl(channel: string) {
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    return `${base}/functions/v1/webhook-${channel}`;
+  }
+  function generateVerifyToken() {
+    return 'pms-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+  }
+  async function saveMetaConfig(channel: 'whatsapp' | 'instagram' | 'facebook') {
+    const cfg = metaCfgs[channel];
+    if (!cfg) return;
+    setMetaSaving(channel);
+    try {
+      const { error } = await supabase.from('app_settings').upsert({ id: `${channel}_config`, value: JSON.stringify(cfg) });
+      if (error) throw error;
+      toast.success(`${channel === 'whatsapp' ? 'WhatsApp' : channel === 'instagram' ? 'Instagram' : 'Facebook'} salvo.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao salvar.');
+    } finally {
+      setMetaSaving(null);
+    }
+  }
+  async function testMetaWebhook(channel: 'whatsapp' | 'instagram' | 'facebook') {
+    const cfg = metaCfgs[channel];
+    if (!cfg?.verify_token) { toast.error('Preencha e salve o Verify Token primeiro.'); return; }
+    setMetaTesting(channel);
+    try {
+      const url = `${metaWebhookUrl(channel)}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(cfg.verify_token)}&hub.challenge=ping-${Date.now()}`;
+      const r = await fetch(url);
+      const text = await r.text();
+      if (r.ok && text.startsWith('ping-')) toast.success('Webhook respondeu OK. Cadastre no Meta Developer.');
+      else toast.error(`Falhou: ${r.status} ${text.slice(0, 80)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro na requisição.');
+    } finally {
+      setMetaTesting(null);
+    }
+  }
+  function isMetaConfigured(channel: string) {
+    const c = metaCfgs[channel];
+    return !!(c?.verify_token && c?.access_token && c?.app_secret);
+  }
+
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
     Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
   );
@@ -3902,25 +3979,122 @@ function IntegracoesTab() {
         </div>
       </section>
 
-      {/* Webhooks URLs do sistema */}
+      {/* Webhooks Meta (WhatsApp / Instagram / Facebook) */}
       <section className="space-y-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-          <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
-          {['whatsapp', 'instagram', 'facebook'].map(ch => (
-            <div key={ch} className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
-                <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
-                  <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Webhooks Meta — Recebimento de mensagens</h3>
+        <p className="text-xs text-neutral-500">
+          Pra cada canal: <strong>(1)</strong> gera/define um <em>Verify Token</em>, <strong>(2)</strong> salva,
+          <strong> (3)</strong> cadastra a Webhook URL + Verify Token no <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-amber-600 font-bold hover:underline">Meta Developer Portal</a>,
+          <strong> (4)</strong> preenche Access Token + App Secret + IDs e salva de novo. Use <strong>Testar conexão</strong> pra validar.
+        </p>
+        {metaChannels.map(ch => {
+          const cfg = metaCfgs[ch.id] ?? { verify_token: '', access_token: '', app_secret: '' };
+          const connected = isMetaConfigured(ch.id);
+          const url = metaWebhookUrl(ch.id);
+          return (
+            <div key={ch.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl ${ch.color} flex items-center justify-center text-white`}>{ch.icon}</div>
+                  <div>
+                    <p className="font-semibold text-sm text-neutral-900">{ch.name}</p>
+                    <p className="text-xs text-neutral-500">Recebe mensagens via webhook Meta</p>
+                  </div>
+                </div>
+                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-neutral-400'}`}></span>
+                  {connected ? 'Configurado' : 'Aguardando configuração'}
+                </span>
+              </div>
+
+              {/* Webhook URL (read-only) */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Webhook URL <span className="text-neutral-400 font-normal">(cadastre na Meta)</span></label>
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-neutral-50 rounded-xl border border-neutral-200">
+                  <p className="text-xs font-mono text-neutral-700 flex-1 truncate">{url}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(url); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100" title="Copiar">
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
+
+              {/* Verify Token + gerar */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Verify Token <span className="text-neutral-400 font-normal">(use o mesmo na Meta)</span></label>
+                <div className="flex gap-2">
+                  <input
+                    value={cfg.verify_token}
+                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: e.target.value } }))}
+                    placeholder="meu-token-secreto"
+                    className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                  />
+                  <button
+                    onClick={() => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: generateVerifyToken() } }))}
+                    className="px-3 py-2 bg-neutral-900 text-white rounded-lg text-xs font-semibold hover:bg-neutral-800"
+                    title="Gera token aleatório"
+                  >
+                    Gerar
+                  </button>
+                </div>
+              </div>
+
+              {/* Access Token */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Access Token <span className="text-neutral-400 font-normal">(do Meta Graph API)</span></label>
+                <input
+                  type="password"
+                  value={cfg.access_token}
+                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, access_token: e.target.value } }))}
+                  placeholder="EAAGm0PX..."
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                />
+              </div>
+
+              {/* App Secret */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">App Secret <span className="text-neutral-400 font-normal">(valida assinatura HMAC)</span></label>
+                <input
+                  type="password"
+                  value={cfg.app_secret}
+                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, app_secret: e.target.value } }))}
+                  placeholder="ab1c2d..."
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                />
+              </div>
+
+              {/* Campos extras por canal (Phone ID, Page ID, etc.) */}
+              {ch.extraFields.map(field => (
+                <div key={field.key as string}>
+                  <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">{field.label}</label>
+                  <input
+                    value={(cfg as Record<string, string | undefined>)[field.key as string] ?? ''}
+                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, [field.key]: e.target.value } }))}
+                    placeholder={field.placeholder}
+                    className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                  />
+                </div>
+              ))}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => saveMetaConfig(ch.id)}
+                  disabled={metaSaving === ch.id}
+                  className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm font-semibold hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" /> {metaSaving === ch.id ? 'Salvando…' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => testMetaWebhook(ch.id)}
+                  disabled={metaTesting === ch.id || !cfg.verify_token}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {metaTesting === ch.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  {metaTesting === ch.id ? 'Testando…' : 'Testar conexão'}
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </section>
 
       {/* E-mail de confirmação */}
