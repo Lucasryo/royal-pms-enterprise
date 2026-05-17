@@ -148,6 +148,33 @@ export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" 
   }]);
 }
 
+// Processa eventos de leitura IG/FB (event.read.watermark). Marca todas as
+// msgs OUT pra esse contato com created_at <= watermark como read=true.
+export async function processIGFBReadWatermarks(payload: any, channel: "instagram" | "facebook"): Promise<number> {
+  const admin = getAdminClient();
+  let updated = 0;
+  for (const entry of payload?.entry ?? []) {
+    for (const event of (entry?.messaging ?? [])) {
+      const watermark = event?.read?.watermark;
+      const senderId = event?.sender?.id;
+      if (!watermark || !senderId) continue;
+      const watermarkIso = new Date(Number(watermark)).toISOString();
+      // Busca o contact_id desse sender (que pra read events é o cliente)
+      const { data: contact } = await admin.from("marketing_contacts")
+        .select("id").eq("channel", channel).eq("phone", senderId).maybeSingle();
+      if (!contact) continue;
+      const { error } = await admin.from("inbox_messages")
+        .update({ read: true })
+        .eq("contact_id", contact.id)
+        .eq("channel", channel)
+        .eq("direction", "out")
+        .lte("created_at", watermarkIso);
+      if (!error) updated += 1;
+    }
+  }
+  return updated;
+}
+
 export function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }

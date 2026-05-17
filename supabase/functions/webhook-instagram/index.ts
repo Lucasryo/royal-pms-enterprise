@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { corsHeaders, json, loadConfig, parseInstagramOrFacebook, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
+import { corsHeaders, json, loadConfig, parseInstagramOrFacebook, processIGFBReadWatermarks, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -31,7 +31,8 @@ serve(async (req) => {
   try {
     const messages = parseInstagramOrFacebook(payload);
     for (const m of messages) await upsertContactAndMessage("instagram", m, config?.access_token);
-    return json({ processed: messages.length });
+    const readUpdates = await processIGFBReadWatermarks(payload, "instagram");
+    return json({ processed: messages.length, readUpdates });
   } catch (err) {
     console.warn("[webhook-instagram] processing error:", err);
     return json({ error: err instanceof Error ? err.message : "error", processed: 0 });

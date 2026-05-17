@@ -597,6 +597,62 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
   // Drawer mobile do painel de contexto
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Templates WhatsApp aprovados
+  type WAtpl = { name: string; language: string; category: string; bodyText: string; paramCount: number };
+  const [templates, setTemplates] = useState<WAtpl[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [selectedTpl, setSelectedTpl] = useState<WAtpl | null>(null);
+  const [tplParams, setTplParams] = useState<string[]>([]);
+  const [sendingTpl, setSendingTpl] = useState(false);
+
+  async function loadTemplates() {
+    if (loadingTemplates) return;
+    setLoadingTemplates(true); setTemplatesError(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { setTemplatesError('Sessão expirada.'); return; }
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-templates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) { setTemplatesError((result as { error?: string })?.error ?? 'Erro'); return; }
+      setTemplates((result as { templates: WAtpl[] })?.templates ?? []);
+      if ((result as { error?: string })?.error) setTemplatesError((result as { error: string }).error);
+    } catch (e) { setTemplatesError(e instanceof Error ? e.message : 'Erro'); }
+    finally { setLoadingTemplates(false); }
+  }
+
+  async function sendTemplate() {
+    if (!selectedTpl || !selectedId || !selected) return;
+    const recipient = selected.guestPhone || selected.guestEmail;
+    if (!recipient) { toast.error('Identificador do contato não encontrado.'); return; }
+    if (selectedTpl.paramCount > 0 && tplParams.filter(p => p && p.trim()).length < selectedTpl.paramCount) {
+      toast.error(`Preencha os ${selectedTpl.paramCount} parâmetros do template.`);
+      return;
+    }
+    setSendingTpl(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: 'whatsapp', recipient, contact_id: selectedId,
+          template: { name: selectedTpl.name, languageCode: selectedTpl.language, bodyParams: tplParams.slice(0, selectedTpl.paramCount) },
+        }),
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok || !result.sent) { toast.error((result as { error?: string })?.error ?? 'Falha ao enviar template.'); return; }
+      toast.success(`Template "${selectedTpl.name}" enviado.`);
+      setShowTemplatesModal(false); setSelectedTpl(null); setTplParams([]);
+    } finally { setSendingTpl(false); }
+  }
+
   // Menu de contexto (clique direito) sobre uma mensagem
   // Set de IDs (ou índices) de mensagens de email expandidas. A última sempre aparece expandida.
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
@@ -1056,6 +1112,7 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
         const token = sessionData.session?.access_token;
         if (!token) { toast.error('Sessão expirada.'); return; }
 
+        const sentAtt = pendingAttachments.slice();
         const response = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1064,18 +1121,20 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             recipient,
             text,
             contact_id: selectedId,
+            attachments: sentAtt.length > 0 ? sentAtt : undefined,
           }),
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.sent) {
           throw new Error(result.error || `Falha ao enviar ${selectedLead.channel}.`);
         }
-        outgoingMessageId = typeof result.externalId === 'string' ? result.externalId : null;
+        const ids = (result.externalIds as string[] | undefined) ?? [];
+        outgoingMessageId = ids[0] ?? null;
         // Edge function já gravou no DB; saímos cedo para não duplicar.
         const now = new Date().toISOString();
-        const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, attachments: [], emailMessageId: outgoingMessageId };
+        const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, attachments: sentAtt, emailMessageId: outgoingMessageId };
         setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-        setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text.slice(0, 500), lastMessageAt: now, status: 'ai_responded' as const } : l));
+        setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: (text || `[${sentAtt.length} anexo(s)]`).slice(0, 500), lastMessageAt: now, status: 'ai_responded' as const } : l));
         setMessageInput('');
         setPendingAttachments([]);
         toast.success('Mensagem enviada');
@@ -1982,6 +2041,16 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             >
               {uploadingAttachment ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
             </button>
+            {selected.channel === 'whatsapp' && (
+              <button
+                onClick={() => { setShowTemplatesModal(true); if (templates.length === 0) loadTemplates(); }}
+                disabled={sendingMessage}
+                className="p-2.5 rounded-2xl text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+                title="Templates aprovados"
+              >
+                <ClipboardList className="w-5 h-5" />
+              </button>
+            )}
             <textarea
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
@@ -2081,6 +2150,71 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             </div>
           </div>
         </aside>
+      )}
+
+      {showTemplatesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 backdrop-blur-sm p-4" onClick={() => !sendingTpl && setShowTemplatesModal(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-2xl max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center"><ClipboardList className="w-4 h-4 text-emerald-600" /></div>
+                <h3 className="text-sm font-semibold text-neutral-900">Templates WhatsApp Aprovados</h3>
+              </div>
+              <button onClick={() => setShowTemplatesModal(false)} className="p-1.5 rounded-lg text-neutral-500 hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center py-8 text-neutral-500"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Carregando templates...</div>
+              ) : templatesError ? (
+                <div className="p-4 bg-red-50 text-red-700 text-sm rounded-lg">{templatesError}</div>
+              ) : templates.length === 0 ? (
+                <p className="text-sm text-neutral-500 text-center py-8">Nenhum template aprovado encontrado. Crie e aguarde aprovação no Meta Business Manager.</p>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map(t => (
+                    <button
+                      key={t.name + t.language}
+                      onClick={() => { setSelectedTpl(t); setTplParams(Array(t.paramCount).fill('')); }}
+                      className={`w-full text-left p-3 rounded-xl border transition-colors ${selectedTpl?.name === t.name ? 'border-amber-500 bg-amber-50' : 'border-neutral-200 hover:bg-neutral-50'}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-neutral-900">{t.name}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t.language} · {t.category}</span>
+                      </div>
+                      <p className="text-xs text-neutral-600 whitespace-pre-wrap line-clamp-3">{t.bodyText}</p>
+                      {t.paramCount > 0 && <p className="text-xs text-amber-700 mt-1">{t.paramCount} parâmetro(s) necessário(s)</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedTpl && selectedTpl.paramCount > 0 && (
+                <div className="mt-4 pt-4 border-t border-neutral-200 space-y-2">
+                  <p className="text-xs font-semibold text-neutral-700">Parâmetros do template:</p>
+                  {Array.from({ length: selectedTpl.paramCount }).map((_, i) => (
+                    <input
+                      key={i}
+                      value={tplParams[i] ?? ''}
+                      onChange={e => { const next = [...tplParams]; next[i] = e.target.value; setTplParams(next); }}
+                      placeholder={`{{${i + 1}}}`}
+                      className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-neutral-200 bg-neutral-50">
+              <button onClick={() => setShowTemplatesModal(false)} disabled={sendingTpl} className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 rounded-lg">Cancelar</button>
+              <button
+                onClick={sendTemplate}
+                disabled={!selectedTpl || sendingTpl}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {sendingTpl ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {sendingTpl ? 'Enviando...' : 'Enviar template'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {composeOpen && (
