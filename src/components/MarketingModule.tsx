@@ -1043,6 +1043,41 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
           throw new Error(result.error || 'Falha ao enviar e-mail.');
         }
         outgoingMessageId = typeof result.messageId === 'string' ? result.messageId : null;
+      } else if (['whatsapp', 'instagram', 'facebook'].includes(selectedLead.channel)) {
+        // Recipient identifier: usamos guestPhone (que armazena wa_id/PSID pra esses canais)
+        const recipient = selectedLead.guestPhone || selectedLead.guestEmail;
+        if (!recipient) {
+          toast.error(`Identificador do contato ${selectedLead.channel} não encontrado.`);
+          return;
+        }
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel: selectedLead.channel,
+            recipient,
+            text,
+            contact_id: selectedId,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.sent) {
+          throw new Error(result.error || `Falha ao enviar ${selectedLead.channel}.`);
+        }
+        outgoingMessageId = typeof result.externalId === 'string' ? result.externalId : null;
+        // Edge function já gravou no DB; saímos cedo para não duplicar.
+        const now = new Date().toISOString();
+        const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, attachments: [], emailMessageId: outgoingMessageId };
+        setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
+        setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text.slice(0, 500), lastMessageAt: now, status: 'ai_responded' as const } : l));
+        setMessageInput('');
+        setPendingAttachments([]);
+        toast.success('Mensagem enviada');
+        return;
       }
 
     const now = new Date().toISOString();
