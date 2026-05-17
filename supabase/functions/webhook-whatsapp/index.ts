@@ -32,7 +32,7 @@ serve(async (req) => {
   try {
     const messages = parseWhatsApp(payload);
     for (const m of messages) {
-      await upsertContactAndMessage("whatsapp", m);
+      await upsertContactAndMessage("whatsapp", m, config?.access_token);
     }
     return json({ processed: messages.length });
   } catch (err) {

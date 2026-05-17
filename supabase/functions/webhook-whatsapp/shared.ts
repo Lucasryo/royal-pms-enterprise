@@ -18,13 +18,23 @@ export type ChannelConfig = {
   page_id?: string;
 };
 
+export type MediaItem = {
+  source: "whatsapp" | "meta-direct";  // whatsapp = precisa GET media_id pra pegar URL; meta-direct = url ja vem no payload
+  mediaIdOrUrl: string;
+  mime: string;
+  filename?: string;
+};
+
 export type ParsedMessage = {
   identifier: string;     // wa_id / PSID
   name: string;
   text: string;
   externalId: string;     // wamid / mid (pra dedupe)
   timestamp: number;
+  mediaItems?: MediaItem[];
 };
+
+export type Attachment = { path: string; name: string; size: number; mime: string; };
 
 export function getAdminClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -100,22 +110,40 @@ export function parseWhatsApp(payload: any): ParsedMessage[] {
         const contact = contacts.find(c => c.wa_id === from) ?? contacts[0];
         const name = contact?.profile?.name ?? from;
         let text = "";
-        if (msg.type === "text") text = msg.text?.body ?? "";
-        else if (msg.type === "image") text = "[FOTO]";
-        else if (msg.type === "audio") text = "[ÁUDIO]";
-        else if (msg.type === "video") text = "[VÍDEO]";
-        else if (msg.type === "document") text = `[DOCUMENTO: ${msg.document?.filename ?? "arquivo"}]`;
-        else if (msg.type === "sticker") text = "[STICKER]";
-        else if (msg.type === "location") text = `[LOCALIZAÇÃO: ${msg.location?.latitude},${msg.location?.longitude}]`;
-        else if (msg.type === "button") text = msg.button?.text ?? "";
-        else if (msg.type === "interactive") text = msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? "[INTERATIVA]";
-        else text = `[${(msg.type ?? "desconhecido").toString().toUpperCase()}]`;
+        const mediaItems: MediaItem[] = [];
+        if (msg.type === "text") {
+          text = msg.text?.body ?? "";
+        } else if (msg.type === "image") {
+          text = msg.image?.caption ?? "";
+          if (msg.image?.id) mediaItems.push({ source: "whatsapp", mediaIdOrUrl: msg.image.id, mime: msg.image?.mime_type ?? "image/jpeg", filename: `image.${(msg.image?.mime_type ?? "image/jpeg").split("/")[1]}` });
+        } else if (msg.type === "audio") {
+          text = "[ÁUDIO]";
+          if (msg.audio?.id) mediaItems.push({ source: "whatsapp", mediaIdOrUrl: msg.audio.id, mime: msg.audio?.mime_type ?? "audio/ogg", filename: "audio.ogg" });
+        } else if (msg.type === "video") {
+          text = msg.video?.caption ?? "";
+          if (msg.video?.id) mediaItems.push({ source: "whatsapp", mediaIdOrUrl: msg.video.id, mime: msg.video?.mime_type ?? "video/mp4", filename: "video.mp4" });
+        } else if (msg.type === "document") {
+          text = msg.document?.caption ?? "";
+          if (msg.document?.id) mediaItems.push({ source: "whatsapp", mediaIdOrUrl: msg.document.id, mime: msg.document?.mime_type ?? "application/pdf", filename: msg.document?.filename ?? "documento" });
+        } else if (msg.type === "sticker") {
+          text = "[STICKER]";
+          if (msg.sticker?.id) mediaItems.push({ source: "whatsapp", mediaIdOrUrl: msg.sticker.id, mime: msg.sticker?.mime_type ?? "image/webp", filename: "sticker.webp" });
+        } else if (msg.type === "location") {
+          text = `[LOCALIZAÇÃO: ${msg.location?.latitude},${msg.location?.longitude}]`;
+        } else if (msg.type === "button") {
+          text = msg.button?.text ?? "";
+        } else if (msg.type === "interactive") {
+          text = msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? "[INTERATIVA]";
+        } else {
+          text = `[${(msg.type ?? "desconhecido").toString().toUpperCase()}]`;
+        }
         out.push({
           identifier: from,
           name,
           text,
           externalId: msg.id ?? `wa-${Date.now()}-${Math.random()}`,
           timestamp: Number(msg.timestamp ?? Math.floor(Date.now() / 1000)),
+          mediaItems: mediaItems.length > 0 ? mediaItems : undefined,
         });
       }
     }
@@ -123,45 +151,61 @@ export function parseWhatsApp(payload: any): ParsedMessage[] {
   return out;
 }
 
-export function parseInstagramOrFacebook(payload: any): ParsedMessage[] {
-  const out: ParsedMessage[] = [];
-  for (const entry of payload?.entry ?? []) {
-    const messaging: any[] = entry?.messaging ?? [];
-    for (const event of messaging) {
-      const senderId = event?.sender?.id ?? "";
-      if (!senderId) continue;
-      // Ignora echo (mensagens que nós mesmos enviamos)
-      if (event?.message?.is_echo) continue;
-      let text = "";
-      if (event?.message?.text) text = event.message.text;
-      else if (event?.message?.attachments?.length) {
-        const types = event.message.attachments.map((a: any) => (a.type ?? "anexo").toUpperCase()).join(", ");
-        text = `[${types}]`;
-      } else if (event?.postback?.title) {
-        text = event.postback.title;
-      } else continue;
-      out.push({
-        identifier: senderId,
-        name: senderId, // IG/FB não mandam nome no webhook; pega via Graph API depois
-        text,
-        externalId: event?.message?.mid ?? `${entry?.id}-${event?.timestamp ?? Date.now()}`,
-        timestamp: Number(event?.timestamp ?? Date.now()),
+// Download de uma mídia (WhatsApp Cloud API ou URL direta de IG/FB), salva no bucket inbox_attachments.
+export async function downloadMediaToStorage(
+  item: MediaItem,
+  contactId: string,
+  channel: string,
+  accessToken: string,
+): Promise<Attachment | null> {
+  try {
+    let downloadUrl = item.mediaIdOrUrl;
+    // WhatsApp: precisa primeiro GET /{media_id} pra pegar a URL real
+    if (item.source === "whatsapp") {
+      const lookup = await fetch(`https://graph.facebook.com/v18.0/${item.mediaIdOrUrl}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
+      if (!lookup.ok) {
+        console.warn(`[media] lookup failed: ${lookup.status}`);
+        return null;
+      }
+      const lookupJson = await lookup.json().catch(() => ({}));
+      downloadUrl = (lookupJson as { url?: string })?.url ?? "";
+      if (!downloadUrl) return null;
     }
-  }
-  return out;
-}
+    // Baixa o binário (com auth header pra WhatsApp)
+    const dl = await fetch(downloadUrl, item.source === "whatsapp" ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined);
+    if (!dl.ok) {
+      console.warn(`[media] download failed: ${dl.status}`);
+      return null;
+    }
+    const bytes = new Uint8Array(await dl.arrayBuffer());
+    if (bytes.length === 0) return null;
 
-// ─── Upsert e insert ───────────────────────────────────────────────────────
+    const safeName = (item.filename ?? "media").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${channel}/${contactId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    const admin = getAdminClient();
+    const { error: upErr } = await admin.storage.from("inbox_attachments").upload(path, bytes, {
+      contentType: item.mime,
+      upsert: false,
+    });
+    if (upErr) {
+      console.warn(`[media] storage upload failed: ${upErr.message}`);
+      return null;
+    }
+    return { path, name: safeName, size: bytes.length, mime: item.mime };
+  } catch (err) {
+    console.warn("[media] downloadMediaToStorage error:", err);
+    return null;
+  }
+}
 
 export async function upsertContactAndMessage(
   channel: "whatsapp" | "instagram" | "facebook",
   msg: ParsedMessage,
+  accessToken?: string,
 ): Promise<void> {
   const admin = getAdminClient();
-
-  // 1. Find existing contact por phone (WA) ou por identifier salvo em email/phone (IG/FB).
-  // Pra simplificar: usa phone pra WA, e armazena identifier em phone pra IG/FB tambem (sem coluna especifica).
   const idField = "phone";
   const { data: existing } = await admin
     .from("marketing_contacts")
@@ -171,15 +215,14 @@ export async function upsertContactAndMessage(
     .maybeSingle();
 
   let contactId: string;
-  let prevUnread = 0;
   if (existing?.id) {
     contactId = existing.id;
-    prevUnread = existing.unread_count ?? 0;
+    const prev = existing.unread_count ?? 0;
     await admin.from("marketing_contacts").update({
       name: msg.name || msg.identifier,
-      last_message: msg.text.slice(0, 500),
+      last_message: msg.text.slice(0, 500) || (msg.mediaItems?.length ? `[${msg.mediaItems.length} anexo(s)]` : ""),
       last_message_at: new Date(msg.timestamp * 1000).toISOString(),
-      unread_count: prevUnread + 1,
+      unread_count: prev + 1,
       status: "new",
       updated_at: new Date().toISOString(),
     }).eq("id", contactId);
@@ -188,7 +231,7 @@ export async function upsertContactAndMessage(
       channel,
       [idField]: msg.identifier,
       name: msg.name || msg.identifier,
-      last_message: msg.text.slice(0, 500),
+      last_message: msg.text.slice(0, 500) || (msg.mediaItems?.length ? `[${msg.mediaItems.length} anexo(s)]` : ""),
       last_message_at: new Date(msg.timestamp * 1000).toISOString(),
       unread_count: 1,
       status: "new",
@@ -202,7 +245,7 @@ export async function upsertContactAndMessage(
     contactId = (inserted as { id: string }).id;
   }
 
-  // 2. Dedupe: se ja temos mensagem com mesmo externalId, ignora.
+  // Dedupe
   const { data: existingMsg } = await admin
     .from("inbox_messages")
     .select("id")
@@ -211,7 +254,15 @@ export async function upsertContactAndMessage(
     .maybeSingle();
   if (existingMsg) return;
 
-  // 3. Insert mensagem.
+  // Download de mídias (se houver e tivermos access_token)
+  const attachments: Attachment[] = [];
+  if (msg.mediaItems && msg.mediaItems.length > 0 && accessToken) {
+    for (const item of msg.mediaItems) {
+      const att = await downloadMediaToStorage(item, contactId, channel, accessToken);
+      if (att) attachments.push(att);
+    }
+  }
+
   await admin.from("inbox_messages").insert([{
     contact_id: contactId,
     contact_identifier: msg.identifier,
@@ -224,7 +275,7 @@ export async function upsertContactAndMessage(
     email_message_id: msg.externalId,
     email_references: null,
     read: false,
-    attachments: [],
+    attachments,
   }]);
 }
 
