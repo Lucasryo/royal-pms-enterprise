@@ -267,7 +267,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[App] onAuthStateChange:', event, session ? 'has session' : 'no session');
       setUser(session?.user ?? null);
-      if (!user) {
+      if (event === 'SIGNED_OUT') {
         setProfile(null);
         setCurrentView('dashboard');
         setLoading(false);
