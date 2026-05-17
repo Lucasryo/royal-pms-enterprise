@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { corsHeaders, json, loadConfig, parseInstagramOrFacebook, processIGFBReadWatermarks, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
+import { corsHeaders, json, loadConfig, parseInstagramOrFacebook, processIGFBReadWatermarks, triggerAutoRespond, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -30,7 +30,10 @@ serve(async (req) => {
 
   try {
     const messages = parseInstagramOrFacebook(payload);
-    for (const m of messages) await upsertContactAndMessage("instagram", m, config?.access_token);
+    for (const m of messages) {
+      const contactId = await upsertContactAndMessage("instagram", m, config?.access_token);
+      if (contactId) triggerAutoRespond(contactId, "instagram", m.text);
+    }
     const readUpdates = await processIGFBReadWatermarks(payload, "instagram");
     return json({ processed: messages.length, readUpdates });
   } catch (err) {

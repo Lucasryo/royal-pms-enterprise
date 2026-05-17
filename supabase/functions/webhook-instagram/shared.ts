@@ -107,7 +107,7 @@ export async function downloadMediaToStorage(item: MediaItem, contactId: string,
   } catch (err) { console.warn("[media] downloadMediaToStorage error:", err); return null; }
 }
 
-export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" | "facebook", msg: ParsedMessage, accessToken?: string): Promise<void> {
+export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" | "facebook", msg: ParsedMessage, accessToken?: string): Promise<string | null> {
   const admin = getAdminClient();
   const idField = "phone";
   const { data: existing } = await admin.from("marketing_contacts").select("id, unread_count").eq("channel", channel).eq(idField, msg.identifier).maybeSingle();
@@ -128,11 +128,11 @@ export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" 
       last_message_at: new Date(msg.timestamp * 1000).toISOString(),
       unread_count: 1, status: "new", sentiment: "neutral", updated_at: new Date().toISOString(),
     }).select("id").single();
-    if (error) { console.warn(`[meta-webhook] insert contact failed: ${error.message}`); return; }
+    if (error) { console.warn(`[meta-webhook] insert contact failed: ${error.message}`); return null; }
     contactId = (inserted as { id: string }).id;
   }
   const { data: existingMsg } = await admin.from("inbox_messages").select("id").eq("email_message_id", msg.externalId).eq("channel", channel).maybeSingle();
-  if (existingMsg) return;
+  if (existingMsg) return null;
   const attachments: Attachment[] = [];
   if (msg.mediaItems && msg.mediaItems.length > 0 && accessToken) {
     for (const item of msg.mediaItems) {
@@ -146,6 +146,18 @@ export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" 
     message_uid: msg.externalId, email_message_id: msg.externalId, email_references: null,
     read: false, attachments,
   }]);
+  return contactId;
+}
+
+export function triggerAutoRespond(contactId: string, channel: "whatsapp" | "instagram" | "facebook", text: string): void {
+  const supaUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supaUrl || !srk || !contactId) return;
+  fetch(`${supaUrl}/functions/v1/auto-respond-meta`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${srk}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ contact_id: contactId, channel, incoming_text: text }),
+  }).catch(err => console.warn("[auto-respond trigger]", err));
 }
 
 // Processa eventos de leitura IG/FB (event.read.watermark). Marca todas as

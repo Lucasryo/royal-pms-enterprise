@@ -204,7 +204,7 @@ export async function upsertContactAndMessage(
   channel: "whatsapp" | "instagram" | "facebook",
   msg: ParsedMessage,
   accessToken?: string,
-): Promise<void> {
+): Promise<string | null> {
   const admin = getAdminClient();
   const idField = "phone";
   const { data: existing } = await admin
@@ -240,7 +240,7 @@ export async function upsertContactAndMessage(
     }).select("id").single();
     if (error) {
       console.warn(`[meta-webhook] insert contact failed: ${error.message}`);
-      return;
+      return null;
     }
     contactId = (inserted as { id: string }).id;
   }
@@ -252,7 +252,7 @@ export async function upsertContactAndMessage(
     .eq("email_message_id", msg.externalId)
     .eq("channel", channel)
     .maybeSingle();
-  if (existingMsg) return;
+  if (existingMsg) return null;
 
   // Download de mídias (se houver e tivermos access_token)
   const attachments: Attachment[] = [];
@@ -277,6 +277,18 @@ export async function upsertContactAndMessage(
     read: false,
     attachments,
   }]);
+  return contactId;
+}
+
+export function triggerAutoRespond(contactId: string, channel: "whatsapp" | "instagram" | "facebook", text: string): void {
+  const supaUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supaUrl || !srk || !contactId) return;
+  fetch(`${supaUrl}/functions/v1/auto-respond-meta`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${srk}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ contact_id: contactId, channel, incoming_text: text }),
+  }).catch(err => console.warn("[auto-respond trigger]", err));
 }
 
 export function json(body: unknown, status = 200) {

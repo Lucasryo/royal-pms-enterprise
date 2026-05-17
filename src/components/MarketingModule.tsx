@@ -106,6 +106,15 @@ interface BotConfig {
   widgetWelcomeMessage: string;
   googleReviewLink: string;
   npsSendAfterHours: number;
+  // Automation engine
+  enabled: boolean;
+  provider: 'claude' | 'openai' | 'gemini' | 'rule';
+  model: string;
+  apiKey: string;
+  systemPromptTemplate: string;
+  escalationKeywords: string[];
+  maxConsecutiveBotMsgs: number;
+  historyWindow: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -2982,18 +2991,42 @@ function NPSTab() {
 
 // ─── Bot Training Tab ─────────────────────────────────────────────────────────
 
+const DEFAULT_SYSTEM_PROMPT = `Voce eh o atendente virtual do hotel {{hotel_name}}. Use o tom: {{mood}}.
+
+INFORMACOES DO HOTEL:
+{{description}}
+
+POLITICAS:
+{{policies}}
+
+ACOMODACOES:
+{{rooms}}
+
+FAQ:
+{{faq}}
+
+Regras:
+- Responda em portugues, max 2-3 frases.
+- Nunca invente precos. Se nao souber, peca pra humano.
+- Se cliente pedir falar com humano, reclamar ou demonstrar irritacao, responda <needs_human/> sem outro texto.
+- Nunca confirme reservas — diga que vai passar pro atendente humano.`;
+
 function BotTrainingTab() {
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<'info' | 'pricing' | 'personality'>('info');
+  const [testing, setTesting] = useState(false);
+  const [testInput, setTestInput] = useState('');
+  const [testOutput, setTestOutput] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<'engine' | 'rules' | 'info' | 'pricing' | 'personality'>('engine');
+  const [keywordInput, setKeywordInput] = useState('');
   const [config, setConfig] = useState<BotConfig>({
-    name: 'Royal PMS Palace Hotel',
-    address: 'Av. Principal, 1000 - Centro',
-    phone: '(22) 99999-0000',
-    email: 'contato@royalpms.com',
-    description: 'Hotel executivo com localização privilegiada, café da manhã incluso, Wi-Fi de alta velocidade e atendimento 24h.',
-    policies: 'Check-in: 14h | Check-out: 11h | Pets não permitidos | Fumantes apenas em áreas externas',
-    rooms: 'Standard (2 pessoas): R$ 289/noite\nExecutiva (2 pessoas): R$ 359/noite\nSuíte Master (2 pessoas): R$ 520/noite',
-    faq: 'Café da manhã incluso? Sim, servido das 6h às 10h.\nTem estacionamento? Sim, gratuito.\nAceita cartão? Sim, todos os cartões.',
+    name: '',
+    address: '',
+    phone: '',
+    email: '',
+    description: '',
+    policies: '',
+    rooms: '',
+    faq: '',
     pricingTable: '',
     botMood: 'professional',
     upsellActive: true,
@@ -3002,16 +3035,113 @@ function BotTrainingTab() {
     widgetWelcomeMessage: 'Olá! Como posso ajudar com sua reserva hoje?',
     googleReviewLink: '',
     npsSendAfterHours: 24,
+    enabled: false,
+    provider: 'claude',
+    model: 'claude-haiku-4-5',
+    apiKey: '',
+    systemPromptTemplate: DEFAULT_SYSTEM_PROMPT,
+    escalationKeywords: ['humano', 'atendente', 'gerente', 'reclamacao', 'reclamar', 'cancelar'],
+    maxConsecutiveBotMsgs: 5,
+    historyWindow: 10,
   });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase.from('app_settings').select('value').eq('id', 'bot_config').maybeSingle();
+      if (!alive || error || !data?.value) return;
+      try {
+        const raw = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+        setConfig(prev => ({
+          ...prev,
+          name: raw.hotel_name ?? prev.name,
+          description: raw.description ?? prev.description,
+          policies: raw.policies ?? prev.policies,
+          rooms: raw.rooms ?? prev.rooms,
+          faq: raw.faq ?? prev.faq,
+          botMood: raw.mood ?? prev.botMood,
+          enabled: !!raw.enabled,
+          provider: raw.provider ?? prev.provider,
+          model: raw.model ?? prev.model,
+          apiKey: raw.api_key ?? '',
+          systemPromptTemplate: raw.system_prompt_template ?? prev.systemPromptTemplate,
+          escalationKeywords: Array.isArray(raw.escalation_keywords) ? raw.escalation_keywords : prev.escalationKeywords,
+          maxConsecutiveBotMsgs: raw.max_consecutive_bot_msgs ?? prev.maxConsecutiveBotMsgs,
+          historyWindow: raw.history_window ?? prev.historyWindow,
+        }));
+      } catch (e) {
+        console.warn('[bot_config] parse failed', e);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
+    const payload = {
+      enabled: config.enabled,
+      provider: config.provider,
+      model: config.model,
+      api_key: config.apiKey,
+      system_prompt_template: config.systemPromptTemplate,
+      hotel_name: config.name,
+      description: config.description,
+      policies: config.policies,
+      rooms: config.rooms,
+      faq: config.faq,
+      mood: config.botMood,
+      escalation_keywords: config.escalationKeywords,
+      max_consecutive_bot_msgs: config.maxConsecutiveBotMsgs,
+      history_window: config.historyWindow,
+    };
+    const { error } = await supabase.from('app_settings').upsert({
+      id: 'bot_config',
+      value: JSON.stringify(payload),
+      updated_at: new Date().toISOString(),
+    });
     setSaving(false);
-    toast.success('Configurações salvas com sucesso!');
+    if (error) { toast.error('Falha ao salvar: ' + error.message); return; }
+    toast.success('Configurações salvas!');
   }
 
+  async function handleTest() {
+    if (!testInput.trim()) { toast.error('Digite uma mensagem para testar'); return; }
+    setTesting(true);
+    setTestOutput(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-respond-meta', {
+        body: { test_only: true, test_text: testInput },
+        headers: { 'x-test-call': '1' },
+      });
+      if (error) throw error;
+      setTestOutput((data as { reply?: string; skipped?: string })?.reply ?? (data as { skipped?: string })?.skipped ?? JSON.stringify(data));
+    } catch (e) {
+      setTestOutput('Erro: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function addKeyword() {
+    const kw = keywordInput.trim().toLowerCase();
+    if (!kw || config.escalationKeywords.includes(kw)) return;
+    setConfig(p => ({ ...p, escalationKeywords: [...p.escalationKeywords, kw] }));
+    setKeywordInput('');
+  }
+  function removeKeyword(kw: string) {
+    setConfig(p => ({ ...p, escalationKeywords: p.escalationKeywords.filter(k => k !== kw) }));
+  }
+
+  const modelOptions: Record<BotConfig['provider'], string[]> = {
+    claude: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-7'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-5'],
+    gemini: ['gemini-2.0-flash', 'gemini-2.5-pro'],
+    rule: ['rule-based'],
+  };
+
   const sections = [
+    { id: 'engine' as const, label: 'Engine IA', icon: Bot },
+    { id: 'rules' as const, label: 'Regras', icon: ShieldCheck },
     { id: 'info' as const, label: 'Informações', icon: Hotel },
     { id: 'pricing' as const, label: 'Tarifas e FAQ', icon: DollarSign },
     { id: 'personality' as const, label: 'Personalidade', icon: Sparkles },
@@ -3020,9 +3150,14 @@ function BotTrainingTab() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Treinamento</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Configurar Bot IA</h2>
+        <div className="flex items-center gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Treinamento</p>
+            <h2 className="text-xl font-semibold text-neutral-950">Configurar Bot IA</h2>
+          </div>
+          <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full ${config.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+            {config.enabled ? 'Ativo' : 'Inativo'}
+          </span>
         </div>
         <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all">
           {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -3040,6 +3175,92 @@ function BotTrainingTab() {
       </div>
 
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6 shadow-sm space-y-5">
+        {activeSection === 'engine' && (
+          <>
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
+              <div>
+                <p className="font-bold text-sm text-neutral-900">Responder automaticamente (WhatsApp / IG / Facebook)</p>
+                <p className="text-xs text-neutral-500">Bot responde até cliente pedir humano ou alguém clicar &quot;Atribuir a mim&quot;.</p>
+              </div>
+              <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full transition-all ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Provedor LLM</label>
+                <select value={config.provider} onChange={e => { const provider = e.target.value as BotConfig['provider']; setConfig(p => ({ ...p, provider, model: modelOptions[provider][0] })); }} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                  <option value="claude">Anthropic Claude</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="rule">Rule-based (sem custo)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Modelo</label>
+                <select value={config.model} onChange={e => setConfig(p => ({ ...p, model: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                  {modelOptions[config.provider].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">API Key</label>
+              <input type="password" value={config.apiKey} onChange={e => setConfig(p => ({ ...p, apiKey: e.target.value }))} placeholder="sk-... / sua chave do provedor" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+              <p className="text-[10px] text-neutral-400 mt-1">Armazenado em app_settings (RLS bloqueia leitura por não-admin).</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-semibold uppercase text-neutral-400">System Prompt (template)</label>
+                <button onClick={() => setConfig(p => ({ ...p, systemPromptTemplate: DEFAULT_SYSTEM_PROMPT }))} className="text-[10px] font-semibold text-amber-600 hover:text-amber-700">Restaurar padrão</button>
+              </div>
+              <textarea value={config.systemPromptTemplate} onChange={e => setConfig(p => ({ ...p, systemPromptTemplate: e.target.value }))} rows={10} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-xs border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-y font-mono" />
+              <p className="text-[10px] text-neutral-400 mt-1">Placeholders: <code>{'{{hotel_name}}'}</code>, <code>{'{{mood}}'}</code>, <code>{'{{description}}'}</code>, <code>{'{{policies}}'}</code>, <code>{'{{rooms}}'}</code>, <code>{'{{faq}}'}</code></p>
+            </div>
+            <div className="border-t pt-4 space-y-3">
+              <p className="font-bold text-sm text-neutral-900">Testar resposta</p>
+              <div className="flex gap-2">
+                <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Mensagem do cliente..." className="flex-1 px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                <button onClick={handleTest} disabled={testing} className="px-5 py-3 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 disabled:opacity-60">
+                  {testing ? '...' : 'Testar'}
+                </button>
+              </div>
+              {testOutput && (
+                <div className="p-3 rounded-xl bg-neutral-900 text-neutral-100 text-sm whitespace-pre-wrap">{testOutput}</div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeSection === 'rules' && (
+          <>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Palavras de escalação (escalam pra humano automaticamente)</label>
+              <div className="flex gap-2 mb-2">
+                <input value={keywordInput} onChange={e => setKeywordInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }} placeholder="Ex: humano, reclamar, gerente" className="flex-1 px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                <button onClick={addKeyword} className="px-4 py-3 rounded-xl bg-neutral-900 text-white text-sm font-bold">Adicionar</button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {config.escalationKeywords.map(kw => (
+                  <span key={kw} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+                    {kw}
+                    <button onClick={() => removeKeyword(kw)} className="hover:text-amber-900"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+                {config.escalationKeywords.length === 0 && <span className="text-xs text-neutral-400">Nenhuma palavra-chave configurada.</span>}
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Máx. mensagens consecutivas do bot ({config.maxConsecutiveBotMsgs})</label>
+              <input type="range" min={1} max={20} value={config.maxConsecutiveBotMsgs} onChange={e => setConfig(p => ({ ...p, maxConsecutiveBotMsgs: Number(e.target.value) }))} className="w-full" />
+              <p className="text-[10px] text-neutral-400">Após esse número, conversa escala pra humano mesmo sem palavra-chave.</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Janela de histórico enviada ao LLM ({config.historyWindow} msgs)</label>
+              <input type="range" min={1} max={20} value={config.historyWindow} onChange={e => setConfig(p => ({ ...p, historyWindow: Number(e.target.value) }))} className="w-full" />
+            </div>
+          </>
+        )}
+
         {activeSection === 'info' && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

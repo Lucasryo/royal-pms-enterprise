@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { corsHeaders, json, loadConfig, parseWhatsApp, processWhatsAppStatuses, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
+import { corsHeaders, json, loadConfig, parseWhatsApp, processWhatsAppStatuses, triggerAutoRespond, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -32,7 +32,8 @@ serve(async (req) => {
   try {
     const messages = parseWhatsApp(payload);
     for (const m of messages) {
-      await upsertContactAndMessage("whatsapp", m, config?.access_token);
+      const contactId = await upsertContactAndMessage("whatsapp", m, config?.access_token);
+      if (contactId) triggerAutoRespond(contactId, "whatsapp", m.text);
     }
     const readUpdates = await processWhatsAppStatuses(payload);
     return json({ processed: messages.length, readUpdates });
