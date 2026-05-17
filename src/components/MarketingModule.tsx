@@ -18,7 +18,6 @@ import {
   CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon, CheckCheck, Check,
 } from 'lucide-react';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 interface MarketingModuleDashboardProps {
   profile: UserProfile;
