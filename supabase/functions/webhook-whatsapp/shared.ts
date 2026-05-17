@@ -285,3 +285,28 @@ export function json(body: unknown, status = 200) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+// Processa eventos de status (sent / delivered / read / failed) do WhatsApp.
+// Cada status tem `id` (wamid da msg que ENVIAMOS) — atualizamos read=true
+// quando o destinatário leu.
+export async function processWhatsAppStatuses(payload: any): Promise<number> {
+  const admin = getAdminClient();
+  let updated = 0;
+  for (const entry of payload?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      const statuses: any[] = change?.value?.statuses ?? [];
+      for (const st of statuses) {
+        if (!st?.id) continue;
+        if (st.status === "read") {
+          const { error } = await admin
+            .from("inbox_messages")
+            .update({ read: true })
+            .eq("email_message_id", st.id)
+            .eq("channel", "whatsapp");
+          if (!error) updated += 1;
+        }
+      }
+    }
+  }
+  return updated;
+}

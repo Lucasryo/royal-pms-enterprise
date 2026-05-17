@@ -15,7 +15,7 @@ import {
   ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
   Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
   QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
-  CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon,
+  CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon, CheckCheck, Check,
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -54,6 +54,7 @@ interface Message {
   emailReferences?: string | null;
   folder?: 'inbox' | 'spam' | 'trash';
   attachments?: Attachment[];
+  read?: boolean;
 }
 
 interface Attachment {
@@ -193,6 +194,7 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     emailReferences: row.email_references,
     folder: (row.folder ?? 'inbox') as EmailFolder,
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    read: row.read,
   };
 }
 
@@ -1761,7 +1763,14 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
                           ))}
                         </div>
                       )}
-                      <p className={`text-xs mt-2 ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>{msg.time}</p>
+                      <div className={`flex items-center justify-end gap-1 mt-2 text-xs ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>
+                        <span>{msg.time}</span>
+                        {msg.type === 'out' && (selected?.channel === 'whatsapp' || selected?.channel === 'instagram' || selected?.channel === 'facebook') && (
+                          msg.read
+                            ? <CheckCheck className="w-3.5 h-3.5 text-sky-300" />
+                            : <Check className="w-3.5 h-3.5 opacity-70" />
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

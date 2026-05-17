@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { corsHeaders, json, loadConfig, parseWhatsApp, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
+import { corsHeaders, json, loadConfig, parseWhatsApp, processWhatsAppStatuses, upsertContactAndMessage, validateSignature, verifyChallenge } from "./shared.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -34,7 +34,8 @@ serve(async (req) => {
     for (const m of messages) {
       await upsertContactAndMessage("whatsapp", m, config?.access_token);
     }
-    return json({ processed: messages.length });
+    const readUpdates = await processWhatsAppStatuses(payload);
+    return json({ processed: messages.length, readUpdates });
   } catch (err) {
     console.warn("[webhook-whatsapp] processing error:", err);
     // Sempre responde 200 pra Meta nao reenviar em loop
