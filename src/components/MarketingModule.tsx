@@ -1,4 +1,4 @@
-import { ReactElement, useState, useEffect, useRef } from 'react';
+import React, { ReactElement, useState, useEffect, useRef, useMemo } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
 import { supabase } from '../supabase';
@@ -15,7 +15,7 @@ import {
   ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
   Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
   QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
-  CheckCircle, XCircle, Wifi, Key,
+  CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon,
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -45,6 +45,7 @@ interface Lead {
 interface Message {
   id?: string;
   text: string;
+  html?: string | null;
   type: 'in' | 'out';
   time: string;
   subject?: string | null;
@@ -52,6 +53,15 @@ interface Message {
   emailMessageId?: string | null;
   emailReferences?: string | null;
   folder?: 'inbox' | 'spam' | 'trash';
+  attachments?: Attachment[];
+}
+
+interface Attachment {
+  path: string;          // path no bucket inbox_attachments
+  name: string;
+  size: number;
+  mime: string;
+  url?: string;          // signed URL gerada on demand
 }
 
 type EmailFolder = 'inbox' | 'spam' | 'trash';
@@ -113,29 +123,6 @@ const CHANNELS = [
 const TEMPLATE_CATEGORIES = ['Saudação', 'Preços', 'Confirmação', 'Follow-up', 'Wi-Fi/PIX', 'Check-out', 'Personalizado'];
 const TEMPLATE_CHANNELS = ['WhatsApp', 'Instagram', 'Facebook', 'Todos'];
 
-const SEED_LEADS: Lead[] = [
-  { id: '1', guestName: 'Ana Beatriz Costa', channel: 'whatsapp', lastMessage: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', lastMessageAt: new Date(Date.now() - 5 * 60000).toISOString(), status: 'new', sentiment: 'happy', unreadCount: 3 },
-  { id: '2', guestName: 'Carlos Eduardo Lima', channel: 'instagram', lastMessage: 'Quanto custa a diária? Vi pelo stories.', lastMessageAt: new Date(Date.now() - 22 * 60000).toISOString(), status: 'needs_human', sentiment: 'neutral', unreadCount: 1 },
-  { id: '3', guestName: 'Marina Souza', channel: 'whatsapp', lastMessage: 'Infelizmente não consegui fazer meu check-in ainda.', lastMessageAt: new Date(Date.now() - 90 * 60000).toISOString(), status: 'needs_human', sentiment: 'mixed', unreadCount: 0 },
-  { id: '4', guestName: 'Roberto Ferreira', channel: 'facebook', lastMessage: 'Muito obrigado pelo atendimento! Nota 10.', lastMessageAt: new Date(Date.now() - 3 * 3600000).toISOString(), status: 'resolved', sentiment: 'happy', unreadCount: 0 },
-  { id: '5', guestName: 'Juliana Alves', channel: 'google', lastMessage: 'Queria saber se o café da manhã está incluso nas tarifas exibidas.', lastMessageAt: new Date(Date.now() - 5 * 3600000).toISOString(), status: 'ai_responded', sentiment: 'neutral', unreadCount: 0 },
-];
-
-const SEED_CAMPAIGNS: Campaign[] = [
-  { id: '1', name: 'Promoção Feriado Junho', status: 'active', reach: '2.847', conv: '12.3%', channel: 'WhatsApp', scheduledAt: '2026-06-01' },
-  { id: '2', name: 'Recuperação Carrinho Abandonado', status: 'active', reach: '891', conv: '8.7%', channel: 'WhatsApp' },
-  { id: '3', name: 'Reengajamento Aniversariantes', status: 'scheduled', reach: '0', conv: '0%', channel: 'Instagram', scheduledAt: '2026-05-20' },
-  { id: '4', name: 'Black Friday Antecipado', status: 'completed', reach: '5.120', conv: '18.4%', channel: 'WhatsApp' },
-];
-
-const SEED_TEMPLATES: Template[] = [
-  { id: '1', name: 'Boas-vindas Geral', category: 'Saudação', channel: 'WhatsApp', text: 'Olá [NOME]! 👋 Bem-vindo ao Royal PMS Palace Hotel. Como posso ajudar com sua reserva hoje?' },
-  { id: '2', name: 'Preços Executiva', category: 'Preços', channel: 'WhatsApp', text: 'Nossas tarifas para UH Executiva: Semana R$ 289 | Fim de semana R$ 359 | Pacotes especiais disponíveis. Café da manhã incluso.' },
-  { id: '3', name: 'Confirmação de Reserva', category: 'Confirmação', channel: 'WhatsApp', text: 'Reserva confirmada! ✅ Olá [NOME], sua estadia de [CHECKIN] a [CHECKOUT] está garantida. Check-in a partir das 14h. Até lá!' },
-  { id: '4', name: 'Follow-up 24h', category: 'Follow-up', channel: 'WhatsApp', text: 'Oi [NOME]! Vi que você mostrou interesse em nossa acomodação. Posso te ajudar a finalizar a reserva? Hoje temos disponibilidade especial 🏨' },
-  { id: '5', name: 'Wi-Fi e PIX', category: 'Wi-Fi/PIX', channel: 'WhatsApp', text: '📶 Wi-Fi: Rede Royal_Guest | Senha: BemVindo2026\n💰 PIX: contato@royalpms.com' },
-];
-
 function timeAgo(iso: string) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
   if (diff < 60) return 'agora';
@@ -152,11 +139,13 @@ type InboxMessageRow = {
   direction: 'in' | 'out';
   subject: string | null;
   body: string;
+  body_html: string | null;
   email_message_id: string | null;
   email_references: string | null;
   folder: EmailFolder | null;
   read: boolean;
   created_at: string;
+  attachments: Attachment[] | null;
 };
 
 type MarketingContactRow = {
@@ -172,6 +161,7 @@ type MarketingContactRow = {
   unread_count: number | null;
   tags: string[] | null;
   internal_notes: string | null;
+  assigned_to: string | null;
   created_at: string;
 };
 
@@ -185,9 +175,16 @@ function formatPreview(subject: string | null | undefined, body: string) {
 }
 
 function mapInboxMessage(row: InboxMessageRow): Message {
+  const rawBody = row.body ?? '';
+  const rawHtml = row.body_html ?? '';
+  // Safety net: alguns emails antigos foram salvos com o corpo ainda em base64
+  // (parser velho não pegou Content-Transfer-Encoding: base64).
+  const decodedBody = maybeBase64Decode(rawBody);
+  const decodedHtml = maybeBase64Decode(rawHtml);
   return {
     id: row.id,
-    text: row.body,
+    text: decodedBody,
+    html: decodedHtml || null,
     type: row.direction,
     time: formatMessageTime(row.created_at),
     subject: row.subject,
@@ -195,7 +192,89 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     emailMessageId: row.email_message_id,
     emailReferences: row.email_references,
     folder: (row.folder ?? 'inbox') as EmailFolder,
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
   };
+}
+
+// Detecta se um string é base64 (HTML/texto encodado que escapou do parser) e decodifica.
+function maybeBase64Decode(text: string): string {
+  if (!text || text.length < 40) return text;
+  if (text.includes('<') || text.includes('>')) return text; // já tem tags = não é só base64
+  const cleaned = text.replace(/\s/g, '');
+  // Base64 só tem A-Z a-z 0-9 + / =
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) return text;
+  if (cleaned.length < 40) return text;
+  try {
+    const decoded = atob(cleaned);
+    // Converte para UTF-8 corretamente
+    const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+    const result = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    // Se o decode parece texto/HTML válido (contém alguma letra ascii ou tag), usa
+    if (/[<>a-zA-Z]/.test(result) && result.length > 10) return result;
+    return text;
+  } catch {
+    return text;
+  }
+}
+
+// Limpa MIME bagunçado em emails antigos que ficaram no banco antes do fix no parser.
+// Casos reais que aparecem: boundaries quebradas em várias linhas, headers MIME vazados.
+function sanitizeEmailBody(text: string): string {
+  if (!text) return text;
+  let s = text.replace(/\r\n/g, '\n');
+
+  // Caso 1: se houver headers MIME vazados (Content-Type + Content-Transfer-Encoding),
+  // pula tudo até a primeira linha em branco depois do último header — é onde o corpo real começa.
+  const headerRegex = /^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/im;
+  while (headerRegex.test(s)) {
+    const lines = s.split('\n');
+    let lastHeaderIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/i.test(lines[i])) {
+        lastHeaderIdx = i;
+      }
+    }
+    if (lastHeaderIdx < 0) break;
+    // Achar a próxima linha em branco depois do último header
+    let bodyStart = lastHeaderIdx + 1;
+    while (bodyStart < lines.length && lines[bodyStart].trim() !== '') bodyStart++;
+    while (bodyStart < lines.length && lines[bodyStart].trim() === '') bodyStart++;
+    if (bodyStart >= lines.length) break;
+    s = lines.slice(bodyStart).join('\n');
+  }
+
+  // Caso 2: linhas que parecem fragmento de boundary
+  // (underscores+alfanum, prefixadas por -- ou começando por _xxx_)
+  s = s
+    .split('\n')
+    .filter(line => {
+      const t = line.trim();
+      if (t === '--') return false;
+      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(t)) return false;
+      if (/^_[A-Za-z0-9]{3,}_[A-Za-z0-9._=+-]{8,}$/.test(t)) return false;
+      if (/^[a-zA-Z0-9]{1,8}_$/.test(t)) return false; // fragmento órfão tipo "amp_"
+      return true;
+    })
+    .join('\n');
+
+  // Caso 3: decodifica quoted-printable resíduo (=XX e =\n)
+  if (/=[0-9A-F]{2}/i.test(s) && !/=\?[^?]+\?[BQ]\?/i.test(s)) {
+    try {
+      const compact = s.replace(/=\n/g, '');
+      const bytes: number[] = [];
+      for (let i = 0; i < compact.length; i++) {
+        if (compact[i] === '=' && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
+          bytes.push(parseInt(compact.slice(i + 1, i + 3), 16));
+          i += 2;
+        } else {
+          bytes.push(compact.charCodeAt(i));
+        }
+      }
+      s = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes));
+    } catch { /* mantém o original */ }
+  }
+
+  return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function mapContactToLead(row: MarketingContactRow): Lead {
@@ -212,6 +291,7 @@ function mapContactToLead(row: MarketingContactRow): Lead {
     unreadCount: row.unread_count || 0,
     tags: row.tags || undefined,
     internalNotes: row.internal_notes || undefined,
+    assignedTo: row.assigned_to || undefined,
   };
 }
 
@@ -228,17 +308,163 @@ function StatusBadge({ status }: { status: Lead['status'] }) {
   return <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
-function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
-  if (s === 'happy') return <Smile className="w-3.5 h-3.5 text-emerald-500" />;
-  if (s === 'mixed') return <Meh className="w-3.5 h-3.5 text-amber-500" />;
-  return <Frown className="w-3.5 h-3.5 text-red-500" />;
-}
 
 // ─── LeadInbox Tab ────────────────────────────────────────────────────────────
 
-function LeadInboxTab() {
-  const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
-  const [selectedId, setSelectedId] = useState<string | null>('1');
+// Renderiza HTML de email num iframe sandboxed (sem scripts, sem same-origin).
+// Auto-ajusta altura ao conteúdo. Sanitização extra: remove <script> e on*= handlers
+// antes mesmo de mandar para o iframe (defesa em profundidade).
+const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html, darkBubble }) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(200);
+
+  // Sanitização defensiva + extração de <style> e conteúdo de <body>.
+  // O HTML do email costuma vir com seu próprio <html><head><body>; precisamos
+  // extrair só o <body> e preservar os <style> pra evitar nesting inválido.
+  const { safeBody, safeStyles } = useMemo(() => {
+    let s = html || '';
+    // Strip script/iframe/handlers/javascript: antes de qualquer outra coisa
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
+    s = s.replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+    s = s.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
+    s = s.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
+
+    // Extrai estilos do <head> (e qualquer style inline em outras posições)
+    const styleMatches = s.match(/<style[\s\S]*?<\/style>/gi) ?? [];
+    const styles = styleMatches.join('\n');
+
+    // Extrai o conteúdo de <body>. Se não houver tag <body>, usa tudo.
+    let body = s;
+    const bodyMatch = s.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) body = bodyMatch[1];
+
+    // Remove <head> e <html> tags soltas que possam ter sobrado
+    body = body.replace(/<\/?html[^>]*>/gi, '').replace(/<head[\s\S]*?<\/head>/gi, '');
+
+    return { safeBody: body, safeStyles: styles };
+  }, [html]);
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
+    body{margin:0;padding:12px;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:${darkBubble ? '#f5f5f5' : '#171717'};background:transparent;word-wrap:break-word;overflow-wrap:anywhere}
+    img{max-width:100%;height:auto}
+    a{color:${darkBubble ? '#fbbf24' : '#b45309'}}
+    table{max-width:100%;border-collapse:collapse}
+    blockquote{border-left:3px solid #d4d4d4;margin:8px 0;padding:4px 12px;color:#666}
+    pre{white-space:pre-wrap;word-wrap:break-word}
+    html,body{height:auto !important;min-height:0 !important}
+  </style>${safeStyles}</head><body>${safeBody}<script>
+    (function(){
+      var lastSent = 0;
+      function measure(){
+        // Mede SOMENTE o body, nao o documentElement (que reflete o tamanho do iframe,
+        // criando loop). Arredonda pra evitar floating-point oscilation.
+        if (!document.body) return 0;
+        var h = document.body.scrollHeight;
+        return Math.ceil(h / 10) * 10;
+      }
+      function send(){
+        try{
+          var h = measure();
+          // Dedupe: so manda se mudou mais que 5px
+          if (Math.abs(h - lastSent) < 5) return;
+          lastSent = h;
+          parent.postMessage({type:'email-iframe-height',h:h},'*');
+        }catch(e){}
+      }
+      window.addEventListener('load', send);
+      setTimeout(send,50); setTimeout(send,300); setTimeout(send,1000); setTimeout(send,3000);
+      document.querySelectorAll('img').forEach(function(img){
+        if (img.complete) return;
+        img.addEventListener('load', send);
+        img.addEventListener('error', send);
+      });
+      // ResizeObserver no body. Como o body so depende do conteudo (nao do iframe),
+      // nao tem feedback loop quando o parent ajusta a altura do iframe.
+      if (typeof ResizeObserver !== 'undefined' && document.body) {
+        new ResizeObserver(function(){ send(); }).observe(document.body);
+      }
+    })();
+  <\/script></body></html>`;
+
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      const data = e.data as { type?: string; h?: number };
+      if (!data || data.type !== 'email-iframe-height' || typeof data.h !== 'number') return;
+      if (!ref.current) return;
+      if (e.source !== ref.current.contentWindow) return;
+      const target = Math.max(80, Math.min(50000, data.h + 24));
+      // So atualiza se mudou mais que 10px (evita loop / micro-oscilação)
+      setHeight(prev => Math.abs(prev - target) < 10 ? prev : target);
+    }
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  return (
+    <iframe
+      ref={ref}
+      // allow-scripts é NECESSÁRIO pra rodar nosso medidor de altura (postMessage).
+      // Sem allow-same-origin: o script do email ainda não consegue acessar parent/cookies/etc.
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={doc}
+      scrolling="no"
+      style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
+      title="email-body"
+    />
+  );
+};
+
+type AttachmentChipProps = {
+  attachment: Attachment;
+  darkBubble: boolean;
+  onResolveUrl: (a: Attachment) => Promise<string | null>;
+};
+
+const AttachmentChip: React.FC<AttachmentChipProps> = ({ attachment, darkBubble, onResolveUrl }) => {
+  const isImage = attachment.mime.startsWith('image/');
+  const [signedUrl, setSignedUrl] = useState<string | null>(attachment.url ?? null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (signedUrl) return;
+    let alive = true;
+    setLoading(true);
+    onResolveUrl(attachment).then(url => {
+      if (alive) setSignedUrl(url);
+    }).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [attachment.path]);
+
+  if (isImage && signedUrl) {
+    return (
+      <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="block max-w-[260px] rounded-lg overflow-hidden border border-white/20">
+        <img src={signedUrl} alt={attachment.name} className="w-full h-auto object-cover" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={signedUrl ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => { if (!signedUrl) e.preventDefault(); }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg max-w-[260px] ${darkBubble ? 'bg-white/10 hover:bg-white/15' : 'bg-neutral-100 hover:bg-neutral-200'} transition-colors`}
+    >
+      {isImage ? <ImageIcon className="w-4 h-4 shrink-0" /> : <FileIcon className="w-4 h-4 shrink-0" />}
+      <div className="min-w-0 flex-1">
+        <p className={`text-xs font-medium truncate ${darkBubble ? 'text-white' : 'text-neutral-900'}`}>{attachment.name}</p>
+        <p className={`text-xs ${darkBubble ? 'text-white/60' : 'text-neutral-500'}`}>{loading ? 'carregando…' : `${(attachment.size / 1024).toFixed(0)} KB`}</p>
+      </div>
+    </a>
+  );
+};
+
+function LeadInboxTab({ profile }: { profile: UserProfile }) {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeChannel, setActiveChannel] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
   const [emailFolder, setEmailFolder] = useState<EmailFolder>('inbox');
@@ -251,22 +477,169 @@ function LeadInboxTab() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
   const [composeSending, setComposeSending] = useState(false);
-  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
-    '1': [
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
-      { text: 'Olá Ana! Temos disponibilidade para o feriado de Corpus Christi (19-22 jun). UH Executiva: R$ 359/noite. Deseja reservar?', type: 'out', time: '14:33' },
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:35' },
-    ],
-    '2': [
-      { text: 'Quanto custa a diária? Vi pelo stories.', type: 'in', time: '13:15' },
-    ],
-    '3': [
-      { text: 'Infelizmente não consegui fazer meu check-in ainda.', type: 'in', time: '11:47' },
-    ],
-  });
+  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({});
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [loadingAI, setLoadingAI] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Anexos pendentes para envio na próxima mensagem
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Atribuição de conversa
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
+
+  // Seleção múltipla de conversas pra ações em lote
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  function toggleLeadSelected(id: string) {
+    setSelectedLeads(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedLeads(new Set()); }
+
+  // Resultados de busca server-side (IDs de conversas que matched)
+  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  // Reset selecao ao trocar de filtro/canal
+  useEffect(() => { clearSelection(); }, [activeChannel, activeFilter, showOnlyMine]);
+
+  // Busca server-side por palavra-chave em subject/body dos emails (debounced)
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setSearchMatchIds(null); return; }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        // Busca em inbox_messages.body e inbox_messages.subject
+        const { data: msgMatches } = await supabase
+          .from('inbox_messages')
+          .select('contact_id')
+          .or(`subject.ilike.%${term}%,body.ilike.%${term}%`)
+          .limit(500);
+        // Tambem busca em marketing_contacts.name e .email
+        const { data: contactMatches } = await supabase
+          .from('marketing_contacts')
+          .select('id')
+          .or(`name.ilike.%${term}%,email.ilike.%${term}%`)
+          .limit(500);
+        const ids = new Set<string>();
+        for (const m of (msgMatches ?? []) as Array<{ contact_id: string | null }>) if (m.contact_id) ids.add(m.contact_id);
+        for (const c of (contactMatches ?? []) as Array<{ id: string }>) ids.add(c.id);
+        setSearchMatchIds(ids);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Bulk actions
+  async function bulkAction(action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'mark_spam' | 'mark_trash') {
+    if (selectedLeads.size === 0) return;
+    const ids = Array.from(selectedLeads);
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = 1; }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'mark_spam' || action === 'mark_trash') {
+      // Move TODAS as mensagens dessas conversas pra spam/trash via Edge Function
+      const folder = action === 'mark_spam' ? 'spam' : 'trash';
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+        // Pega todos message ids dessas conversas (so emails)
+        const { data: msgs } = await supabase
+          .from('inbox_messages')
+          .select('id, channel')
+          .in('contact_id', ids)
+          .eq('channel', 'email')
+          .eq('direction', 'in');
+        if (msgs && msgs.length > 0) {
+          for (const m of msgs as Array<{ id: string }>) {
+            await fetch(`${SUPABASE_URL}/functions/v1/imap-folder-action`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messageId: m.id, action: folder }),
+            }).catch(() => null);
+          }
+        }
+        toast.success(`${ids.length} conversa(s) movidas pra ${folder === 'spam' ? 'Spam' : 'Lixeira'}`);
+        clearSelection();
+        return;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Falha em mover.');
+        return;
+      }
+    }
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from('marketing_contacts').update(updates).in('id', ids);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+    } : l));
+    toast.success(`${ids.length} conversa(s) atualizadas`);
+    clearSelection();
+  }
+
+  // Drawer mobile do painel de contexto
+  const [contextOpen, setContextOpen] = useState(false);
+
+  // Menu de contexto (clique direito) sobre uma mensagem
+  // Set de IDs (ou índices) de mensagens de email expandidas. A última sempre aparece expandida.
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+  function toggleExpand(key: string) {
+    setExpandedMsgs(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  // Reset expansão ao trocar de conversa
+  useEffect(() => { setExpandedMsgs(new Set()); }, [selectedId]);
+
+  const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  // Menu de contexto sobre um item da lista de conversas
+  const [leadMenu, setLeadMenu] = useState<{ x: number; y: number; lead: Lead } | null>(null);
+  useEffect(() => {
+    if (!msgMenu && !leadMenu) return;
+    const close = () => { setMsgMenu(null); setLeadMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [msgMenu, leadMenu]);
+
+  async function leadAction(lead: Lead, action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'assign_to_me' | 'unassign') {
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = Math.max(1, lead.unreadCount ?? 1); }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'assign_to_me') { updates.assigned_to = profile.id; }
+    if (action === 'unassign') { updates.assigned_to = null; }
+    const { error } = await supabase.from('marketing_contacts').update(updates).eq('id', lead.id);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => l.id === lead.id ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+      assignedTo: 'assigned_to' in updates ? (updates.assigned_to as string | null) ?? undefined : l.assignedTo,
+    } : l));
+    toast.success('Conversa atualizada');
+  }
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
   const messages = selectedId ? (chatHistory[selectedId] ?? []) : [];
@@ -329,6 +702,109 @@ function LeadInboxTab() {
     loadFolderCounts();
     return () => { alive = false; };
   }, []);
+
+  // Carrega lista de usuários atribuíveis (staff do hotel)
+  useEffect(() => {
+    let alive = true;
+    async function loadAssignables() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .in('role', ['admin', 'manager', 'reservations', 'reception', 'marketing', 'faturamento', 'finance', 'eventos'])
+        .order('name');
+      if (alive && data) setAssignableUsers(data as Array<{ id: string; name: string; role: string }>);
+    }
+    loadAssignables();
+    return () => { alive = false; };
+  }, []);
+
+  // ── Anexos ─────────────────────────────────────────────────────────────
+  async function handleFilePick(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const remaining = 5 - pendingAttachments.length;
+    if (remaining <= 0) {
+      toast.error('Máximo de 5 anexos por mensagem.');
+      return;
+    }
+    const filesToUpload = Array.from(files).slice(0, remaining);
+
+    setUploadingAttachment(true);
+    try {
+      const newAttachments: Attachment[] = [];
+      for (const file of filesToUpload) {
+        if (file.size > 20 * 1024 * 1024) {
+          toast.error(`"${file.name}" passa de 20MB. Ignorado.`);
+          continue;
+        }
+        const path = `${selectedId ?? 'compose'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+        const { error } = await supabase.storage
+          .from('inbox_attachments')
+          .upload(path, file, { contentType: file.type, upsert: false });
+        if (error) {
+          toast.error(`Falha ao enviar "${file.name}": ${error.message}`);
+          continue;
+        }
+        newAttachments.push({ path, name: file.name, size: file.size, mime: file.type });
+      }
+      if (newAttachments.length > 0) {
+        setPendingAttachments(prev => [...prev, ...newAttachments]);
+        toast.success(`${newAttachments.length} anexo(s) prontos para envio.`);
+      }
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function removePendingAttachment(idx: number) {
+    const att = pendingAttachments[idx];
+    if (!att) return;
+    setPendingAttachments(prev => prev.filter((_, i) => i !== idx));
+    // best-effort cleanup do storage
+    await supabase.storage.from('inbox_attachments').remove([att.path]).catch(() => null);
+  }
+
+  async function getAttachmentUrl(att: Attachment): Promise<string | null> {
+    if (att.url) return att.url;
+    const { data, error } = await supabase.storage
+      .from('inbox_attachments')
+      .createSignedUrl(att.path, 3600);
+    if (error || !data) return null;
+    return data.signedUrl;
+  }
+
+  // ── Atribuição ─────────────────────────────────────────────────────────
+  async function assignConversation(userId: string | null) {
+    if (!selectedId) return;
+    setAssigning(true);
+    try {
+      const { error } = await supabase
+        .from('marketing_contacts')
+        .update({ assigned_to: userId })
+        .eq('id', selectedId);
+      if (error) throw error;
+      setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, assignedTo: userId || undefined } : l));
+      toast.success(userId ? 'Conversa atribuída.' : 'Atribuição removida.');
+      setShowAssignPicker(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao atribuir.');
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function updateInternalNotes(text: string) {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ internal_notes: text })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao salvar notas.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, internalNotes: text } : l));
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -422,9 +898,15 @@ function LeadInboxTab() {
   const isEmailChannel = activeChannel === 'email';
 
   const filteredLeads = leads.filter(l => {
+    if (showOnlyMine && l.assignedTo !== profile.id) return false;
     if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
-    if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery.trim().length >= 2) {
+      // Busca server-side definiu os matches; se este lead não está, esconde
+      if (searchMatchIds && !searchMatchIds.has(l.id)) return false;
+      // Enquanto a busca está em andamento, mantém visíveis pelo nome local
+      if (!searchMatchIds && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    }
     if (isEmailChannel && l.channel === 'email') {
       const counts = folderCounts[l.id];
       if (!counts) return emailFolder === 'inbox';
@@ -439,6 +921,49 @@ function LeadInboxTab() {
 
   const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
+
+  const [reparsing, setReparsing] = useState(false);
+  async function reparseLegacyEmails() {
+    if (reparsing) return;
+    setReparsing(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/poll-email-inbox`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'reparse', limit: 30 }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Falha ao reprocessar.');
+
+      const remaining = result.remaining ?? 0;
+      const reprocessed = result.reprocessed ?? 0;
+      const skipped = result.skipped ?? 0;
+      toast.success(`Reprocessados: ${reprocessed}${skipped ? ` (pulados: ${skipped})` : ''}. ${remaining > 0 ? `Faltam ${remaining}, clica de novo.` : 'Concluído.'}`);
+
+      // Recarrega mensagens da conversa atual se for email
+      if (selectedId && selected?.channel === 'email') {
+        const { data } = await supabase
+          .from('inbox_messages')
+          .select('*')
+          .eq('contact_id', selectedId)
+          .order('created_at', { ascending: true });
+        if (data) {
+          setChatHistory(prev => ({
+            ...prev,
+            [selectedId]: (data as InboxMessageRow[]).map(mapInboxMessage),
+          }));
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao reprocessar.');
+    } finally {
+      setReparsing(false);
+    }
+  }
 
   async function refreshEmailInbox() {
     setRefreshingInbox(true);
@@ -470,7 +995,7 @@ function LeadInboxTab() {
   }
 
   async function sendMessage() {
-    if (!messageInput.trim() || !selectedId || sendingMessage) return;
+    if ((!messageInput.trim() && pendingAttachments.length === 0) || !selectedId || sendingMessage) return;
     const text = messageInput.trim();
     const selectedLead = leads.find(l => l.id === selectedId);
     if (!selectedLead) return;
@@ -518,14 +1043,52 @@ function LeadInboxTab() {
           throw new Error(result.error || 'Falha ao enviar e-mail.');
         }
         outgoingMessageId = typeof result.messageId === 'string' ? result.messageId : null;
+      } else if (['whatsapp', 'instagram', 'facebook'].includes(selectedLead.channel)) {
+        // Recipient identifier: usamos guestPhone (que armazena wa_id/PSID pra esses canais)
+        const recipient = selectedLead.guestPhone || selectedLead.guestEmail;
+        if (!recipient) {
+          toast.error(`Identificador do contato ${selectedLead.channel} não encontrado.`);
+          return;
+        }
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel: selectedLead.channel,
+            recipient,
+            text,
+            contact_id: selectedId,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.sent) {
+          throw new Error(result.error || `Falha ao enviar ${selectedLead.channel}.`);
+        }
+        outgoingMessageId = typeof result.externalId === 'string' ? result.externalId : null;
+        // Edge function já gravou no DB; saímos cedo para não duplicar.
+        const now = new Date().toISOString();
+        const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, attachments: [], emailMessageId: outgoingMessageId };
+        setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
+        setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text.slice(0, 500), lastMessageAt: now, status: 'ai_responded' as const } : l));
+        setMessageInput('');
+        setPendingAttachments([]);
+        toast.success('Mensagem enviada');
+        return;
       }
 
     const now = new Date().toISOString();
     const emailReferences = replyReferences || lastIncomingEmail?.emailMessageId || null;
-    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences };
+    const sentAttachments = pendingAttachments.slice();
+    const previewText = text || (sentAttachments.length ? `[${sentAttachments.length} anexo(s)]` : '');
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences, attachments: sentAttachments };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: previewText, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
+    setPendingAttachments([]);
 
     const { error } = await supabase.from('inbox_messages').insert([{
       contact_id: selectedId,
@@ -537,6 +1100,7 @@ function LeadInboxTab() {
       email_message_id: outgoingMessageId,
       email_references: selectedLead.channel === 'email' ? emailReferences : null,
       read: true,
+      attachments: sentAttachments,
     }]);
 
     if (error) {
@@ -547,7 +1111,7 @@ function LeadInboxTab() {
 
     await supabase
       .from('marketing_contacts')
-      .update({ last_message: text, last_message_at: now, status: 'ai_responded', unread_count: 0 })
+      .update({ last_message: previewText, last_message_at: now, status: 'ai_responded', unread_count: 0 })
       .eq('id', selectedId);
 
       toast.success(selectedLead.channel === 'email' ? 'E-mail enviado' : 'Mensagem enviada');
@@ -688,33 +1252,84 @@ function LeadInboxTab() {
     }
   }
 
-  function markResolved() {
+  async function markResolved() {
     if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'resolved', unread_count: 0 })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como resolvida.');
+      return;
+    }
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'resolved' as const, unreadCount: 0 } : l));
     toast.success('Conversa resolvida');
   }
 
+  async function markUnread() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'new', unread_count: Math.max(1, selected?.unreadCount ?? 1) })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como não lida.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'new' as const, unreadCount: Math.max(1, l.unreadCount ?? 1) } : l));
+    toast.success('Marcada como não lida');
+  }
+
+  async function markNeedsHuman() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'needs_human' })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao escalar.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'needs_human' as const } : l));
+    toast.success('Marcada como precisa de humano');
+  }
+
+  const assignedUser = selected?.assignedTo ? assignableUsers.find(u => u.id === selected.assignedTo) : null;
+
   return (
-    <div className="flex h-[75vh] min-h-[500px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
-      {/* Sidebar */}
-      <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
-        <div className="p-4 border-b border-neutral-100 space-y-3">
+    <div className="flex h-[calc(100vh-12rem)] min-h-[600px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
+      {/* ─── Coluna 1: Filtros + lista ─────────────────────────────────── */}
+      <div className="w-80 shrink-0 border-r border-neutral-200 flex flex-col bg-neutral-50/40">
+        <div className="p-4 border-b border-neutral-200 space-y-3 bg-white">
           <button
             onClick={() => setComposeOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-semibold hover:bg-neutral-800 transition-colors"
           >
-            <Edit3 className="w-3.5 h-3.5" /> Novo e-mail
+            <Edit3 className="w-4 h-4" /> Novo e-mail
           </button>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Buscar..."
-              className="w-full pl-9 pr-3 py-2 bg-neutral-50 rounded-xl text-xs font-medium border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              placeholder="Buscar em nome, email, assunto e corpo..."
+              className="w-full pl-10 pr-9 py-2.5 bg-neutral-100 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
+            {searching && (
+              <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 animate-spin" />
+            )}
+            {!searching && searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 hover:text-neutral-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          {searchQuery.trim().length >= 2 && searchMatchIds && (
+            <p className="text-xs text-neutral-500">
+              {searchMatchIds.size} resultado(s) encontrado(s)
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
             {channelOptions.map(channel => {
               const count = channel.id === 'all' ? leads.length : leads.filter(lead => lead.channel === channel.id).length;
               return (
@@ -725,30 +1340,78 @@ function LeadInboxTab() {
                     const nextLead = leads.find(lead => (channel.id === 'all' || lead.channel === channel.id) && (activeFilter === 'all' || lead.status === activeFilter));
                     setSelectedId(nextLead?.id ?? null);
                   }}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-semibold uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 border border-neutral-200 hover:bg-neutral-50'}`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }}>{channel.icon}</span>
+                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }} className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
                     <span className="truncate">{channel.name}</span>
                   </span>
-                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${activeChannel === channel.id ? 'bg-white/15 text-white' : 'bg-white text-neutral-500'}`}>{count}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${activeChannel === channel.id ? 'bg-white/20 text-white' : 'bg-neutral-100 text-neutral-500'}`}>{count}</span>
                 </button>
               );
             })}
           </div>
-          <div className="flex gap-1 overflow-x-auto scrollbar-none">
-            {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
-              >
-                {f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}
-              </button>
-            ))}
-          </div>
+          {(() => {
+            const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
+            const counts = {
+              mine: baseLeads.filter(l => l.assignedTo === profile.id).length,
+              all: baseLeads.length,
+              new: baseLeads.filter(l => l.status === 'new').length,
+              needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
+              resolved: baseLeads.filter(l => l.status === 'resolved').length,
+            };
+            const items: Array<{ id: 'all' | 'new' | 'needs_human' | 'resolved'; label: string; count: number }> = [
+              { id: 'all', label: 'Tudo', count: counts.all },
+              { id: 'new', label: 'Novos', count: counts.new },
+              { id: 'needs_human', label: 'Humano', count: counts.needs_human },
+              { id: 'resolved', label: 'OK', count: counts.resolved },
+            ];
+            return (
+              <>
+                {/* Segmented control — 4 segmentos com largura fixa, sem vazar */}
+                <div className="grid grid-cols-4 gap-0 bg-neutral-100 p-1 rounded-xl">
+                  {items.map(it => {
+                    const active = activeFilter === it.id;
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => setActiveFilter(it.id)}
+                        className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          active ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'
+                        }`}
+                      >
+                        <span className="text-[11px] leading-none">{it.label}</span>
+                        <span className={`text-sm leading-tight tabular-nums mt-0.5 ${active ? 'text-amber-600' : 'text-neutral-400'}`}>
+                          {it.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Toggle "Minhas" — separado, discreto */}
+                <button
+                  onClick={() => setShowOnlyMine(s => !s)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    showOnlyMine ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-transparent text-neutral-500 hover:bg-neutral-100'
+                  }`}
+                  title="Mostrar só conversas atribuídas a mim"
+                >
+                  <span className="flex items-center gap-2">
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Só as minhas
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="tabular-nums text-amber-600">{counts.mine}</span>
+                    <span className={`inline-block w-7 h-4 rounded-full transition-colors ${showOnlyMine ? 'bg-amber-500' : 'bg-neutral-300'} relative`}>
+                      <span className={`absolute top-0.5 ${showOnlyMine ? 'right-0.5' : 'left-0.5'} w-3 h-3 rounded-full bg-white transition-all`} />
+                    </span>
+                  </span>
+                </button>
+              </>
+            );
+          })()}
           {isEmailChannel && (
-            <div className="flex gap-1 border-t border-neutral-100 pt-3">
+            <div className="flex gap-1.5 border-t border-neutral-200 pt-3">
               {(['inbox', 'spam', 'trash'] as const).map(f => {
                 const total = Object.values(folderCounts).reduce<number>((sum, c) => sum + (c?.[f] || 0), 0);
                 const labels = { inbox: 'Entrada', spam: 'Spam', trash: 'Lixeira' } as const;
@@ -758,12 +1421,12 @@ function LeadInboxTab() {
                   <button
                     key={f}
                     onClick={() => setEmailFolder(f)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-neutral-500 border border-neutral-200 hover:bg-neutral-50'}`}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-300' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
                   >
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-3.5 h-3.5" />
                     <span>{labels[f]}</span>
                     {total > 0 && (
-                      <span className={`text-[9px] px-1 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
+                      <span className={`text-[10px] px-1.5 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
                     )}
                   </button>
                 );
@@ -772,148 +1435,544 @@ function LeadInboxTab() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredLeads.map(lead => {
-            const ch = CHANNELS.find(c => c.id === lead.channel);
-            return (
-              <button
-                key={lead.id}
-                onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
-                className={`w-full text-left p-3 border-b border-neutral-50 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-neutral-50'}`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center shrink-0 text-xs font-semibold text-neutral-600">
-                    {lead.guestName[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-neutral-900 truncate">{lead.guestName}</span>
-                      <span className="text-[9px] text-neutral-400 shrink-0 ml-1">{timeAgo(lead.lastMessageAt)}</span>
-                    </div>
-                    <p className="text-[10px] text-neutral-500 truncate leading-snug">{lead.lastMessage}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span style={{ color: ch?.color }} className="flex items-center gap-0.5 text-[9px] font-bold">{ch?.icon}{ch?.name}</span>
-                      <SentimentIcon s={lead.sentiment} />
-                      {!!lead.unreadCount && (
-                        <span className="ml-auto w-4 h-4 bg-amber-500 rounded-full text-white text-[9px] font-semibold flex items-center justify-center">{lead.unreadCount}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {/* Barra de ações em lote (visível quando há selecionadas) */}
+          {selectedLeads.size > 0 && (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 px-3 py-2 bg-amber-50 border-b border-amber-200">
+              <span className="text-xs font-semibold text-amber-900 mr-1">
+                {selectedLeads.size} selecionada{selectedLeads.size > 1 ? 's' : ''}:
+              </span>
+              <button onClick={() => bulkAction('mark_unread')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-amber-700 rounded border border-amber-200 hover:bg-amber-100">
+                <Bell className="w-3 h-3" /> Não lida
               </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Chat area */}
-      {selected ? (
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <div className="px-5 py-3 border-b border-neutral-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center font-semibold text-sm text-neutral-700">{selected.guestName[0]}</div>
-              <div>
-                <p className="font-bold text-sm text-neutral-900">{selected.guestName}</p>
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const channel = CHANNELS.find(c => c.id === selected.channel);
-                    return channel ? <span style={{ color: channel.color }} className="flex items-center gap-1 text-[10px] font-bold">{channel.icon}{channel.name}</span> : null;
-                  })()}
-                  <StatusBadge status={selected.status} />
-                  <SentimentIcon s={selected.sentiment} />
-                </div>
-              </div>
+              <button onClick={() => bulkAction('mark_needs_human')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <AlertCircle className="w-3 h-3" /> Escalar
+              </button>
+              <button onClick={() => bulkAction('mark_resolved')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-emerald-700 rounded border border-emerald-200 hover:bg-emerald-50">
+                <CheckCircle2 className="w-3 h-3" /> Resolver
+              </button>
+              <button onClick={() => bulkAction('mark_spam')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-orange-700 rounded border border-orange-200 hover:bg-orange-50">
+                <AlertCircle className="w-3 h-3" /> Spam
+              </button>
+              <button onClick={() => bulkAction('mark_trash')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <Trash2 className="w-3 h-3" /> Lixeira
+              </button>
+              <button onClick={clearSelection} className="ml-auto text-xs font-semibold text-neutral-600 hover:text-neutral-900 px-2 py-1">
+                Cancelar
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              {selected.channel === 'email' && (
-                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 disabled:opacity-50 transition-colors">
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> Atualizar
-                </button>
-              )}
-              {selected.status !== 'resolved' && (
-                <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Resolver
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
-            {visibleMessages.map((msg, i) => {
-              const isEmail = selected?.channel === 'email';
-              const canAct = isEmail && msg.type === 'in' && !!msg.id;
-              const inSpam = (msg.folder ?? 'inbox') === 'spam';
-              const inTrash = (msg.folder ?? 'inbox') === 'trash';
-              const busy = folderActionLoading === msg.id;
+          {filteredLeads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-neutral-400 px-4 py-12">
+              <Inbox className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">{searchQuery ? 'Nenhum resultado pra essa busca' : 'Nenhuma conversa'}</p>
+              <p className="text-xs text-center mt-1">{searchQuery ? 'Tenta outras palavras-chave.' : 'As mensagens recebidas por todos os canais aparecem aqui.'}</p>
+            </div>
+          ) : (
+            filteredLeads.map(lead => {
+              const ch = CHANNELS.find(c => c.id === lead.channel);
+              const isSelected = selectedLeads.has(lead.id);
+              const anySelected = selectedLeads.size > 0;
               return (
-                <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`relative max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
-                    {isEmail && msg.subject && (
-                      <div className="mb-2 border-b border-neutral-100 pb-2">
-                        <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
-                        <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
+                <div
+                  key={lead.id}
+                  onContextMenu={(e) => { e.preventDefault(); setLeadMenu({ x: e.clientX, y: e.clientY, lead }); }}
+                  className={`group w-full p-4 border-b border-neutral-100 transition-colors cursor-context-menu ${selectedId === lead.id ? 'bg-amber-50' : isSelected ? 'bg-amber-50/50' : 'hover:bg-white'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Checkbox: visível sempre que houver algo selecionado, ou no hover */}
+                    <div className={`shrink-0 mt-1 ${anySelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleLeadSelected(lead.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-neutral-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (anySelected) { toggleLeadSelected(lead.id); return; }
+                        setSelectedId(lead.id);
+                        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l));
+                      }}
+                      className="flex-1 min-w-0 text-left flex items-start gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
+                        {lead.guestName[0]?.toUpperCase()}
                       </div>
-                    )}
-                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                    <p className="text-[9px] mt-2 text-neutral-400">{msg.time}</p>
-                    {canAct && (
-                      <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-0.5 bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
-                        {!inSpam && !inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'spam')} disabled={busy} title="Marcar como spam" className="p-1.5 text-neutral-500 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {!inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'trash')} disabled={busy} title="Mover para lixeira" className="p-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {(inSpam || inTrash) && (
-                          <button onClick={() => performFolderAction(msg, 'inbox')} disabled={busy} title="Restaurar" className="p-1.5 text-neutral-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50">
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'delete')} disabled={busy} title="Excluir permanentemente" className="p-1.5 text-neutral-500 hover:bg-red-100 hover:text-red-700 disabled:opacity-50">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-neutral-900 truncate">{lead.guestName}</span>
+                          <span className="text-xs text-neutral-400 shrink-0 ml-2">{timeAgo(lead.lastMessageAt)}</span>
+                        </div>
+                        <p className="text-xs text-neutral-500 truncate leading-relaxed">{lead.lastMessage}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span style={{ color: ch?.color }} className="flex items-center gap-1 text-xs font-semibold">
+                            <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
+                            <span>{ch?.name}</span>
+                          </span>
+                          {lead.assignedTo && (
+                            <span className="text-xs text-neutral-500 truncate">
+                              · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
+                            </span>
+                          )}
+                          {!!lead.unreadCount && (
+                            <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 rounded-full text-white text-xs font-semibold flex items-center justify-center">{lead.unreadCount}</span>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    </button>
                   </div>
                 </div>
               );
-            })}
-            {visibleMessages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-neutral-400">
-                <Inbox className="w-10 h-10 mb-2 opacity-30" />
-                <p className="text-xs">Nenhuma mensagem nesta pasta</p>
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ─── Coluna 2: Conversa ─────────────────────────────────────────── */}
+      {selected ? (
+        <div className="flex-1 flex flex-col min-w-0 bg-white">
+          {/* Header */}
+          <div className="px-5 py-3.5 border-b border-neutral-200 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center font-semibold text-base text-neutral-700 shrink-0">{selected.guestName[0]?.toUpperCase()}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-base text-neutral-900 truncate">{selected.guestName}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(() => {
+                    const channel = CHANNELS.find(c => c.id === selected.channel);
+                    return channel ? (
+                      <span style={{ color: channel.color }} className="flex items-center gap-1 text-xs font-semibold">
+                        <span className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
+                        <span>{channel.name}</span>
+                      </span>
+                    ) : null;
+                  })()}
+                  <StatusBadge status={selected.status} />
+                </div>
               </div>
-            )}
-            <div ref={bottomRef} />
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative">
+                <button
+                  onClick={() => setShowAssignPicker(s => !s)}
+                  disabled={assigning}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${assignedUser ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}`}
+                  title={assignedUser ? `Atribuída a ${assignedUser.name}` : 'Atribuir conversa'}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{assignedUser ? assignedUser.name : 'Atribuir'}</span>
+                </button>
+                {showAssignPicker && (
+                  <div className="absolute right-0 top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-lg z-20">
+                    <button
+                      onClick={() => assignConversation(profile.id)}
+                      disabled={assigning}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-50 border-b border-neutral-100"
+                    >
+                      ⚡ Atribuir a mim
+                    </button>
+                    {assignedUser && (
+                      <button
+                        onClick={() => assignConversation(null)}
+                        disabled={assigning}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 border-b border-neutral-100"
+                      >
+                        Remover atribuição
+                      </button>
+                    )}
+                    {assignableUsers.map(u => (
+                      <button
+                        key={u.id}
+                        onClick={() => assignConversation(u.id)}
+                        disabled={assigning}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 ${selected.assignedTo === u.id ? 'bg-indigo-50 font-semibold text-indigo-900' : 'text-neutral-700'}`}
+                      >
+                        <div>{u.name}</div>
+                        <div className="text-xs text-neutral-500">{u.role}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setContextOpen(o => !o)}
+                className="lg:hidden p-1.5 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                title="Contexto do contato"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {selected.channel === 'email' && (
+                <>
+                  <button onClick={refreshEmailInbox} disabled={refreshingInbox} title="Buscar novos e-mails" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
+                  </button>
+                  <button onClick={reparseLegacyEmails} disabled={reparsing} title="Reprocessar emails antigos com o parser novo (em lotes de 30)" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 disabled:opacity-50 transition-colors">
+                    <RefreshCcw className={`w-3.5 h-3.5 ${reparsing ? 'animate-spin' : ''}`} /> <span className="hidden md:inline">Reprocessar antigos</span>
+                  </button>
+                </>
+              )}
+              {selected.status !== 'new' && (
+                <button onClick={markUnread} title="Marcar conversa como não lida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors">
+                  <Bell className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Não lida</span>
+                </button>
+              )}
+              {selected.status !== 'needs_human' && selected.status !== 'resolved' && (
+                <button onClick={markNeedsHuman} title="Marcar que precisa de atendimento humano" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors">
+                  <AlertCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Escalar</span>
+                </button>
+              )}
+              {selected.status !== 'resolved' && (
+                <button onClick={markResolved} title="Marcar conversa como resolvida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Resolver</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* AI suggestions */}
-          <div className="px-4 py-2 border-t border-neutral-100 bg-amber-50/50">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Sugestões IA</p>
-            {loadingAI ? (
-              <div className="flex gap-2">
-                {[1,2,3].map(i => <div key={i} className="h-7 w-40 bg-amber-100 rounded-lg animate-pulse" />)}
+          {/* Messages — Email: estilo Gmail (lista vertical, ultimo expandido, anteriores colapsados).
+              Chat: bubbles tradicionais. */}
+          <div className="flex-1 overflow-y-auto bg-neutral-50/30">
+            {selected?.channel === 'email' ? (
+              <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-3">
+                {visibleMessages.length > 0 && (
+                  <h2 className="text-xl sm:text-2xl font-semibold text-neutral-900 mb-3 break-words">
+                    {visibleMessages[visibleMessages.length - 1]?.subject || 'Sem assunto'}
+                  </h2>
+                )}
+                {visibleMessages.map((msg, i) => {
+                  const key = msg.id ?? `idx-${i}`;
+                  const isLatest = i === visibleMessages.length - 1;
+                  const isExpanded = expandedMsgs.has(key) || isLatest;
+                  const inSpam = (msg.folder ?? 'inbox') === 'spam';
+                  const inTrash = (msg.folder ?? 'inbox') === 'trash';
+                  const canAct = msg.type === 'in' && !!msg.id;
+                  const busy = folderActionLoading === msg.id;
+                  const senderName = msg.type === 'out' ? 'Você' : (selected?.guestName ?? 'Contato');
+                  const senderEmail = msg.type === 'out' ? '' : (selected?.guestEmail ?? '');
+                  const preview = sanitizeEmailBody(msg.text).replace(/\s+/g, ' ').trim().slice(0, 140);
+
+                  return (
+                    <article
+                      key={key}
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className="bg-white border border-neutral-200 rounded-xl shadow-sm overflow-hidden"
+                    >
+                      {/* Header da mensagem (sempre visível, clicável pra colapsar/expandir) */}
+                      <header
+                        onClick={() => toggleExpand(key)}
+                        className={`flex items-start gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-neutral-50 transition-colors ${isExpanded ? 'border-b border-neutral-100' : ''}`}
+                      >
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold ${msg.type === 'out' ? 'bg-neutral-900 text-white' : 'bg-gradient-to-br from-amber-200 to-amber-300 text-amber-900'}`}>
+                          {senderName[0]?.toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-sm font-semibold text-neutral-900 truncate">
+                              {senderName}
+                              {senderEmail && <span className="ml-2 text-xs font-normal text-neutral-500">&lt;{senderEmail}&gt;</span>}
+                            </p>
+                            <span className="text-xs text-neutral-400 shrink-0">{msg.time}</span>
+                          </div>
+                          {!isExpanded && (
+                            <p className="text-xs text-neutral-500 truncate mt-0.5">{preview || 'Sem conteúdo de texto'}</p>
+                          )}
+                          {isExpanded && (
+                            <p className="text-xs text-neutral-500 mt-0.5">
+                              Para: {msg.type === 'out' ? (selected?.guestEmail ?? '—') : 'Você'}
+                            </p>
+                          )}
+                        </div>
+                      </header>
+
+                      {isExpanded && (
+                        <>
+                          {/* Corpo do email */}
+                          <div className="px-4 sm:px-5 py-4">
+                            {msg.html ? (
+                              <EmailHtmlFrame html={msg.html} darkBubble={false} />
+                            ) : (
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-800">{sanitizeEmailBody(msg.text)}</p>
+                            )}
+                            {!!msg.attachments?.length && (
+                              <div className="mt-3 pt-3 border-t border-neutral-100 space-y-1.5">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1">Anexos</p>
+                                {msg.attachments.map((att, ai) => (
+                                  <AttachmentChip key={ai} attachment={att} darkBubble={false} onResolveUrl={getAttachmentUrl} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Ações por mensagem (apenas email IN) */}
+                          {canAct && (
+                            <div className="flex items-center gap-1.5 px-4 sm:px-5 py-2 border-t border-neutral-100 bg-neutral-50/60">
+                              {!inSpam && !inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'spam'); }} disabled={busy} title="Marcar como spam" className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded">
+                                  <AlertCircle className="w-3.5 h-3.5" /> Spam
+                                </button>
+                              )}
+                              {!inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'trash'); }} disabled={busy} title="Mover para lixeira" className="flex items-center gap-1 px-2 py-1 text-xs text-red-700 hover:bg-red-50 rounded">
+                                  <Trash2 className="w-3.5 h-3.5" /> Lixeira
+                                </button>
+                              )}
+                              {(inSpam || inTrash) && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'inbox'); }} disabled={busy} title="Restaurar" className="flex items-center gap-1 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded">
+                                  <ArrowUpRight className="w-3.5 h-3.5" /> Restaurar
+                                </button>
+                              )}
+                              {inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'delete'); }} disabled={busy} title="Excluir permanentemente" className="flex items-center gap-1 px-2 py-1 text-xs text-red-800 hover:bg-red-100 rounded">
+                                  <X className="w-3.5 h-3.5" /> Excluir
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </article>
+                  );
+                })}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem nesta pasta</p>
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
             ) : (
-              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                {aiSuggestions.map((s, i) => (
-                  <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-xs text-neutral-700 hover:border-amber-500 transition-colors max-w-[220px] text-left truncate">
-                    {s}
-                  </button>
+              // Chat (WhatsApp/IG/etc) — bubbles tradicionais
+              <div className="p-5 space-y-3">
+                {visibleMessages.map((msg, i) => (
+                  <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className={`relative cursor-context-menu max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}
+                    >
+                      {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                      {!!msg.attachments?.length && (
+                        <div className="mt-2 space-y-1.5">
+                          {msg.attachments.map((att, ai) => (
+                            <AttachmentChip key={ai} attachment={att} darkBubble={msg.type === 'out'} onResolveUrl={getAttachmentUrl} />
+                          ))}
+                        </div>
+                      )}
+                      <p className={`text-xs mt-2 ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>{msg.time}</p>
+                    </div>
+                  </div>
                 ))}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem</p>
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
             )}
           </div>
 
+          {/* Menu de contexto (clique direito em um item da lista de conversas) */}
+          {leadMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: leadMenu.y, left: leadMenu.x }}
+              className="fixed z-50 w-60 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => { setSelectedId(leadMenu.lead.id); setLeadMenu(null); }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Inbox className="w-4 h-4 text-neutral-500" /> Abrir conversa
+              </button>
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.status !== 'new' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_unread'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                >
+                  <Bell className="w-4 h-4" /> Marcar como não lida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_resolved'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Marcar como resolvida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'needs_human' && leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_needs_human'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4" /> Escalar (precisa humano)
+                </button>
+              )}
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.assignedTo !== profile.id && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'assign_to_me'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-indigo-50 text-indigo-700 flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" /> Atribuir a mim
+                </button>
+              )}
+              {leadMenu.lead.assignedTo && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'unassign'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 text-neutral-700 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" /> Remover atribuição
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Menu de contexto (clique direito sobre uma mensagem) */}
+          {msgMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: msgMenu.y, left: msgMenu.x }}
+              className="fixed z-50 w-56 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => {
+                  const q = (msgMenu.msg.text || '').split('\n').map(l => `> ${l}`).join('\n');
+                  setMessageInput(prev => (prev ? prev + '\n\n' : '') + q + '\n\n');
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <ArrowUpRight className="w-4 h-4 text-neutral-500" /> Responder citando
+              </button>
+              <button
+                onClick={() => {
+                  setComposeForm({
+                    to: '',
+                    subject: msgMenu.msg.subject ? `Fwd: ${msgMenu.msg.subject}` : 'Encaminhado',
+                    body: `\n\n--- Mensagem encaminhada ---\n${msgMenu.msg.text || ''}`,
+                  });
+                  setComposeOpen(true);
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Send className="w-4 h-4 text-neutral-500" /> Encaminhar (como e-mail)
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(msgMenu.msg.text || '').then(
+                    () => toast.success('Mensagem copiada'),
+                    () => toast.error('Falha ao copiar'),
+                  );
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4 text-neutral-500" /> Copiar texto
+              </button>
+              {selected?.channel === 'email' && msgMenu.msg.id && msgMenu.msg.type === 'in' && (
+                <>
+                  <div className="border-t border-neutral-100 my-1" />
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'spam' && (msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'spam'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                    >
+                      <AlertCircle className="w-4 h-4" /> Marcar como spam
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'trash'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" /> Mover para lixeira
+                    </button>
+                  )}
+                  {((msgMenu.msg.folder ?? 'inbox') === 'spam' || (msgMenu.msg.folder ?? 'inbox') === 'trash') && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'inbox'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                    >
+                      <ArrowUpRight className="w-4 h-4" /> Restaurar para entrada
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') === 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'delete'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-100 text-red-800 flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" /> Excluir permanentemente
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* AI suggestions */}
+          {(loadingAI || aiSuggestions.length > 0) && (
+            <div className="px-4 py-2.5 border-t border-neutral-200 bg-amber-50/40">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Sugestões IA</p>
+              {loadingAI ? (
+                <div className="flex gap-2">
+                  {[1,2,3].map(i => <div key={i} className="h-8 w-44 bg-amber-100 rounded-lg animate-pulse" />)}
+                </div>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+                  {aiSuggestions.map((s, i) => (
+                    <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-sm text-neutral-700 hover:border-amber-500 transition-colors max-w-[240px] text-left truncate">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pending attachments preview */}
+          {pendingAttachments.length > 0 && (
+            <div className="px-4 pt-3 pb-1 border-t border-neutral-200 bg-white">
+              <div className="flex flex-wrap gap-2">
+                {pendingAttachments.map((att, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-100 text-sm border border-neutral-200">
+                    {att.mime.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-amber-600" /> : <FileIcon className="w-4 h-4 text-neutral-600" />}
+                    <span className="font-medium text-neutral-800 truncate max-w-[180px]">{att.name}</span>
+                    <span className="text-xs text-neutral-500">{(att.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removePendingAttachment(i)} className="text-neutral-400 hover:text-red-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Input */}
-          <div className="p-4 border-t border-neutral-100 flex items-end gap-3">
+          <div className="p-4 border-t border-neutral-200 flex items-end gap-2 bg-white">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={e => handleFilePick(e.target.files)}
+              accept="image/*,application/pdf,audio/*,video/*,.doc,.docx,.xls,.xlsx"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAttachment || sendingMessage}
+              className="p-2.5 rounded-2xl text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+              title="Anexar arquivo"
+            >
+              {uploadingAttachment ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+            </button>
             <textarea
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
@@ -921,24 +1980,98 @@ function LeadInboxTab() {
               placeholder={selected.channel === 'email' ? 'Escreva a resposta por e-mail...' : 'Escreva uma mensagem...'}
               disabled={sendingMessage}
               rows={2}
-              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-sans"
+              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border border-neutral-200 focus:border-amber-500 focus:bg-white focus:ring-0 outline-none font-sans"
             />
             <button
               onClick={sendMessage}
-              disabled={!messageInput.trim() || sendingMessage}
+              disabled={(!messageInput.trim() && pendingAttachments.length === 0) || sendingMessage}
               className="p-3 bg-neutral-900 text-white rounded-2xl hover:bg-neutral-800 disabled:opacity-40 transition-all"
             >
-              {sendingMessage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {sendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-neutral-400">
+        <div className="flex-1 flex items-center justify-center text-neutral-400 bg-neutral-50/30">
           <div className="text-center">
-            <Inbox className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-bold">Selecione uma conversa</p>
+            <Inbox className="w-16 h-16 mx-auto mb-3 opacity-30" />
+            <p className="font-semibold text-base text-neutral-500">Selecione uma conversa</p>
+            <p className="text-sm text-neutral-400 mt-1">As mensagens dos seus canais aparecem aqui.</p>
           </div>
         </div>
+      )}
+
+      {/* ─── Coluna 3: Contexto do contato (desktop) ─────────────────── */}
+      {selected && (
+        <aside className={`${contextOpen ? 'flex absolute inset-y-0 right-0 z-20 w-80 shadow-2xl' : 'hidden'} lg:flex lg:static lg:w-72 shrink-0 border-l border-neutral-200 bg-neutral-50/40 flex-col overflow-y-auto`}>
+          <div className="lg:hidden flex items-center justify-between p-4 border-b border-neutral-200 bg-white">
+            <p className="text-sm font-semibold text-neutral-900">Contexto</p>
+            <button onClick={() => setContextOpen(false)} className="p-1 rounded-lg hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Contato</p>
+              <p className="text-sm font-semibold text-neutral-900">{selected.guestName}</p>
+              {selected.guestEmail && (
+                <a href={`mailto:${selected.guestEmail}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Mail className="w-3.5 h-3.5" /> {selected.guestEmail}
+                </a>
+              )}
+              {selected.guestPhone && (
+                <a href={`tel:${selected.guestPhone}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Phone className="w-3.5 h-3.5" /> {selected.guestPhone}
+                </a>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Atendente</p>
+              {assignedUser ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-semibold text-indigo-700">{assignedUser.name[0]?.toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-neutral-900 truncate">{assignedUser.name}</p>
+                    <p className="text-xs text-neutral-500">{assignedUser.role}</p>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowAssignPicker(true)} className="text-sm text-amber-700 hover:underline">Sem atendente — atribuir</button>
+              )}
+            </div>
+
+            {selected.tags && selected.tags.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.tags.map(t => (
+                    <span key={t} className="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Notas internas</p>
+              <textarea
+                key={selected.id}
+                defaultValue={selected.internalNotes ?? ''}
+                onBlur={e => updateInternalNotes(e.target.value)}
+                rows={4}
+                placeholder="Notas visíveis só para a equipe..."
+                className="w-full resize-none px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Estado da conversa</p>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Status:</span><StatusBadge status={selected.status} /></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Canal:</span><span className="font-medium">{CHANNELS.find(c => c.id === selected.channel)?.name ?? selected.channel}</span></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Não lidas:</span><span className="font-medium">{selected.unreadCount ?? 0}</span></div>
+              </div>
+            </div>
+          </div>
+        </aside>
       )}
 
       {composeOpen && (
@@ -1568,102 +2701,118 @@ function TemplatesTab() {
 
 function AnalyticsTab() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
+  const [metrics, setMetrics] = useState({ total: 0, resolved: 0, needsHuman: 0, newCount: 0 });
+  const [daily, setDaily] = useState<Array<{ date: string; conversations: number }>>([]);
+  const [loading, setLoading] = useState(true);
 
-  const metrics = {
-    '7d': { total: 148, botResolved: 112, escalated: 36, avgResp: 2.4, satisfaction: 4.7, conversion: 12.3 },
-    '30d': { total: 524, botResolved: 398, escalated: 126, avgResp: 3.1, satisfaction: 4.5, conversion: 10.8 },
-    '90d': { total: 1847, botResolved: 1401, escalated: 446, avgResp: 2.9, satisfaction: 4.6, conversion: 11.2 },
-  }[period];
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    async function load() {
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const [total, resolved, needsHuman, newCount, msgs] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'resolved').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new').gte('last_message_at', since),
+        supabase.from('inbox_messages').select('created_at').gte('created_at', since).limit(5000),
+      ]);
+      if (!alive) return;
 
-  const dailyData = Array.from({ length: period === '7d' ? 7 : period === '30d' ? 30 : 90 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    return { date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), conversations: Math.floor(Math.random() * 30 + 10), resolved: Math.floor(Math.random() * 25 + 5) };
-  }).reverse();
+      // Group messages by day
+      const buckets: Record<string, number> = {};
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        buckets[key] = 0;
+      }
+      for (const row of (msgs.data ?? []) as Array<{ created_at: string }>) {
+        const key = row.created_at.slice(0, 10);
+        if (key in buckets) buckets[key]++;
+      }
+      const dailySeries = Object.entries(buckets).map(([key, n]) => ({
+        date: new Date(key).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        conversations: n,
+      }));
 
-  const maxVal = Math.max(...dailyData.map(d => d.conversations));
+      setMetrics({
+        total: total.count ?? 0,
+        resolved: resolved.count ?? 0,
+        needsHuman: needsHuman.count ?? 0,
+        newCount: newCount.count ?? 0,
+      });
+      setDaily(dailySeries);
+      setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [period]);
 
-  const intents = [
-    { intent: 'Consulta de preço', count: 89 },
-    { intent: 'Disponibilidade', count: 67 },
-    { intent: 'Check-in/out', count: 43 },
-    { intent: 'Serviços', count: 31 },
-    { intent: 'Cancelamento', count: 18 },
-  ];
+  const maxVal = Math.max(1, ...daily.map(d => d.conversations));
+  const hasData = metrics.total > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics do Bot</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Desempenho</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Desempenho de conversas</h2>
         </div>
         <div className="flex bg-neutral-100 rounded-xl p-1">
           {(['7d', '30d', '90d'] as const).map(p => (
-            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
+            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
               {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Conversas', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Bot resolveu', value: metrics.botResolved.toString(), icon: Bot, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Escalados', value: metrics.escalated.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Resp. média', value: `${metrics.avgResp}min`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Satisfação', value: metrics.satisfaction.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Conversão', value: `${metrics.conversion}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+      {!hasData && !loading ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
+          <BarChart3 className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
+          <p className="text-base font-semibold text-neutral-700">Sem dados ainda no período</p>
+          <p className="text-sm text-neutral-500 mt-1">Os indicadores aparecem assim que houver contatos e mensagens registrados.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Conversas no período', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
+              { label: 'Novas', value: metrics.newCount.toString(), icon: Sparkles, color: 'text-amber-600', bg: 'bg-amber-50' },
+              { label: 'Aguardando humano', value: metrics.needsHuman.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+              { label: 'Resolvidas', value: metrics.resolved.toString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            ].map(stat => (
+              <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 sm:p-5 shadow-sm">
+                <div className={`w-9 h-9 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                </div>
+                <p className="text-xl sm:text-2xl font-semibold text-neutral-950">{stat.value}</p>
+                <p className="text-xs text-neutral-500 font-medium mt-0.5">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <h3 className="font-semibold text-sm text-neutral-900 mb-4">Mensagens por dia</h3>
+            <div className="flex items-end gap-1 h-32">
+              {daily.slice(-30).map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
+                    style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: d.conversations > 0 ? 4 : 1 }}
+                    title={`${d.date}: ${d.conversations} mensagens`}
+                  />
+                </div>
+              ))}
             </div>
-            <p className="text-xl font-semibold text-neutral-950">{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+            <div className="flex justify-between mt-2 text-xs text-neutral-400">
+              <span>{daily.slice(-30)[0]?.date}</span>
+              <span>{daily.slice(-1)[0]?.date}</span>
+            </div>
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Bar chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
-          <div className="flex items-end gap-1 h-32">
-            {dailyData.slice(-14).map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
-                  style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: 4 }}
-                  title={`${d.date}: ${d.conversations} conversas`}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-2 text-[9px] text-neutral-400">
-            <span>{dailyData.slice(-14)[0]?.date}</span>
-            <span>{dailyData.slice(-1)[0]?.date}</span>
-          </div>
-        </div>
-
-        {/* Top intents */}
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Top Intenções</h3>
-          <div className="space-y-3">
-            {intents.map((intent, i) => (
-              <div key={i} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-medium text-neutral-700 truncate">{intent.intent}</span>
-                  <span className="font-semibold text-neutral-900 ml-2">{intent.count}</span>
-                </div>
-                <div className="w-full bg-neutral-100 rounded-full h-1.5">
-                  <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${(intent.count / intents[0].count) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1671,82 +2820,18 @@ function AnalyticsTab() {
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
 function NPSTab() {
-  const [scores] = useState([
-    { id: '1', guest: 'Ana Beatriz', score: 9, comment: 'Excelente atendimento, muito rápido!', channel: 'WhatsApp', date: '2026-05-10' },
-    { id: '2', guest: 'Carlos Lima', score: 7, comment: 'Bom, mas poderia melhorar o check-in.', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '3', guest: 'Marina Souza', score: 10, comment: 'Perfeito em todos os aspectos!', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '4', guest: 'Roberto F.', score: 6, comment: 'Wi-fi um pouco lento.', channel: 'Instagram', date: '2026-05-08' },
-    { id: '5', guest: 'Juliana Alves', score: 8, comment: 'Gostei muito do café da manhã.', channel: 'WhatsApp', date: '2026-05-07' },
-  ]);
-
-  const promoters = scores.filter(s => s.score >= 9).length;
-  const passives = scores.filter(s => s.score >= 7 && s.score <= 8).length;
-  const detractors = scores.filter(s => s.score <= 6).length;
-  const nps = Math.round(((promoters - detractors) / scores.length) * 100);
-  const avg = (scores.reduce((a, b) => a + b.score, 0) / scores.length).toFixed(1);
-
-  function scoreColor(s: number) {
-    if (s >= 9) return 'text-emerald-600 bg-emerald-50';
-    if (s >= 7) return 'text-amber-600 bg-amber-50';
-    return 'text-red-600 bg-red-50';
-  }
-
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Satisfação dos Hóspedes</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">NPS</p>
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfação dos hóspedes</h2>
       </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'NPS Score', value: `${nps}`, icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
-          { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
-            </div>
-            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* NPS bar */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
-        <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
-        </div>
-        <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
-          <span className="text-red-500">Detratores (0-6)</span>
-          <span className="text-amber-500">Neutros (7-8)</span>
-          <span className="text-emerald-500">Promotores (9-10)</span>
-        </div>
-      </div>
-
-      {/* Responses */}
-      <div className="space-y-3">
-        {scores.map(s => (
-          <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-sm shrink-0 ${scoreColor(s.score)}`}>
-              {s.score}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm text-neutral-900">{s.guest}</p>
-              <p className="text-xs text-neutral-500 mt-0.5">{s.comment}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[9px] text-neutral-400">{s.date}</p>
-              <p className="text-[9px] font-bold text-neutral-500">{s.channel}</p>
-            </div>
-          </div>
-        ))}
+      <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
+        <Award className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
+        <p className="text-base font-semibold text-neutral-700">Nenhuma fonte de NPS conectada ainda</p>
+        <p className="text-sm text-neutral-500 mt-1 max-w-md mx-auto">
+          Quando uma fonte de NPS (ex: pesquisa pós-estadia) estiver integrada, as notas e comentários aparecem aqui.
+        </p>
       </div>
     </div>
   );
@@ -2656,6 +3741,83 @@ interface SmtpConfig {
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
 function IntegracoesTab() {
+  // ─── Estado dos webhooks Meta ────────────────────────────────────────────
+  type MetaCfg = { verify_token: string; access_token: string; app_secret: string; phone_number_id?: string; business_account_id?: string; page_id?: string };
+  const metaChannels: Array<{ id: 'whatsapp' | 'instagram' | 'facebook'; name: string; color: string; icon: ReactElement; extraFields: Array<{ key: keyof MetaCfg; label: string; placeholder: string }> }> = [
+    { id: 'whatsapp', name: 'WhatsApp Business', color: 'bg-emerald-500', icon: <MessageSquare className="w-4 h-4" />, extraFields: [
+      { key: 'phone_number_id', label: 'Phone Number ID', placeholder: '106988195493619' },
+      { key: 'business_account_id', label: 'Business Account ID', placeholder: '102290129340398' },
+    ]},
+    { id: 'instagram', name: 'Instagram Messaging', color: 'bg-pink-500', icon: <Instagram className="w-4 h-4" />, extraFields: [
+      { key: 'page_id', label: 'Instagram Business ID', placeholder: '17841400008460056' },
+    ]},
+    { id: 'facebook', name: 'Facebook Messenger', color: 'bg-blue-600', icon: <Facebook className="w-4 h-4" />, extraFields: [
+      { key: 'page_id', label: 'Facebook Page ID', placeholder: '102290129340398' },
+    ]},
+  ];
+  const [metaCfgs, setMetaCfgs] = useState<Record<string, MetaCfg>>({});
+  const [metaSaving, setMetaSaving] = useState<string | null>(null);
+  const [metaTesting, setMetaTesting] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const ids = metaChannels.map(c => `${c.id}_config`);
+      const { data } = await supabase.from('app_settings').select('id, value').in('id', ids);
+      if (!alive || !data) return;
+      const next: Record<string, MetaCfg> = {};
+      for (const row of data as Array<{ id: string; value: string }>) {
+        const ch = row.id.replace('_config', '');
+        try { next[ch] = JSON.parse(row.value); } catch { next[ch] = { verify_token: '', access_token: '', app_secret: '' }; }
+      }
+      setMetaCfgs(next);
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  function metaWebhookUrl(channel: string) {
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    return `${base}/functions/v1/webhook-${channel}`;
+  }
+  function generateVerifyToken() {
+    return 'pms-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+  }
+  async function saveMetaConfig(channel: 'whatsapp' | 'instagram' | 'facebook') {
+    const cfg = metaCfgs[channel];
+    if (!cfg) return;
+    setMetaSaving(channel);
+    try {
+      const { error } = await supabase.from('app_settings').upsert({ id: `${channel}_config`, value: JSON.stringify(cfg) });
+      if (error) throw error;
+      toast.success(`${channel === 'whatsapp' ? 'WhatsApp' : channel === 'instagram' ? 'Instagram' : 'Facebook'} salvo.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao salvar.');
+    } finally {
+      setMetaSaving(null);
+    }
+  }
+  async function testMetaWebhook(channel: 'whatsapp' | 'instagram' | 'facebook') {
+    const cfg = metaCfgs[channel];
+    if (!cfg?.verify_token) { toast.error('Preencha e salve o Verify Token primeiro.'); return; }
+    setMetaTesting(channel);
+    try {
+      const url = `${metaWebhookUrl(channel)}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(cfg.verify_token)}&hub.challenge=ping-${Date.now()}`;
+      const r = await fetch(url);
+      const text = await r.text();
+      if (r.ok && text.startsWith('ping-')) toast.success('Webhook respondeu OK. Cadastre no Meta Developer.');
+      else toast.error(`Falhou: ${r.status} ${text.slice(0, 80)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro na requisição.');
+    } finally {
+      setMetaTesting(null);
+    }
+  }
+  function isMetaConfigured(channel: string) {
+    const c = metaCfgs[channel];
+    return !!(c?.verify_token && c?.access_token && c?.app_secret);
+  }
+
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
     Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
   );
@@ -2852,25 +4014,122 @@ function IntegracoesTab() {
         </div>
       </section>
 
-      {/* Webhooks URLs do sistema */}
+      {/* Webhooks Meta (WhatsApp / Instagram / Facebook) */}
       <section className="space-y-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-          <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
-          {['whatsapp', 'instagram', 'facebook'].map(ch => (
-            <div key={ch} className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
-                <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
-                  <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Webhooks Meta — Recebimento de mensagens</h3>
+        <p className="text-xs text-neutral-500">
+          Pra cada canal: <strong>(1)</strong> gera/define um <em>Verify Token</em>, <strong>(2)</strong> salva,
+          <strong> (3)</strong> cadastra a Webhook URL + Verify Token no <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-amber-600 font-bold hover:underline">Meta Developer Portal</a>,
+          <strong> (4)</strong> preenche Access Token + App Secret + IDs e salva de novo. Use <strong>Testar conexão</strong> pra validar.
+        </p>
+        {metaChannels.map(ch => {
+          const cfg = metaCfgs[ch.id] ?? { verify_token: '', access_token: '', app_secret: '' };
+          const connected = isMetaConfigured(ch.id);
+          const url = metaWebhookUrl(ch.id);
+          return (
+            <div key={ch.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl ${ch.color} flex items-center justify-center text-white`}>{ch.icon}</div>
+                  <div>
+                    <p className="font-semibold text-sm text-neutral-900">{ch.name}</p>
+                    <p className="text-xs text-neutral-500">Recebe mensagens via webhook Meta</p>
+                  </div>
+                </div>
+                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-neutral-400'}`}></span>
+                  {connected ? 'Configurado' : 'Aguardando configuração'}
+                </span>
+              </div>
+
+              {/* Webhook URL (read-only) */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Webhook URL <span className="text-neutral-400 font-normal">(cadastre na Meta)</span></label>
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-neutral-50 rounded-xl border border-neutral-200">
+                  <p className="text-xs font-mono text-neutral-700 flex-1 truncate">{url}</p>
+                  <button onClick={() => { navigator.clipboard.writeText(url); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100" title="Copiar">
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
+
+              {/* Verify Token + gerar */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Verify Token <span className="text-neutral-400 font-normal">(use o mesmo na Meta)</span></label>
+                <div className="flex gap-2">
+                  <input
+                    value={cfg.verify_token}
+                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: e.target.value } }))}
+                    placeholder="meu-token-secreto"
+                    className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                  />
+                  <button
+                    onClick={() => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: generateVerifyToken() } }))}
+                    className="px-3 py-2 bg-neutral-900 text-white rounded-lg text-xs font-semibold hover:bg-neutral-800"
+                    title="Gera token aleatório"
+                  >
+                    Gerar
+                  </button>
+                </div>
+              </div>
+
+              {/* Access Token */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Access Token <span className="text-neutral-400 font-normal">(do Meta Graph API)</span></label>
+                <input
+                  type="password"
+                  value={cfg.access_token}
+                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, access_token: e.target.value } }))}
+                  placeholder="EAAGm0PX..."
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                />
+              </div>
+
+              {/* App Secret */}
+              <div>
+                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">App Secret <span className="text-neutral-400 font-normal">(valida assinatura HMAC)</span></label>
+                <input
+                  type="password"
+                  value={cfg.app_secret}
+                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, app_secret: e.target.value } }))}
+                  placeholder="ab1c2d..."
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                />
+              </div>
+
+              {/* Campos extras por canal (Phone ID, Page ID, etc.) */}
+              {ch.extraFields.map(field => (
+                <div key={field.key as string}>
+                  <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">{field.label}</label>
+                  <input
+                    value={(cfg as Record<string, string | undefined>)[field.key as string] ?? ''}
+                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, [field.key]: e.target.value } }))}
+                    placeholder={field.placeholder}
+                    className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                  />
+                </div>
+              ))}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => saveMetaConfig(ch.id)}
+                  disabled={metaSaving === ch.id}
+                  className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm font-semibold hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" /> {metaSaving === ch.id ? 'Salvando…' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => testMetaWebhook(ch.id)}
+                  disabled={metaTesting === ch.id || !cfg.verify_token}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {metaTesting === ch.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  {metaTesting === ch.id ? 'Testando…' : 'Testar conexão'}
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </section>
 
       {/* E-mail de confirmação */}
@@ -3175,125 +4434,91 @@ type TabId = typeof NAV_SECTIONS[number]['items'][number]['id'];
 
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
-  const [navOpen, setNavOpen] = useState(false);
+  const [kpis, setKpis] = useState<{ total: number; new: number; needsHuman: number }>({ total: 0, new: 0, needsHuman: 0 });
 
-  const totalLeads = SEED_LEADS.length;
-  const newLeads = SEED_LEADS.filter(l => l.status === 'new').length;
-  const needsHuman = SEED_LEADS.filter(l => l.status === 'needs_human').length;
+  useEffect(() => {
+    let alive = true;
+    async function loadKpis() {
+      const [total, neu, human] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human'),
+      ]);
+      if (!alive) return;
+      setKpis({
+        total: total.count ?? 0,
+        new: neu.count ?? 0,
+        needsHuman: human.count ?? 0,
+      });
+    }
+    loadKpis();
+    const ch = supabase
+      .channel('marketing_kpis')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_contacts' }, () => loadKpis())
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, []);
+
+  const totalLeads = kpis.total;
+  const newLeads = kpis.new;
+  const needsHuman = kpis.needsHuman;
 
   const activeItem = TABS.find(t => t.id === activeTab)!;
   const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === activeTab))!;
 
   return (
     <div className="overflow-x-clip">
-      <div className="flex min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-col min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
 
-        {/* ── Sidebar (desktop) ─────────────────────────────────────────── */}
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50/60">
-          <div className="px-5 py-5 border-b border-neutral-200">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">Royal PMS</p>
-            <h2 className="mt-0.5 text-base font-semibold text-neutral-900">Marketing & CRM</h2>
+        {/* Top bar (header + KPIs) */}
+        <header className="border-b border-neutral-200 bg-white">
+          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-neutral-400 truncate">
+                {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
+              </p>
+              <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
+                <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
+                {activeItem.label}
+              </h1>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              <KpiChip label="Novos" value={newLeads} tone="amber" />
+              <KpiChip label="Humano" value={needsHuman} tone="red" />
+              <KpiChip label="Total" value={totalLeads} tone="neutral" />
+            </div>
           </div>
-          <nav className="flex-1 overflow-y-auto py-3">
-            {NAV_SECTIONS.map(section => (
-              <div key={section.label} className="px-3 mb-4">
-                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                <div className="space-y-0.5">
-                  {section.items.map(item => {
-                    const active = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                          active
-                            ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200'
-                            : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
-                        }`}
-                      >
-                        <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                        <span className="truncate">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-        </aside>
+        </header>
 
-        {/* ── Main column ───────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* Top menu — sempre visível em todas as telas, sem sidebar */}
+        <nav className="border-b border-neutral-200 bg-white px-3 sm:px-4 py-2 flex gap-1 overflow-x-auto scrollbar-none">
+          {TABS.map(item => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                title={item.description}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  active ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                }`}
+              >
+                <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-          {/* Top bar */}
-          <header className="border-b border-neutral-200 bg-white">
-            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Mobile menu toggle */}
-                <button
-                  onClick={() => setNavOpen(v => !v)}
-                  className="lg:hidden p-2 -ml-1 rounded-lg text-neutral-600 hover:bg-neutral-100"
-                  aria-label="Abrir menu"
-                >
-                  <LayoutGrid className="w-5 h-5" />
-                </button>
-                <div className="min-w-0">
-                  <p className="text-[11px] text-neutral-400 truncate">
-                    {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
-                  </p>
-                  <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
-                    <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
-                    {activeItem.label}
-                  </h1>
-                </div>
-              </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <KpiChip label="Novos" value={newLeads} tone="amber" />
-                <KpiChip label="Humano" value={needsHuman} tone="red" />
-                <KpiChip label="Total" value={totalLeads} tone="neutral" />
-              </div>
-            </div>
-            <p className="px-4 sm:px-6 pb-3 -mt-1 text-xs text-neutral-500 truncate">{activeItem.description}</p>
-          </header>
-
-          {/* Mobile nav drawer (inline collapsible) */}
-          {navOpen && (
-            <div className="lg:hidden border-b border-neutral-200 bg-neutral-50/60 px-3 py-3 max-h-[60vh] overflow-y-auto">
-              {NAV_SECTIONS.map(section => (
-                <div key={section.label} className="mb-3">
-                  <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {section.items.map(item => {
-                      const active = activeTab === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => { setActiveTab(item.id); setNavOpen(false); }}
-                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                            active ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200' : 'bg-white/60 text-neutral-600 border border-transparent'
-                          }`}
-                        >
-                          <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Content area */}
-          <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
-            {activeTab === 'inbox' && <LeadInboxTab />}
-            {activeTab === 'contatos' && <ContatosShell />}
-            {activeTab === 'campanhas' && <CampanhasShell />}
-            {activeTab === 'automacoes' && <AutomacoesShell />}
-            {activeTab === 'analytics' && <AnalyticsTab />}
-            {activeTab === 'configs' && <ConfigsShell />}
-          </main>
-        </div>
+        {/* Content area — agora ocupa toda a largura */}
+        <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-3 sm:p-5">
+          {activeTab === 'inbox' && <LeadInboxTab profile={profile} />}
+          {activeTab === 'contatos' && <ContatosShell />}
+          {activeTab === 'campanhas' && <CampanhasShell />}
+          {activeTab === 'automacoes' && <AutomacoesShell />}
+          {activeTab === 'analytics' && <AnalyticsTab />}
+          {activeTab === 'configs' && <ConfigsShell />}
+        </main>
       </div>
     </div>
   );

@@ -14,6 +14,8 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB cap por imagem inline
+
 type SmtpConfig = {
   host: string;
   port: string;
@@ -28,15 +30,33 @@ type ParsedEmail = {
   fromEmail: string;
   fromName: string;
   subject: string;
-  body: string;
+  body: string;       // text/plain (sempre presente, pode ser stripped de HTML)
+  bodyHtml: string | null; // text/html sanitizado, com cid: resolvidos como data URLs
   messageId: string | null;
   references: string | null;
+};
+
+type MimePart = {
+  contentType: string;   // ex: "text/html"
+  charset: string;       // ex: "utf-8" (lowercase)
+  encoding: string;      // ex: "quoted-printable"
+  contentId: string | null;
+  disposition: string;   // "inline" | "attachment" | ""
+  filename: string | null;
+  raw: string;           // conteúdo bruto (encoded)
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json({ error: "Supabase is not configured." }, 500);
+
+  // Parse body opcional para suportar { mode: "reparse" }
+  let payload: { mode?: string; limit?: number } = {};
+  try {
+    const text = await req.text();
+    if (text) payload = JSON.parse(text);
+  } catch { /* ignora body inválido */ }
 
   try {
     const smtpConfig = await loadSmtpConfig();
@@ -49,14 +69,35 @@ serve(async (req) => {
     try {
       await client.login(smtpConfig.user, smtpConfig.pass);
       await client.selectInbox();
+
+      if (payload.mode === "reparse") {
+        const limit = Math.min(Math.max(payload.limit ?? 30, 1), 100);
+        const result = await reparseLegacy(client, limit);
+        await client.logout();
+        return json(result);
+      }
+
       const unseenUids = await client.searchUnseen();
+
+      // NÃO marca como lido no servidor IMAP (deixa unread no Locaweb webmail).
+      // Em vez disso, filtra os UIDs que já temos no DB para não processar de novo.
+      let candidateUids = unseenUids;
+      if (unseenUids.length > 0) {
+        const { data: known } = await adminClient
+          .from("inbox_messages")
+          .select("message_uid")
+          .eq("channel", "email")
+          .in("message_uid", unseenUids);
+        const knownSet = new Set((known ?? []).map((r: { message_uid: string | null }) => r.message_uid));
+        candidateUids = unseenUids.filter(uid => !knownSet.has(uid));
+      }
+
       let processed = 0;
 
-      for (const uid of unseenUids) {
+      for (const uid of candidateUids) {
         const raw = await client.fetchMessage(uid);
         const parsed = parseEmail(raw);
-        if (!parsed.fromEmail || !parsed.body) {
-          await client.markSeen(uid);
+        if (!parsed.fromEmail || (!parsed.body && !parsed.bodyHtml)) {
           continue;
         }
 
@@ -70,6 +111,7 @@ serve(async (req) => {
             direction: "in",
             subject: parsed.subject,
             body: parsed.body,
+            body_html: parsed.bodyHtml,
             message_uid: uid,
             email_message_id: parsed.messageId,
             email_references: parsed.references,
@@ -91,8 +133,6 @@ serve(async (req) => {
         } else if (error.code !== "23505") {
           console.warn(`Failed to insert inbox message ${uid}: ${error.message}`);
         }
-
-        await client.markSeen(uid);
       }
 
       await client.logout();
@@ -105,6 +145,76 @@ serve(async (req) => {
     return json({ error: message }, 500);
   }
 });
+
+// Re-baixa do IMAP os emails antigos que estão no banco com body_html=null
+// e reaplica o novo parser. Faz em batches (limit).
+async function reparseLegacy(client: ImapClient, limit: number) {
+  const { data: rows, error } = await adminClient
+    .from("inbox_messages")
+    .select("id, message_uid, contact_id, body, body_html")
+    .eq("channel", "email")
+    .eq("direction", "in")
+    .is("body_html", null)
+    .not("message_uid", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  if (!rows || rows.length === 0) {
+    return { mode: "reparse", reprocessed: 0, skipped: 0, remaining: 0 };
+  }
+
+  let reprocessed = 0;
+  let skipped = 0;
+  for (const row of rows as Array<{ id: string; message_uid: string }>) {
+    try {
+      const raw = await client.fetchMessage(row.message_uid);
+      // UID FETCH returns "(BODY[] {N}" body ")" on miss vs preserved body on hit.
+      // Se vier vazio (mensagem deletada do servidor), pula.
+      if (!raw || raw.length < 50) {
+        skipped += 1;
+        // Marca pra não tentar de novo: grava string vazia no body_html (não null)
+        await adminClient.from("inbox_messages").update({ body_html: "" }).eq("id", row.id);
+        continue;
+      }
+      const parsed = parseEmail(raw);
+      if (!parsed.body && !parsed.bodyHtml) {
+        skipped += 1;
+        await adminClient.from("inbox_messages").update({ body_html: "" }).eq("id", row.id);
+        continue;
+      }
+      const { error: updError } = await adminClient
+        .from("inbox_messages")
+        .update({
+          subject: parsed.subject || undefined,
+          body: parsed.body || row.body,
+          body_html: parsed.bodyHtml || "",
+        })
+        .eq("id", row.id);
+      if (updError) {
+        console.warn(`[reparse] update failed ${row.id}: ${updError.message}`);
+        skipped += 1;
+      } else {
+        reprocessed += 1;
+      }
+    } catch (err) {
+      skipped += 1;
+      console.warn(`[reparse] fetch failed uid=${row.message_uid}: ${err instanceof Error ? err.message : err}`);
+      // Não marca como processado — pode tentar de novo
+    }
+  }
+
+  // Conta quantos ainda faltam
+  const { count } = await adminClient
+    .from("inbox_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("channel", "email")
+    .eq("direction", "in")
+    .is("body_html", null)
+    .not("message_uid", "is", null);
+
+  return { mode: "reparse", reprocessed, skipped, remaining: count ?? 0 };
+}
 
 async function loadSmtpConfig() {
   const { data, error } = await adminClient
@@ -119,24 +229,100 @@ async function loadSmtpConfig() {
 }
 
 async function upsertContact(email: ParsedEmail) {
+  async function reuseContact(id: string) {
+    const { data: c, error } = await adminClient
+      .from("marketing_contacts")
+      .update({
+        name: email.fromName || email.fromEmail,
+        last_message: emailPreview(email),
+        last_message_at: new Date().toISOString(),
+        status: "new",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select("id, unread_count")
+      .single();
+    if (!error && c) return c as { id: string; unread_count: number | null };
+    return null;
+  }
+
+  // 1) References/In-Reply-To: se algum ref bate com um email_message_id já no DB,
+  //    junta na mesma conversa.
+  const refIds = (email.references ?? "").match(/<[^<>\s]+@[^<>\s]+>/g) ?? [];
+  if (refIds.length > 0) {
+    const { data: existing } = await adminClient
+      .from("inbox_messages")
+      .select("contact_id")
+      .in("email_message_id", refIds)
+      .eq("channel", "email")
+      .limit(1);
+    if (existing && existing[0]?.contact_id) {
+      const c = await reuseContact(existing[0].contact_id);
+      if (c) return c;
+    }
+  }
+
+  // 2) Fallback: mesmo subject normalizado (sem Re:/Fwd:) em uma conversa dos
+  //    últimos 30 dias, envolvendo o mesmo email (seja como remetente do contato
+  //    ou como contraparte de alguma mensagem que mande/receba esse endereço).
+  const norm = normalizeSubject(email.subject);
+  if (norm.length > 2) {
+    const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Busca mensagens recentes cujo subject normalizado bata, junto com o contato.
+    const { data: candidates } = await adminClient
+      .from("inbox_messages")
+      .select("contact_id, subject, marketing_contacts!inner(email)")
+      .eq("channel", "email")
+      .ilike("subject", `%${norm.slice(0, 60)}%`)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (candidates && candidates.length > 0) {
+      for (const cand of candidates as Array<{ contact_id: string; subject: string | null; marketing_contacts: { email: string | null } | null }>) {
+        if (normalizeSubject(cand.subject) === norm) {
+          // Match — usa essa contact_id
+          const c = await reuseContact(cand.contact_id);
+          if (c) return c;
+        }
+      }
+    }
+  }
+
+  // 3) Novo thread → cria nova row.
+  const threadRoot = email.messageId;
   const { data, error } = await adminClient
     .from("marketing_contacts")
-    .upsert({
+    .insert({
       email: email.fromEmail,
       name: email.fromName || email.fromEmail,
       channel: "email",
+      thread_root_message_id: threadRoot,
       last_message: emailPreview(email),
       last_message_at: new Date().toISOString(),
       status: "new",
       sentiment: "neutral",
       updated_at: new Date().toISOString(),
-    }, { onConflict: "email" })
+    })
     .select("id, unread_count")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23505") {
+      const { data: existing2 } = await adminClient
+        .from("marketing_contacts")
+        .select("id, unread_count")
+        .eq("email", email.fromEmail)
+        .eq("thread_root_message_id", threadRoot ?? "")
+        .maybeSingle();
+      if (existing2) return existing2 as { id: string; unread_count: number | null };
+    }
+    throw error;
+  }
   return data as { id: string; unread_count: number | null };
 }
+
+// ─── IMAP Client ──────────────────────────────────────────────────────────────
 
 class ImapClient {
   private conn: Deno.TlsConn | null = null;
@@ -186,9 +372,7 @@ class ImapClient {
   close() {
     try {
       this.conn?.close();
-    } catch {
-      // Connection may already be closed by LOGOUT.
-    }
+    } catch { /* já fechado */ }
   }
 
   private async command(command: string) {
@@ -225,20 +409,82 @@ function quote(value: string) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+// ─── Email parsing ────────────────────────────────────────────────────────────
+
 function parseEmail(raw: string): ParsedEmail {
   const normalized = raw.replace(/\r\n/g, "\n");
   const splitAt = normalized.indexOf("\n\n");
   const headerText = splitAt >= 0 ? normalized.slice(0, splitAt) : "";
   const bodyText = splitAt >= 0 ? normalized.slice(splitAt + 2) : normalized;
   const headers = parseHeaders(headerText);
+
   const from = decodeHeader(headers.from ?? "");
   const fromEmail = extractEmail(from);
   const fromName = from.replace(/<[^>]+>/g, "").replace(/"/g, "").trim();
   const subject = decodeHeader(headers.subject ?? "");
-  const body = extractReadableBody(bodyText, headers["content-type"] ?? "", headers["content-transfer-encoding"] ?? "");
   const messageId = cleanMessageId(headers["message-id"] ?? "");
   const references = cleanReferences(headers.references ?? headers["in-reply-to"] ?? "");
-  return { fromEmail, fromName, subject, body, messageId, references };
+
+  const topContentType = headers["content-type"] ?? "text/plain; charset=utf-8";
+  const topEncoding = headers["content-transfer-encoding"] ?? "";
+
+  const parts = collectMimeParts(bodyText, topContentType, topEncoding);
+
+  // Decodifica parts text/plain e text/html
+  const plainParts = parts.filter(p => /^text\/plain/i.test(p.contentType));
+  const htmlParts = parts.filter(p => /^text\/html/i.test(p.contentType));
+  const inlineImages = parts.filter(p =>
+    /^image\//i.test(p.contentType) && (p.disposition === "inline" || p.contentId)
+  );
+
+  let bodyPlain = plainParts.length > 0
+    ? decodePartToText(plainParts[0])
+    : (htmlParts.length > 0 ? cleanHtmlToText(decodePartToText(htmlParts[0])) : "");
+
+  let bodyHtml: string | null = null;
+  if (htmlParts.length > 0) {
+    const rawHtml = decodePartToText(htmlParts[0]);
+    bodyHtml = inlineCidImages(rawHtml, inlineImages);
+  }
+
+  // Safety net: se o body decodificado parece HTML mas não pegamos como text/html
+  // (ex: email com Content-Type errado), promove pra bodyHtml.
+  if (!bodyHtml && bodyPlain && /<html|<body|<table|<div|<p[\s>]|<br/i.test(bodyPlain)) {
+    bodyHtml = inlineCidImages(bodyPlain, inlineImages);
+    bodyPlain = cleanHtmlToText(bodyPlain);
+  }
+
+  // Ultima defesa: se body_html STILL parece base64 (parser nao pegou), decodifica aqui.
+  if (bodyHtml) bodyHtml = ensureDecoded(bodyHtml);
+  bodyPlain = ensureDecoded(bodyPlain);
+
+  return {
+    fromEmail,
+    fromName,
+    subject,
+    body: cleanBody(bodyPlain),
+    bodyHtml,
+    messageId,
+    references,
+  };
+}
+
+// Última defesa contra base64 residual em qualquer texto. Decodifica se >90% dos chars
+// forem base64 e o resultado parecer texto legível.
+function ensureDecoded(text: string): string {
+  if (!text || text.length < 80 || text.includes("<")) return text;
+  const onlyBase64 = text.replace(/[^A-Za-z0-9+/=]/g, "");
+  const ratio = onlyBase64.length / Math.max(1, text.replace(/\s/g, "").length);
+  if (ratio < 0.9) return text;
+  let cleaned = onlyBase64;
+  while (cleaned.length % 4 !== 0) cleaned += "=";
+  try {
+    const binary = atob(cleaned);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (/[<>a-zA-Z]/.test(decoded) && decoded.length > 10) return decoded;
+  } catch { /* mantém original */ }
+  return text;
 }
 
 function parseHeaders(text: string) {
@@ -252,57 +498,207 @@ function parseHeaders(text: string) {
   return headers;
 }
 
-function extractReadableBody(body: string, contentType: string, encoding: string) {
-  const boundary = contentType.match(/boundary="?([^";]+)"?/i)?.[1];
-  if (boundary) {
-    const parts = body.split(`--${boundary}`);
-    const plain = parts.find((part) => /content-type:\s*text\/plain/i.test(part));
-    const html = parts.find((part) => /content-type:\s*text\/html/i.test(part));
-    return cleanBody(decodePart(plain || html || parts[0] || "", ""));
+// Coleta todas as parts MIME recursivamente, achatando multipart aninhado.
+function collectMimeParts(body: string, contentType: string, encoding: string): MimePart[] {
+  const boundary = contentType.match(/boundary="?([^";\s]+)"?/i)?.[1];
+
+  if (!boundary) {
+    return [{
+      contentType: contentType.replace(/;.*$/, "").trim().toLowerCase(),
+      charset: extractCharset(contentType),
+      encoding: encoding.toLowerCase(),
+      contentId: null,
+      disposition: "",
+      filename: null,
+      raw: body,
+    }];
   }
 
-  return cleanBody(decodePart(body, encoding));
-}
+  const rawParts = body.split(`--${boundary}`);
+  const result: MimePart[] = [];
+  // O primeiro elemento é o "preâmbulo" MIME (texto antes do primeiro --boundary,
+  // tipicamente "This is a multipart message in MIME format."). Sempre ignorar.
+  for (let idx = 1; idx < rawParts.length; idx++) {
+    const raw = rawParts[idx];
+    const p = raw.replace(/^\n/, "").replace(/\n$/, "");
+    if (!p || p.startsWith("--")) continue; // boundary final (--)
 
-function decodePart(part: string, fallbackEncoding: string) {
-  const splitAt = part.indexOf("\n\n");
-  const headerText = splitAt >= 0 ? part.slice(0, splitAt) : "";
-  const content = splitAt >= 0 ? part.slice(splitAt + 2) : part;
-  const headers = parseHeaders(headerText);
-  const encoding = (headers["content-transfer-encoding"] || fallbackEncoding).toLowerCase();
+    const splitAt = p.indexOf("\n\n");
+    const partHeaders = parseHeaders(splitAt >= 0 ? p.slice(0, splitAt) : "");
 
-  if (encoding.includes("base64")) return decodeBase64(content);
-  if (encoding.includes("quoted-printable")) return decodeQuotedPrintable(content);
-  return content;
-}
+    // Uma part MIME válida deve ter pelo menos um header reconhecido.
+    // Se não tem, é lixo (preâmbulo escapado, separador mal-formado, etc).
+    if (Object.keys(partHeaders).length === 0) continue;
 
-function decodeBase64(text: string) {
-  try {
-    const binary = atob(text.replace(/\s/g, ""));
-    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
-  } catch {
-    return text;
-  }
-}
+    const partContent = splitAt >= 0 ? p.slice(splitAt + 2) : p;
+    const partType = partHeaders["content-type"] ?? "text/plain";
 
-function decodeQuotedPrintable(text: string) {
-  const compact = text.replace(/=\n/g, "");
-  const bytes: number[] = [];
-  for (let i = 0; i < compact.length; i += 1) {
-    if (compact[i] === "=" && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
-      bytes.push(Number.parseInt(compact.slice(i + 1, i + 3), 16));
-      i += 2;
+    if (/^multipart\//i.test(partType)) {
+      result.push(...collectMimeParts(partContent, partType, partHeaders["content-transfer-encoding"] ?? ""));
     } else {
-      bytes.push(compact.charCodeAt(i));
+      result.push({
+        contentType: partType.replace(/;.*$/, "").trim().toLowerCase(),
+        charset: extractCharset(partType),
+        encoding: (partHeaders["content-transfer-encoding"] ?? "").toLowerCase(),
+        contentId: cleanContentId(partHeaders["content-id"] ?? ""),
+        disposition: (partHeaders["content-disposition"] ?? "").split(";")[0].trim().toLowerCase(),
+        filename: extractFilename(partHeaders["content-disposition"] ?? partHeaders["content-type"] ?? ""),
+        raw: partContent,
+      });
     }
   }
-  return new TextDecoder().decode(new Uint8Array(bytes));
+  return result;
 }
 
-function decodeHeader(value: string) {
-  return value.replace(/=\?([^?]+)\?([BQ])\?([^?]+)\?=/gi, (_match, _charset, encoding, encoded) => {
-    if (encoding.toUpperCase() === "B") return decodeBase64(encoded);
-    return decodeQuotedPrintable(encoded.replace(/_/g, " "));
+// Normaliza assunto: tira prefixos Re:/Fwd:/RES:/ENC: aninhados, trim, lowercase.
+function normalizeSubject(s: string | null | undefined): string {
+  return (s ?? "").replace(/^((re|fwd?|res|enc|fw|encaminhada):\s*)+/gi, "").trim().toLowerCase();
+}
+
+function extractCharset(contentType: string): string {
+  return (contentType.match(/charset="?([^";\s]+)"?/i)?.[1] ?? "utf-8").toLowerCase();
+}
+
+function extractFilename(headerValue: string): string | null {
+  return headerValue.match(/filename="?([^";]+)"?/i)?.[1]?.trim() ?? null;
+}
+
+function cleanContentId(value: string): string | null {
+  const match = value.match(/<?([^<>\s]+@?[^<>\s]*)>?/);
+  return match?.[1] ? match[1].trim() : null;
+}
+
+// Decodifica part text/* respeitando charset
+function decodePartToText(part: MimePart): string {
+  const bytes = decodeToBytes(part.raw, part.encoding);
+  return bytesToString(bytes, part.charset);
+}
+
+function decodePartToBytes(part: MimePart): Uint8Array {
+  return decodeToBytes(part.raw, part.encoding);
+}
+
+function decodeToBytes(content: string, encoding: string): Uint8Array {
+  const enc = encoding.toLowerCase();
+  if (enc.includes("base64")) {
+    try {
+      // Strip ALL non-base64 chars (whitespace + qualquer leftover IMAP como ")")
+      const cleaned = content.replace(/[^A-Za-z0-9+/=]/g, "");
+      const binary = atob(cleaned);
+      return Uint8Array.from(binary, c => c.charCodeAt(0));
+    } catch {
+      return new TextEncoder().encode(content);
+    }
+  }
+  if (enc.includes("quoted-printable")) {
+    const compact = content.replace(/=\r?\n/g, "");
+    const bytes: number[] = [];
+    for (let i = 0; i < compact.length; i += 1) {
+      if (compact[i] === "=" && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
+        bytes.push(Number.parseInt(compact.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        bytes.push(compact.charCodeAt(i));
+      }
+    }
+    return new Uint8Array(bytes);
+  }
+  // Detecção defensiva: se NÃO veio header de encoding mas o conteúdo é
+  // dominantemente base64 (ignorando whitespace e leftovers tipo ")" do IMAP).
+  // Cobre emails da Accenture STAR etc. que mandam HTML em base64 sem declarar.
+  const onlyBase64 = content.replace(/[^A-Za-z0-9+/=]/g, "");
+  const ratio = onlyBase64.length / Math.max(1, content.replace(/\s/g, "").length);
+  // Se >90% do conteúdo (sem whitespace) é base64-char, provavelmente é base64.
+  if (onlyBase64.length >= 80 && ratio > 0.9 && onlyBase64.length % 4 === 0) {
+    try {
+      const binary = atob(onlyBase64);
+      const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+      // Confirma que decodificou pra texto legível (não bytes binários aleatórios)
+      const sample = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 200));
+      if (/[<>a-zA-Z]/.test(sample)) {
+        return bytes;
+      }
+    } catch { /* não é base64, segue */ }
+  }
+  return new TextEncoder().encode(content);
+}
+
+function bytesToString(bytes: Uint8Array, charset: string): string {
+  const cs = normalizeCharset(charset);
+  try {
+    return new TextDecoder(cs, { fatal: false }).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  }
+}
+
+function normalizeCharset(charset: string): string {
+  const cs = charset.toLowerCase().trim();
+  if (cs === "us-ascii" || cs === "ascii") return "windows-1252"; // mais permissivo
+  if (cs === "iso-8859-1" || cs === "latin1") return "windows-1252";
+  return cs;
+}
+
+// Substitui src="cid:xxx" no HTML pelas data URLs das imagens inline correspondentes
+function inlineCidImages(html: string, inlineImages: MimePart[]): string {
+  if (inlineImages.length === 0) return html;
+
+  let result = html;
+  for (const img of inlineImages) {
+    if (!img.contentId) continue;
+    const bytes = decodePartToBytes(img);
+    if (bytes.length > MAX_INLINE_IMAGE_BYTES) continue;
+    const dataUrl = `data:${img.contentType};base64,${bytesToBase64(bytes)}`;
+    // Replace todas as ocorrências de cid:CONTENTID (com ou sem aspas)
+    const escapedCid = img.contentId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`cid:${escapedCid}`, "gi");
+    result = result.replace(re, dataUrl);
+  }
+
+  // Remove qualquer `[cid:xxx]` ou `cid:xxx` órfão restante (referências sem anexo correspondente)
+  result = result.replace(/\[cid:[^\]]+\]/gi, "");
+  result = result.replace(/src=["']?cid:[^"'\s>]+["']?/gi, "src=\"\"");
+
+  return result;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Decodifica header MIME encoded-word: =?charset?B/Q?...?=
+function decodeHeader(value: string): string {
+  if (!value) return "";
+  // Junta encoded-words adjacentes (whitespace entre eles deve ser ignorado)
+  const collapsed = value.replace(/\?=\s+=\?/g, "?==?");
+  return collapsed.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_match, charset, encoding, encoded) => {
+    const cs = normalizeCharset(charset);
+    if (encoding.toUpperCase() === "B") {
+      try {
+        const binary = atob(encoded.replace(/\s/g, ""));
+        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+        return new TextDecoder(cs, { fatal: false }).decode(bytes);
+      } catch {
+        return encoded;
+      }
+    }
+    // Q-encoding: =XX (hex), _ vira espaço
+    const text = encoded.replace(/_/g, " ");
+    const bytes: number[] = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "=" && /^[0-9A-F]{2}$/i.test(text.slice(i + 1, i + 3))) {
+        bytes.push(Number.parseInt(text.slice(i + 1, i + 3), 16));
+        i += 2;
+      } else {
+        bytes.push(text.charCodeAt(i));
+      }
+    }
+    return new TextDecoder(cs, { fatal: false }).decode(new Uint8Array(bytes));
   });
 }
 
@@ -321,26 +717,28 @@ function cleanReferences(value: string) {
 }
 
 function emailPreview(email: ParsedEmail) {
-  const body = email.body.replace(/\s+/g, " ").trim();
+  const body = (email.body || "").replace(/\s+/g, " ").trim();
   return email.subject ? `${email.subject} - ${body}`.slice(0, 500) : body.slice(0, 500);
 }
 
-function cleanBody(value: string) {
-  const withoutMarkup = value
+function cleanHtmlToText(html: string): string {
+  return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16)));
+    .replace(/&quot;/g, "\"")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(Number.parseInt(code, 16)));
+}
 
-  return normalizeEmailBody(withoutMarkup)
-    .slice(0, 12000);
+function cleanBody(value: string) {
+  return normalizeEmailBody(value).slice(0, 20000);
 }
 
 function normalizeEmailBody(value: string) {
@@ -348,7 +746,7 @@ function normalizeEmailBody(value: string) {
     .replace(/\r\n/g, "\n")
     .replace(/\t/g, " ")
     .split("\n")
-    .map((line) => line.replace(/\s+$/g, ""));
+    .map(line => line.replace(/\s+$/g, ""));
 
   const cleaned: string[] = [];
   for (const line of lines) {
@@ -363,8 +761,8 @@ function normalizeEmailBody(value: string) {
 
   return cleaned
     .join("\n")
-    .replace(/[ \u00a0]{2,}/g, " ")
-    .replace(/\n[ \u00a0]+/g, "\n")
+    .replace(/[  ]{2,}/g, " ")
+    .replace(/\n[  ]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
