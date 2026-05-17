@@ -107,7 +107,7 @@ export async function downloadMediaToStorage(item: MediaItem, contactId: string,
   } catch (err) { console.warn("[media] downloadMediaToStorage error:", err); return null; }
 }
 
-export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" | "facebook", msg: ParsedMessage, accessToken?: string): Promise<string | null> {
+export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" | "facebook", msg: ParsedMessage, accessToken?: string, providerId?: string): Promise<string | null> {
   const admin = getAdminClient();
   const idField = "phone";
   const { data: existing } = await admin.from("marketing_contacts").select("id, unread_count").eq("channel", channel).eq(idField, msg.identifier).maybeSingle();
@@ -126,7 +126,7 @@ export async function upsertContactAndMessage(channel: "whatsapp" | "instagram" 
       channel, [idField]: msg.identifier, name: msg.name || msg.identifier,
       last_message: msg.text.slice(0, 500) || (msg.mediaItems?.length ? `[${msg.mediaItems.length} anexo(s)]` : ""),
       last_message_at: new Date(msg.timestamp * 1000).toISOString(),
-      unread_count: 1, status: "new", sentiment: "neutral", updated_at: new Date().toISOString(),
+      unread_count: 1, status: "new", sentiment: "neutral", provider_id: providerId ?? null, updated_at: new Date().toISOString(),
     }).select("id").single();
     if (error) { console.warn(`[meta-webhook] insert contact failed: ${error.message}`); return null; }
     contactId = (inserted as { id: string }).id;

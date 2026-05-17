@@ -204,6 +204,7 @@ export async function upsertContactAndMessage(
   channel: "whatsapp" | "instagram" | "facebook",
   msg: ParsedMessage,
   accessToken?: string,
+  providerId?: string,
 ): Promise<string | null> {
   const admin = getAdminClient();
   const idField = "phone";
@@ -236,6 +237,7 @@ export async function upsertContactAndMessage(
       unread_count: 1,
       status: "new",
       sentiment: "neutral",
+      provider_id: providerId ?? null,
       updated_at: new Date().toISOString(),
     }).select("id").single();
     if (error) {

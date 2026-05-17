@@ -1,7 +1,7 @@
 import React, { ReactElement, useState, useEffect, useRef, useMemo } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
-import { supabase } from '../supabase';
+import { supabase, SUPABASE_URL } from '../supabase';
 import { UserProfile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -4104,6 +4104,285 @@ interface SmtpConfig {
 }
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
 
+// ─── Generic Provider (BYO WhatsApp / IG / FB via webhook terceirizado) ──
+type GenericProvider = {
+  id: string;
+  name: string;
+  channel: 'whatsapp' | 'instagram' | 'facebook';
+  enabled: boolean;
+  secret_token?: string;
+  inbound: {
+    sender_id_path?: string;
+    name_path?: string;
+    text_path?: string;
+    message_id_path?: string;
+    timestamp_path?: string;
+    media_url_path?: string;
+    media_mime_path?: string;
+  };
+  outbound: { url: string; method?: string; headers?: Record<string, string>; body_template: string };
+};
+
+const PROVIDER_PRESETS: Record<string, Partial<GenericProvider>> = {
+  zapi: {
+    name: 'Z-API', channel: 'whatsapp',
+    inbound: { sender_id_path: 'phone', name_path: 'senderName', text_path: 'text.message', message_id_path: 'messageId', timestamp_path: 'momment', media_url_path: 'image.imageUrl', media_mime_path: 'image.mimeType' },
+    outbound: { url: 'https://api.z-api.io/instances/INSTANCE/token/TOKEN/send-text', method: 'POST', headers: { 'Content-Type': 'application/json', 'Client-Token': 'YOUR_CLIENT_TOKEN' }, body_template: '{"phone":"{{recipient}}","message":"{{text}}"}' },
+  },
+  evolution: {
+    name: 'Evolution API', channel: 'whatsapp',
+    inbound: { sender_id_path: 'data.key.remoteJid', name_path: 'data.pushName', text_path: 'data.message.conversation', message_id_path: 'data.key.id', timestamp_path: 'data.messageTimestamp' },
+    outbound: { url: 'https://your-evolution-host/message/sendText/INSTANCE', method: 'POST', headers: { 'Content-Type': 'application/json', apikey: 'YOUR_API_KEY' }, body_template: '{"number":"{{recipient}}","text":"{{text}}"}' },
+  },
+  twilio: {
+    name: 'Twilio WhatsApp', channel: 'whatsapp',
+    inbound: { sender_id_path: 'From', text_path: 'Body', message_id_path: 'MessageSid' },
+    outbound: { url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxxx/Messages.json', method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic BASE64(SID:TOKEN)' }, body_template: 'To=whatsapp:{{recipient}}&From=whatsapp:%2B14155238886&Body={{text}}' },
+  },
+  wati: {
+    name: 'Wati', channel: 'whatsapp',
+    inbound: { sender_id_path: 'waId', name_path: 'senderName', text_path: 'text', message_id_path: 'id', timestamp_path: 'timestamp' },
+    outbound: { url: 'https://live-server-XXX.wati.io/api/v1/sendSessionMessage/{{recipient}}', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer YOUR_WATI_TOKEN' }, body_template: '{"messageText":"{{text}}"}' },
+  },
+};
+
+function GenericProvidersSection() {
+  const [providers, setProviders] = useState<GenericProvider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<GenericProvider | null>(null);
+  const [testPayload, setTestPayload] = useState('');
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('id', 'generic_providers').maybeSingle();
+      try {
+        const raw = data?.value ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value) : { providers: [] };
+        setProviders(raw.providers ?? []);
+      } catch { setProviders([]); }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function persist(list: GenericProvider[]) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'generic_providers', value: JSON.stringify({ providers: list }), updated_at: new Date().toISOString() });
+    if (error) { toast.error('Falha ao salvar: ' + error.message); return false; }
+    setProviders(list);
+    return true;
+  }
+
+  function newProvider(): GenericProvider {
+    const slug = `provider-${Math.random().toString(36).slice(2, 8)}`;
+    return { id: slug, name: 'Novo provider', channel: 'whatsapp', enabled: false, inbound: {}, outbound: { url: '', method: 'POST', headers: { 'Content-Type': 'application/json' }, body_template: '' } };
+  }
+
+  async function saveEditing() {
+    if (!editing) return;
+    if (!editing.id || !editing.name) { toast.error('ID e nome são obrigatórios'); return; }
+    const idx = providers.findIndex(p => p.id === editing.id);
+    const next = idx >= 0 ? providers.map((p, i) => i === idx ? editing : p) : [...providers, editing];
+    if (await persist(next)) { toast.success('Provider salvo'); setEditing(null); setTestResult(null); }
+  }
+
+  async function deleteProvider(id: string) {
+    if (!confirm('Remover este provider?')) return;
+    if (await persist(providers.filter(p => p.id !== id))) toast.success('Provider removido');
+  }
+
+  function applyPreset(key: string) {
+    if (!editing) return;
+    const preset = PROVIDER_PRESETS[key];
+    if (!preset) return;
+    setEditing({ ...editing, ...preset, id: editing.id, enabled: editing.enabled });
+    toast.success(`Preset "${preset.name}" carregado`);
+  }
+
+  function runTest() {
+    if (!editing) return;
+    try {
+      const payload = JSON.parse(testPayload);
+      const getPath = (obj: unknown, path?: string): unknown => {
+        if (!path) return undefined;
+        return path.split(/\.|\[|\]/).filter(Boolean).reduce((o: unknown, k: string) => (o == null ? undefined : (o as Record<string, unknown>)[k]), obj);
+      };
+      const m = editing.inbound;
+      const out = {
+        sender_id: getPath(payload, m.sender_id_path),
+        name: getPath(payload, m.name_path),
+        text: getPath(payload, m.text_path),
+        message_id: getPath(payload, m.message_id_path),
+        timestamp: getPath(payload, m.timestamp_path),
+        media_url: m.media_url_path ? getPath(payload, m.media_url_path) : undefined,
+        media_mime: m.media_mime_path ? getPath(payload, m.media_mime_path) : undefined,
+      };
+      setTestResult(JSON.stringify(out, null, 2));
+    } catch (e) {
+      setTestResult('JSON inválido: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  function webhookUrl(id: string) {
+    const base = SUPABASE_URL || '<SUPABASE_URL>';
+    return `${base}/functions/v1/webhook-generic?provider=${id}`;
+  }
+
+  if (loading) return null;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Providers WhatsApp genéricos (BYO webhook)</h3>
+          <p className="text-xs text-neutral-500 mt-0.5">Conecte qualquer provider terceiro (Z-API, Evolution, Twilio, Wati, etc.) via mapeamento de campos.</p>
+        </div>
+        <button onClick={() => { setEditing(newProvider()); setTestResult(null); setTestPayload(''); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800">
+          <Plus className="w-4 h-4" /> Adicionar provider
+        </button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-500">
+          Nenhum provider cadastrado. Clique em "Adicionar provider" e use um dos presets pra começar.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {providers.map(p => (
+            <article key={p.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between mb-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm text-neutral-900 truncate">{p.name}</p>
+                  <p className="text-[10px] text-neutral-400 font-mono">{p.id}</p>
+                </div>
+                <span className={`text-[9px] font-bold uppercase px-2 py-1 rounded-full shrink-0 ${p.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  {p.enabled ? 'Ativo' : 'Inativo'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{p.channel}</span>
+                <span className="text-[10px] text-neutral-400 truncate flex-1">{p.outbound.url || 'sem outbound'}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setEditing(p); setTestResult(null); setTestPayload(''); }} className="flex-1 py-2 rounded-lg bg-neutral-100 text-neutral-700 text-xs font-bold hover:bg-neutral-200">Editar</button>
+                <button onClick={() => deleteProvider(p.id)} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div onClick={() => { setEditing(null); setTestResult(null); }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl p-6 sm:p-8 shadow-2xl space-y-5">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-neutral-950">Configurar provider</h3>
+              <button onClick={() => { setEditing(null); setTestResult(null); }} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Preset</label>
+              <select onChange={e => { if (e.target.value) applyPreset(e.target.value); e.target.value = ''; }} defaultValue="" className="w-full px-4 py-3 bg-amber-50 rounded-xl text-sm border-0 outline-none">
+                <option value="">— Carregar template de... —</option>
+                {Object.entries(PROVIDER_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome</label>
+                <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">ID (slug)</label>
+                <input value={editing.id} onChange={e => setEditing({ ...editing, id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Canal</label>
+                <select value={editing.channel} onChange={e => setEditing({ ...editing, channel: e.target.value as GenericProvider['channel'] })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none">
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button onClick={() => setEditing({ ...editing, enabled: !editing.enabled })} className={`w-full py-3 rounded-xl text-sm font-bold ${editing.enabled ? 'bg-emerald-500 text-white' : 'bg-neutral-200 text-neutral-600'}`}>
+                  {editing.enabled ? '✓ Ativo' : 'Inativo'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">URL do webhook (cole no painel do provider)</label>
+              <div className="flex gap-2">
+                <input readOnly value={webhookUrl(editing.id)} className="flex-1 px-4 py-3 bg-neutral-100 rounded-xl text-xs border-0 outline-none font-mono" />
+                <button onClick={() => { navigator.clipboard.writeText(webhookUrl(editing.id)); toast.success('URL copiada'); }} className="px-4 py-3 rounded-xl bg-neutral-900 text-white text-xs font-bold"><Copy className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-3">Mapeamento Inbound (dot-paths)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  ['sender_id_path', 'sender_id (obrigatório)', 'phone'],
+                  ['name_path', 'name', 'senderName'],
+                  ['text_path', 'text', 'text.message'],
+                  ['message_id_path', 'message_id', 'messageId'],
+                  ['timestamp_path', 'timestamp', 'momment'],
+                  ['media_url_path', 'media_url (opc)', 'image.imageUrl'],
+                  ['media_mime_path', 'media_mime (opc)', 'image.mimeType'],
+                ] as const).map(([key, label, ph]) => (
+                  <div key={key}>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{label}</label>
+                    <input value={editing.inbound[key] ?? ''} onChange={e => setEditing({ ...editing, inbound: { ...editing.inbound, [key]: e.target.value } })} placeholder={ph} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-3">Outbound (envio de mensagens)</p>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr,100px] gap-3">
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">URL</label>
+                    <input value={editing.outbound.url} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, url: e.target.value } })} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Método</label>
+                    <select value={editing.outbound.method ?? 'POST'} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, method: e.target.value } })} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none">
+                      <option>POST</option><option>PUT</option><option>GET</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Headers (JSON)</label>
+                  <textarea value={JSON.stringify(editing.outbound.headers ?? {}, null, 2)} onChange={e => { try { setEditing({ ...editing, outbound: { ...editing.outbound, headers: JSON.parse(e.target.value) } }); } catch { /* invalid yet */ } }} rows={3} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Body template (placeholders: <code>{'{{recipient}}'}</code>, <code>{'{{text}}'}</code>, <code>{'{{contact_id}}'}</code>)</label>
+                  <textarea value={editing.outbound.body_template} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, body_template: e.target.value } })} rows={4} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-2">Testar extração</p>
+              <textarea value={testPayload} onChange={e => setTestPayload(e.target.value)} rows={5} placeholder="Cole aqui um JSON de exemplo do payload do provider..." className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono mb-2" />
+              <button onClick={runTest} className="px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600">Extrair campos</button>
+              {testResult && <pre className="mt-3 p-3 rounded-lg bg-neutral-900 text-neutral-100 text-[10px] overflow-x-auto whitespace-pre-wrap">{testResult}</pre>}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setEditing(null); setTestResult(null); }} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-700 hover:bg-neutral-200">Cancelar</button>
+              <button onClick={saveEditing} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800">Salvar provider</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function IntegracoesTab() {
   // ─── Estado dos webhooks Meta ────────────────────────────────────────────
   type MetaCfg = { verify_token: string; access_token: string; app_secret: string; phone_number_id?: string; business_account_id?: string; page_id?: string };
@@ -4337,6 +4616,8 @@ function IntegracoesTab() {
           })}
         </div>
       </section>
+
+      <GenericProvidersSection />
 
       {/* Webhooks PMS */}
       <section className="space-y-4">

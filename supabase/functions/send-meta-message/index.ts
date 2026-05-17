@@ -186,6 +186,23 @@ serve(async (req) => {
   if (!channel || !["whatsapp", "instagram", "facebook"].includes(channel)) return json({ error: "Invalid channel" }, 400);
   if (!recipient) return json({ error: "Recipient is required" }, 400);
 
+  // Roteamento: se o contato veio de um provider terceiro, delega pro send-generic-message.
+  if (contact_id) {
+    const { data: c } = await adminClient.from("marketing_contacts").select("provider_id").eq("id", contact_id).maybeSingle();
+    if (c?.provider_id) {
+      if (template) return json({ error: "Templates not supported on generic providers" }, 400);
+      if (attachments && attachments.length > 0) return json({ error: "Attachments not yet supported on generic providers" }, 400);
+      if (!text || !text.trim()) return json({ error: "Text required" }, 400);
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/send-generic-message`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ provider_id: c.provider_id, recipient, text, contact_id }),
+      });
+      const detail = await r.text();
+      return new Response(detail, { status: r.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
+
   const cfg = await loadConfig(channel);
   if (!cfg?.access_token) return json({ error: `${channel} access_token not configured` }, 400);
 
