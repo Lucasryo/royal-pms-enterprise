@@ -30,9 +30,7 @@ serve(async (req) => {
 
   try {
     const messages = parseInstagramOrFacebook(payload);
-    for (const m of messages) {
-      await upsertContactAndMessage("instagram", m);
-    }
+    for (const m of messages) await upsertContactAndMessage("instagram", m, config?.access_token);
     return json({ processed: messages.length });
   } catch (err) {
     console.warn("[webhook-instagram] processing error:", err);
