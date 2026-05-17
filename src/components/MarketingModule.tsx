@@ -97,14 +97,7 @@ interface BotConfig {
   policies: string;
   rooms: string;
   faq: string;
-  pricingTable: string;
   botMood: string;
-  upsellActive: boolean;
-  npsActive: boolean;
-  widgetBotName: string;
-  widgetWelcomeMessage: string;
-  googleReviewLink: string;
-  npsSendAfterHours: number;
   // Automation engine
   enabled: boolean;
   provider: 'claude' | 'openai' | 'gemini' | 'rule';
@@ -488,8 +481,6 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
   const [composeSending, setComposeSending] = useState(false);
   const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({});
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
-  const [loadingAI, setLoadingAI] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Anexos pendentes para envio na próxima mensagem
@@ -946,20 +937,6 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
     return () => { supabase.removeChannel(channel); };
   }, [selectedId]);
 
-  useEffect(() => {
-    if (!selected) return;
-    setLoadingAI(true);
-    const timer = setTimeout(() => {
-      const name = selected.guestName.split(' ')[0];
-      setAiSuggestions([
-        `Olá ${name}! Posso ajudar com mais detalhes sobre disponibilidade e tarifas.`,
-        `${name}, temos pacotes especiais disponíveis. Gostaria de receber uma proposta?`,
-        `Perfeito! Vou verificar nossa disponibilidade agora mesmo para você.`,
-      ]);
-      setLoadingAI(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [selectedId]);
 
   const isEmailChannel = activeChannel === 'email';
 
@@ -1993,26 +1970,6 @@ function LeadInboxTab({ profile }: { profile: UserProfile }) {
             </div>
           )}
 
-          {/* AI suggestions */}
-          {(loadingAI || aiSuggestions.length > 0) && (
-            <div className="px-4 py-2.5 border-t border-neutral-200 bg-amber-50/40">
-              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> Sugestões IA</p>
-              {loadingAI ? (
-                <div className="flex gap-2">
-                  {[1,2,3].map(i => <div key={i} className="h-8 w-44 bg-amber-100 rounded-lg animate-pulse" />)}
-                </div>
-              ) : (
-                <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                  {aiSuggestions.map((s, i) => (
-                    <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-sm text-neutral-700 hover:border-amber-500 transition-colors max-w-[240px] text-left truncate">
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Pending attachments preview */}
           {pendingAttachments.length > 0 && (
             <div className="px-4 pt-3 pb-1 border-t border-neutral-200 bg-white">
@@ -3026,14 +2983,7 @@ function BotTrainingTab() {
     policies: '',
     rooms: '',
     faq: '',
-    pricingTable: '',
     botMood: 'professional',
-    upsellActive: true,
-    npsActive: true,
-    widgetBotName: 'Assistente Virtual',
-    widgetWelcomeMessage: 'Olá! Como posso ajudar com sua reserva hoje?',
-    googleReviewLink: '',
-    npsSendAfterHours: 24,
     enabled: false,
     provider: 'claude',
     model: 'claude-haiku-4-5',
@@ -3300,46 +3250,14 @@ function BotTrainingTab() {
         )}
 
         {activeSection === 'personality' && (
-          <>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
-              <select value={config.botMood} onChange={e => setConfig(prev => ({ ...prev, botMood: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
-                {['professional', 'friendly', 'formal', 'casual'].map(m => (
-                  <option key={m} value={m}>{m === 'professional' ? 'Profissional' : m === 'friendly' ? 'Amigável' : m === 'formal' ? 'Formal' : 'Casual'}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do Assistente Virtual</label>
-              <input value={config.widgetBotName} onChange={e => setConfig(prev => ({ ...prev, widgetBotName: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem de Boas-vindas</label>
-              <textarea value={config.widgetWelcomeMessage} onChange={e => setConfig(prev => ({ ...prev, widgetWelcomeMessage: e.target.value }))} rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Link Google Reviews (para NPS)</label>
-              <input value={config.googleReviewLink} onChange={e => setConfig(prev => ({ ...prev, googleReviewLink: e.target.value }))} placeholder="https://g.page/r/..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
-              <div>
-                <p className="font-bold text-sm text-neutral-900">Upsell automático</p>
-                <p className="text-xs text-neutral-500">Oferecer upgrades durante conversas</p>
-              </div>
-              <button onClick={() => setConfig(prev => ({ ...prev, upsellActive: !prev.upsellActive }))} className={`w-10 h-6 rounded-full transition-all ${config.upsellActive ? 'bg-amber-500' : 'bg-neutral-300'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.upsellActive ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
-              <div>
-                <p className="font-bold text-sm text-neutral-900">Pesquisa NPS automática</p>
-                <p className="text-xs text-neutral-500">Enviar NPS após o checkout</p>
-              </div>
-              <button onClick={() => setConfig(prev => ({ ...prev, npsActive: !prev.npsActive }))} className={`w-10 h-6 rounded-full transition-all ${config.npsActive ? 'bg-amber-500' : 'bg-neutral-300'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.npsActive ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-            </div>
-          </>
+          <div>
+            <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
+            <select value={config.botMood} onChange={e => setConfig(prev => ({ ...prev, botMood: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+              {['professional', 'friendly', 'formal', 'casual'].map(m => (
+                <option key={m} value={m}>{m === 'professional' ? 'Profissional' : m === 'friendly' ? 'Amigável' : m === 'formal' ? 'Formal' : 'Casual'}</option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
     </div>
@@ -4078,7 +3996,6 @@ interface SocialIntegration {
 }
 
 const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Envio e recebimento de mensagens via API oficial Meta Cloud.', icon: <MessageSquare className="w-6 h-6" />, color: 'bg-emerald-500', colorHex: '#10b981', docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api', field: 'whatsappPhoneId' },
   { id: 'instagram', name: 'Instagram Professional', description: 'Responder DMs e comentários automaticamente com IA.', icon: <Instagram className="w-6 h-6" />, color: 'bg-pink-500', colorHex: '#ec4899', docsUrl: 'https://developers.facebook.com/docs/instagram-basic-display-api', field: 'instagramAccount' },
   { id: 'facebook', name: 'Facebook Pages', description: 'Gerenciar mensagens do Messenger e comentários em posts.', icon: <Facebook className="w-6 h-6" />, color: 'bg-blue-600', colorHex: '#2563eb', docsUrl: 'https://developers.facebook.com/docs/facebook-login/', field: 'facebookPage' },
   { id: 'email', name: 'E-mail SMTP', description: 'Enviar confirmações de reserva e notificações por e-mail.', icon: <Mail className="w-6 h-6" />, color: 'bg-amber-500', colorHex: '#f59e0b', docsUrl: '#', field: 'smtpHost' },
@@ -4383,83 +4300,6 @@ function GenericProvidersSection() {
 }
 
 function IntegracoesTab() {
-  // ─── Estado dos webhooks Meta ────────────────────────────────────────────
-  type MetaCfg = { verify_token: string; access_token: string; app_secret: string; phone_number_id?: string; business_account_id?: string; page_id?: string };
-  const metaChannels: Array<{ id: 'whatsapp' | 'instagram' | 'facebook'; name: string; color: string; icon: ReactElement; extraFields: Array<{ key: keyof MetaCfg; label: string; placeholder: string }> }> = [
-    { id: 'whatsapp', name: 'WhatsApp Business', color: 'bg-emerald-500', icon: <MessageSquare className="w-4 h-4" />, extraFields: [
-      { key: 'phone_number_id', label: 'Phone Number ID', placeholder: '106988195493619' },
-      { key: 'business_account_id', label: 'Business Account ID', placeholder: '102290129340398' },
-    ]},
-    { id: 'instagram', name: 'Instagram Messaging', color: 'bg-pink-500', icon: <Instagram className="w-4 h-4" />, extraFields: [
-      { key: 'page_id', label: 'Instagram Business ID', placeholder: '17841400008460056' },
-    ]},
-    { id: 'facebook', name: 'Facebook Messenger', color: 'bg-blue-600', icon: <Facebook className="w-4 h-4" />, extraFields: [
-      { key: 'page_id', label: 'Facebook Page ID', placeholder: '102290129340398' },
-    ]},
-  ];
-  const [metaCfgs, setMetaCfgs] = useState<Record<string, MetaCfg>>({});
-  const [metaSaving, setMetaSaving] = useState<string | null>(null);
-  const [metaTesting, setMetaTesting] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      const ids = metaChannels.map(c => `${c.id}_config`);
-      const { data } = await supabase.from('app_settings').select('id, value').in('id', ids);
-      if (!alive || !data) return;
-      const next: Record<string, MetaCfg> = {};
-      for (const row of data as Array<{ id: string; value: string }>) {
-        const ch = row.id.replace('_config', '');
-        try { next[ch] = JSON.parse(row.value); } catch { next[ch] = { verify_token: '', access_token: '', app_secret: '' }; }
-      }
-      setMetaCfgs(next);
-    }
-    load();
-    return () => { alive = false; };
-  }, []);
-
-  function metaWebhookUrl(channel: string) {
-    const base = import.meta.env.VITE_SUPABASE_URL as string;
-    return `${base}/functions/v1/webhook-${channel}`;
-  }
-  function generateVerifyToken() {
-    return 'pms-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
-  }
-  async function saveMetaConfig(channel: 'whatsapp' | 'instagram' | 'facebook') {
-    const cfg = metaCfgs[channel];
-    if (!cfg) return;
-    setMetaSaving(channel);
-    try {
-      const { error } = await supabase.from('app_settings').upsert({ id: `${channel}_config`, value: JSON.stringify(cfg) });
-      if (error) throw error;
-      toast.success(`${channel === 'whatsapp' ? 'WhatsApp' : channel === 'instagram' ? 'Instagram' : 'Facebook'} salvo.`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao salvar.');
-    } finally {
-      setMetaSaving(null);
-    }
-  }
-  async function testMetaWebhook(channel: 'whatsapp' | 'instagram' | 'facebook') {
-    const cfg = metaCfgs[channel];
-    if (!cfg?.verify_token) { toast.error('Preencha e salve o Verify Token primeiro.'); return; }
-    setMetaTesting(channel);
-    try {
-      const url = `${metaWebhookUrl(channel)}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(cfg.verify_token)}&hub.challenge=ping-${Date.now()}`;
-      const r = await fetch(url);
-      const text = await r.text();
-      if (r.ok && text.startsWith('ping-')) toast.success('Webhook respondeu OK. Cadastre no Meta Developer.');
-      else toast.error(`Falhou: ${r.status} ${text.slice(0, 80)}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Erro na requisição.');
-    } finally {
-      setMetaTesting(null);
-    }
-  }
-  function isMetaConfigured(channel: string) {
-    const c = metaCfgs[channel];
-    return !!(c?.verify_token && c?.access_token && c?.app_secret);
-  }
-
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
     Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
   );
@@ -4656,124 +4496,6 @@ function IntegracoesTab() {
             );
           })}
         </div>
-      </section>
-
-      {/* Webhooks Meta (WhatsApp / Instagram / Facebook) */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Webhooks Meta — Recebimento de mensagens</h3>
-        <p className="text-xs text-neutral-500">
-          Pra cada canal: <strong>(1)</strong> gera/define um <em>Verify Token</em>, <strong>(2)</strong> salva,
-          <strong> (3)</strong> cadastra a Webhook URL + Verify Token no <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-amber-600 font-bold hover:underline">Meta Developer Portal</a>,
-          <strong> (4)</strong> preenche Access Token + App Secret + IDs e salva de novo. Use <strong>Testar conexão</strong> pra validar.
-        </p>
-        {metaChannels.map(ch => {
-          const cfg = metaCfgs[ch.id] ?? { verify_token: '', access_token: '', app_secret: '' };
-          const connected = isMetaConfigured(ch.id);
-          const url = metaWebhookUrl(ch.id);
-          return (
-            <div key={ch.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl ${ch.color} flex items-center justify-center text-white`}>{ch.icon}</div>
-                  <div>
-                    <p className="font-semibold text-sm text-neutral-900">{ch.name}</p>
-                    <p className="text-xs text-neutral-500">Recebe mensagens via webhook Meta</p>
-                  </div>
-                </div>
-                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-neutral-400'}`}></span>
-                  {connected ? 'Configurado' : 'Aguardando configuração'}
-                </span>
-              </div>
-
-              {/* Webhook URL (read-only) */}
-              <div>
-                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Webhook URL <span className="text-neutral-400 font-normal">(cadastre na Meta)</span></label>
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-neutral-50 rounded-xl border border-neutral-200">
-                  <p className="text-xs font-mono text-neutral-700 flex-1 truncate">{url}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(url); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100" title="Copiar">
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Verify Token + gerar */}
-              <div>
-                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Verify Token <span className="text-neutral-400 font-normal">(use o mesmo na Meta)</span></label>
-                <div className="flex gap-2">
-                  <input
-                    value={cfg.verify_token}
-                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: e.target.value } }))}
-                    placeholder="meu-token-secreto"
-                    className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                  />
-                  <button
-                    onClick={() => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, verify_token: generateVerifyToken() } }))}
-                    className="px-3 py-2 bg-neutral-900 text-white rounded-lg text-xs font-semibold hover:bg-neutral-800"
-                    title="Gera token aleatório"
-                  >
-                    Gerar
-                  </button>
-                </div>
-              </div>
-
-              {/* Access Token */}
-              <div>
-                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">Access Token <span className="text-neutral-400 font-normal">(do Meta Graph API)</span></label>
-                <input
-                  type="password"
-                  value={cfg.access_token}
-                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, access_token: e.target.value } }))}
-                  placeholder="EAAGm0PX..."
-                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                />
-              </div>
-
-              {/* App Secret */}
-              <div>
-                <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">App Secret <span className="text-neutral-400 font-normal">(valida assinatura HMAC)</span></label>
-                <input
-                  type="password"
-                  value={cfg.app_secret}
-                  onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, app_secret: e.target.value } }))}
-                  placeholder="ab1c2d..."
-                  className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                />
-              </div>
-
-              {/* Campos extras por canal (Phone ID, Page ID, etc.) */}
-              {ch.extraFields.map(field => (
-                <div key={field.key as string}>
-                  <label className="text-xs font-semibold text-neutral-700 mb-1.5 block">{field.label}</label>
-                  <input
-                    value={(cfg as Record<string, string | undefined>)[field.key as string] ?? ''}
-                    onChange={(e) => setMetaCfgs(prev => ({ ...prev, [ch.id]: { ...cfg, [field.key]: e.target.value } }))}
-                    placeholder={field.placeholder}
-                    className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-sm border border-neutral-200 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                  />
-                </div>
-              ))}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => saveMetaConfig(ch.id)}
-                  disabled={metaSaving === ch.id}
-                  className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm font-semibold hover:bg-neutral-800 disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" /> {metaSaving === ch.id ? 'Salvando…' : 'Salvar'}
-                </button>
-                <button
-                  onClick={() => testMetaWebhook(ch.id)}
-                  disabled={metaTesting === ch.id || !cfg.verify_token}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
-                >
-                  {metaTesting === ch.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  {metaTesting === ch.id ? 'Testando…' : 'Testar conexão'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
       </section>
 
       {/* E-mail de confirmação */}
