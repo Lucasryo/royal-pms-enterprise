@@ -544,14 +544,23 @@ function evaluateExtraction(extracted: Extracted): { extracted: Extracted; suffi
     extracted.guest_name &&
     validIsoDate(extracted.check_in) &&
     validIsoDate(extracted.check_out) &&
-    extracted.check_in! < extracted.check_out! &&
-    cleanExternalCode(extracted.external_reservation_code),
+    extracted.check_in! < extracted.check_out!,
   );
   return {
     extracted: { ...extracted, confidence: hasRequired ? "high" : extracted.confidence },
     sufficient: hasRequired,
     reason: hasRequired ? "voucher_parser_complete" : "voucher_parser_incomplete",
   };
+}
+
+function getCorporateReviewAlerts(extracted: Extracted, hasCompany: boolean): string[] {
+  if (!hasCompany) return [];
+  const alerts: string[] = [];
+  if (!extracted.cost_center) alerts.push("centro de custo");
+  if (!extracted.billing_info) alerts.push("instrucoes de faturamento");
+  if (!extracted.fiscal_data && !extracted.company_cnpj) alerts.push("dados fiscais/CNPJ");
+  if (!extracted.requested_by) alerts.push("solicitante/aprovador");
+  return alerts;
 }
 
 function extractFastReservation(args: {
@@ -638,10 +647,12 @@ function extractFastReservation(args: {
     notes: "Extraido por parser rapido sem IA.",
   };
 
+  const bodyStructured = extractVoucherStructuredData(rawText);
+  const structuredBase = mergeExtracted(base, bodyStructured);
   const voucherStructured = args.vouchers.length > 0
-    ? args.vouchers.map(v => extractVoucherStructuredData(v.text)).reduce((acc, item) => mergeExtracted(acc, item), base)
-    : base;
-  const evaluated = args.vouchers.length > 0 ? evaluateExtraction({ ...voucherStructured, is_reservation: voucherStructured.is_reservation || isReservation }) : null;
+    ? args.vouchers.map(v => extractVoucherStructuredData(v.text)).reduce((acc, item) => mergeExtracted(acc, item), structuredBase)
+    : structuredBase;
+  const evaluated = evaluateExtraction({ ...voucherStructured, is_reservation: voucherStructured.is_reservation || isReservation });
 
   return {
     sufficient: evaluated?.sufficient ?? sufficient,
@@ -763,6 +774,26 @@ async function logImportEvent(payload: Record<string, unknown>) {
     }]);
   } catch (err) {
     console.warn(`[reservation-import-log] ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+async function notifyStaffAlert(title: string, message: string) {
+  try {
+    const { data: staff } = await admin
+      .from("profiles")
+      .select("id")
+      .in("role", ["admin", "manager", "reservations", "finance", "faturamento"]);
+    const rows = (staff ?? []).map((member: { id: string }) => ({
+      user_id: member.id,
+      title,
+      message,
+      link: "/dashboard",
+      read: false,
+      timestamp: new Date().toISOString(),
+    }));
+    if (rows.length > 0) await admin.from("notifications").insert(rows);
+  } catch (err) {
+    console.warn(`[staff-alert] ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -1149,10 +1180,12 @@ serve(async (req) => {
 
   const availability = await checkAvailability(category, extracted.check_in, extracted.check_out);
   const hasAvailability = availability.available;
+  const corporateReviewAlerts = getCorporateReviewAlerts(extracted, Boolean(company));
 
   const code = "EML-" + Math.random().toString(36).slice(2, 8).toUpperCase();
   const billingObsCombined = [
     !hasAvailability ? `REVISAO: ${availability.reason || "Sem disponibilidade no periodo."}` : null,
+    corporateReviewAlerts.length > 0 ? `ALERTA: revisar ${corporateReviewAlerts.join(", ")}` : null,
     extracted.billing_obs,
     extracted.extras ? `Extras: ${extracted.extras}` : null,
     externalReservationCode ? `Codigo externo: ${externalReservationCode}` : null,
@@ -1160,12 +1193,19 @@ serve(async (req) => {
 
   const senderLow = (msg.contact_identifier ?? "").toLowerCase();
   const autoConfirmWhitelist = cfg.auto_confirm_sender_whitelist?.length ? cfg.auto_confirm_sender_whitelist : cfg.sender_whitelist;
-  const trustedForAutoConfirm = autoConfirmWhitelist.some(d => senderLow.includes(d.toLowerCase()));
+  const trustedForAutoConfirm = Boolean(company) || autoConfirmWhitelist.some(d => senderLow.includes(d.toLowerCase()));
+  const hasEssentialStayData = Boolean(
+    extracted.guest_name &&
+    extracted.check_in &&
+    extracted.check_out &&
+    category &&
+    (externalReservationCode || company),
+  );
   const canAutoConfirm = Boolean(
     cfg.auto_confirm_enabled &&
     trustedForAutoConfirm &&
-    extracted.confidence === "high" &&
-    externalReservationCode &&
+    (extracted.confidence === "high" || (company && hasEssentialStayData)) &&
+    hasEssentialStayData &&
     hasAvailability,
   );
 
@@ -1209,10 +1249,18 @@ serve(async (req) => {
       reservation_id: (confirmed as { id: string }).id,
       external_reservation_code: externalReservationCode,
       reason: "Reserva confirmada automaticamente por criterios confiaveis.",
+      review_alerts: corporateReviewAlerts,
       parser_method: extractionMethod,
       availability,
       extracted,
     });
+
+    if (corporateReviewAlerts.length > 0) {
+      await notifyStaffAlert(
+        "Reserva corporativa confirmada com alerta",
+        `${extracted.guest_name} foi confirmado para ${extracted.check_in}. Revisar: ${corporateReviewAlerts.join(", ")}.`,
+      );
+    }
 
     return json({
       confirmed: true,
@@ -1221,6 +1269,7 @@ serve(async (req) => {
       company: company?.name ?? null,
       external_reservation_code: externalReservationCode,
       parser_method: extractionMethod,
+      review_alerts: corporateReviewAlerts,
       availability,
       attachments_processed: downloadedAtt.length,
       vouchers_fetched: vouchers.length,
@@ -1243,6 +1292,7 @@ serve(async (req) => {
     reason: hasAvailability
       ? (cfg.auto_confirm_enabled ? "Nao atende todos os criterios de auto-confirmacao." : "Auto-confirmacao desativada.")
       : (availability.reason || "Sem disponibilidade no periodo."),
+    review_alerts: corporateReviewAlerts,
     parser_method: extractionMethod,
     availability,
     extracted,
@@ -1255,6 +1305,7 @@ serve(async (req) => {
     company: company?.name ?? null,
     external_reservation_code: externalReservationCode,
     parser_method: extractionMethod,
+    review_alerts: corporateReviewAlerts,
     availability,
     auto_confirm_candidate: canAutoConfirm,
     attachments_processed: downloadedAtt.length,
