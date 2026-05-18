@@ -4947,14 +4947,15 @@ function CampanhasShell() {
 }
 
 function AutomacoesShell() {
-  const [sub, setSub] = useState<'flows' | 'simulator' | 'training'>('flows');
+  const [sub, setSub] = useState<'flows' | 'simulator' | 'training' | 'insights'>('flows');
   return (
     <div>
-      <SubTabStrip<'flows' | 'simulator' | 'training'>
+      <SubTabStrip<'flows' | 'simulator' | 'training' | 'insights'>
         items={[
           { id: 'flows', label: 'Fluxos', icon: Zap },
           { id: 'simulator', label: 'Simulador', icon: Smartphone },
           { id: 'training', label: 'Treinamento IA', icon: Bot },
+          { id: 'insights', label: 'Insights Bot', icon: Activity },
         ]}
         active={sub}
         onChange={setSub}
@@ -4962,6 +4963,213 @@ function AutomacoesShell() {
       {sub === 'flows' && <FlowBuilderTab />}
       {sub === 'simulator' && <SimulatorTab />}
       {sub === 'training' && <BotTrainingTab />}
+      {sub === 'insights' && <BotInsightsTab />}
+    </div>
+  );
+}
+
+type BotInvocation = {
+  id: string;
+  contact_id: string | null;
+  channel: string;
+  incoming_text: string | null;
+  reply_text: string | null;
+  decision: 'replied' | 'escalated' | 'skipped' | 'error';
+  reason: string | null;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  tools_used: string[] | null;
+  created_at: string;
+};
+
+function BotInsightsTab() {
+  const [invs, setInvs] = useState<BotInvocation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+
+  async function load() {
+    setLoading(true);
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const { data, error } = await supabase
+      .from('bot_invocations')
+      .select('id, contact_id, channel, incoming_text, reply_text, decision, reason, provider, model, input_tokens, output_tokens, cost_usd, duration_ms, tools_used, created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (error) toast.error('Falha: ' + error.message);
+    setInvs((data as BotInvocation[] | null) ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [days]);
+
+  const total = invs.length;
+  const counts = {
+    replied: invs.filter(i => i.decision === 'replied').length,
+    escalated: invs.filter(i => i.decision === 'escalated').length,
+    skipped: invs.filter(i => i.decision === 'skipped').length,
+    error: invs.filter(i => i.decision === 'error').length,
+  };
+  const resolutionRate = total === 0 ? 0 : Math.round((counts.replied / total) * 100);
+  const avgDuration = (() => {
+    const withDur = invs.filter(i => i.duration_ms != null);
+    return withDur.length === 0 ? 0 : Math.round(withDur.reduce((a, b) => a + (b.duration_ms ?? 0), 0) / withDur.length);
+  })();
+  const totalCost = invs.reduce((a, b) => a + (Number(b.cost_usd) || 0), 0);
+
+  // Por dia (linha)
+  const byDay: Record<string, number> = {};
+  for (const i of invs) {
+    const d = i.created_at.slice(0, 10);
+    byDay[d] = (byDay[d] ?? 0) + 1;
+  }
+  const dayKeys = Object.keys(byDay).sort();
+  const maxDay = Math.max(1, ...Object.values(byDay));
+
+  // Por provider (custo)
+  const byProvider: Record<string, number> = {};
+  for (const i of invs) {
+    const p = i.provider ?? '—';
+    byProvider[p] = (byProvider[p] ?? 0) + (Number(i.cost_usd) || 0);
+  }
+
+  // Top tools
+  const toolCounts: Record<string, number> = {};
+  for (const i of invs) {
+    for (const t of i.tools_used ?? []) toolCounts[t] = (toolCounts[t] ?? 0) + 1;
+  }
+  const topTools = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">Insights</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Métricas do bot</h2>
+        </div>
+        <div className="flex gap-2">
+          {[7, 30, 90].map(d => (
+            <button key={d} onClick={() => setDays(d)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${days === d ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>{d}d</button>
+          ))}
+          <button onClick={load} className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-neutral-200"><RefreshCcw className="w-3.5 h-3.5" /></button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-12 text-center text-sm text-neutral-400">Carregando...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Mensagens', value: total.toString(), sub: `últimos ${days}d`, color: 'text-neutral-900' },
+              { label: 'Taxa Resolução', value: `${resolutionRate}%`, sub: `${counts.replied} respondidas`, color: resolutionRate >= 60 ? 'text-emerald-600' : 'text-amber-600' },
+              { label: 'Tempo Médio', value: avgDuration < 1000 ? `${avgDuration}ms` : `${(avgDuration / 1000).toFixed(1)}s`, sub: 'por resposta', color: 'text-neutral-900' },
+              { label: 'Custo Total', value: `$${totalCost.toFixed(4)}`, sub: 'LLM acumulado', color: 'text-emerald-600' },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+                <p className={`text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-neutral-500 font-medium">{s.label}</p>
+                <p className="text-[10px] text-neutral-400">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Decisões do bot</p>
+              <div className="space-y-2">
+                {[
+                  { k: 'replied', label: 'Respondidas', color: 'bg-emerald-500', count: counts.replied },
+                  { k: 'escalated', label: 'Escaladas (humano)', color: 'bg-amber-500', count: counts.escalated },
+                  { k: 'skipped', label: 'Puladas', color: 'bg-neutral-400', count: counts.skipped },
+                  { k: 'error', label: 'Erros', color: 'bg-red-500', count: counts.error },
+                ].map(r => (
+                  <div key={r.k} className="flex items-center gap-3">
+                    <span className="text-xs text-neutral-600 w-32">{r.label}</span>
+                    <div className="flex-1 bg-neutral-100 rounded-full h-3">
+                      <div className={`${r.color} h-3 rounded-full transition-all`} style={{ width: `${total === 0 ? 0 : (r.count / total) * 100}%` }} />
+                    </div>
+                    <span className="text-xs font-bold text-neutral-700 w-12 text-right">{r.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Custo por provider</p>
+              {Object.keys(byProvider).length === 0 ? (
+                <p className="text-xs text-neutral-400 text-center py-8">Nenhum dado ainda.</p>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(byProvider).sort((a, b) => b[1] - a[1]).map(([p, cost]) => (
+                    <div key={p} className="flex items-center gap-3">
+                      <span className="text-xs text-neutral-600 w-24 capitalize">{p}</span>
+                      <div className="flex-1 bg-neutral-100 rounded-full h-3">
+                        <div className="bg-amber-500 h-3 rounded-full" style={{ width: `${(cost / Math.max(...Object.values(byProvider))) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-bold text-neutral-700 w-20 text-right">${cost.toFixed(4)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Mensagens por dia</p>
+            {dayKeys.length === 0 ? (
+              <p className="text-xs text-neutral-400 text-center py-8">Nenhuma invocação no período.</p>
+            ) : (
+              <div className="flex items-end gap-1 h-32">
+                {dayKeys.map(d => (
+                  <div key={d} className="flex-1 flex flex-col items-center gap-1" title={`${d}: ${byDay[d]}`}>
+                    <div className="bg-amber-500 w-full rounded-t" style={{ height: `${(byDay[d] / maxDay) * 100}%`, minHeight: '2px' }} />
+                    {dayKeys.length <= 30 && <span className="text-[8px] text-neutral-400 -rotate-45 origin-top-left">{d.slice(5)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {topTools.length > 0 && (
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">Top ferramentas usadas</p>
+              <div className="flex flex-wrap gap-2">
+                {topTools.map(([name, count]) => (
+                  <span key={name} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+                    🔧 {name} <span className="font-bold">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+            <div className="px-5 py-3 border-b border-neutral-100"><p className="text-sm font-semibold text-neutral-700">Últimas 20 invocações</p></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead><tr className="border-b border-neutral-100">{['Quando', 'Canal', 'Decisão', 'Provider', 'Tools', 'Custo', 'Dur'].map(h => <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>)}</tr></thead>
+                <tbody>
+                  {invs.slice(0, 20).map(i => (
+                    <tr key={i.id} className="border-b border-neutral-50 hover:bg-neutral-50">
+                      <td className="px-4 py-2 text-xs text-neutral-500">{new Date(i.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className="px-4 py-2 text-xs">{i.channel}</td>
+                      <td className="px-4 py-2"><span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${i.decision === 'replied' ? 'bg-emerald-100 text-emerald-700' : i.decision === 'escalated' ? 'bg-amber-100 text-amber-700' : i.decision === 'error' ? 'bg-red-100 text-red-700' : 'bg-neutral-100 text-neutral-600'}`}>{i.decision}</span> {i.reason && <span className="text-[9px] text-neutral-400 ml-1">{i.reason}</span>}</td>
+                      <td className="px-4 py-2 text-xs text-neutral-500">{i.provider ?? '—'}</td>
+                      <td className="px-4 py-2 text-[10px] text-neutral-500">{(i.tools_used ?? []).join(', ') || '—'}</td>
+                      <td className="px-4 py-2 text-xs text-emerald-700 font-mono">${(Number(i.cost_usd) || 0).toFixed(5)}</td>
+                      <td className="px-4 py-2 text-xs text-neutral-500">{i.duration_ms ?? '—'}ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
