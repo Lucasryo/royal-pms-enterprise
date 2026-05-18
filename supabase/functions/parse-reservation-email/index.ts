@@ -211,7 +211,9 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-async function fetchVoucherText(url: string): Promise<string | null> {
+type VoucherFetchResult = { url: string; html: string; text: string };
+
+async function fetchVoucherText(url: string): Promise<VoucherFetchResult | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -221,7 +223,7 @@ async function fetchVoucherText(url: string): Promise<string | null> {
     const ct = r.headers.get("content-type") ?? "";
     if (!ct.includes("text/html") && !ct.includes("text/plain")) return null;
     const html = await r.text();
-    return htmlToText(html).slice(0, 6000);
+    return { url, html: html.slice(0, 200_000), text: htmlToText(html).slice(0, 12000) };
   } catch (err) {
     console.warn(`[voucher-fetch] ${url}: ${err instanceof Error ? err.message : err}`);
     return null;
@@ -421,6 +423,137 @@ function extractFirstByPatterns(text: string, patterns: RegExp[]): string | unde
   return undefined;
 }
 
+function extractBestLabelValue(text: string, labels: string[], maxLength = 180): string | undefined {
+  const normalizedLabels = labels.map(label => normalizeText(label).toLowerCase());
+  const lines = text.split(/\r?\n| {2,}/).map(line => cleanLabelValue(line)).filter(Boolean);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const low = normalizeText(line).toLowerCase();
+    for (const label of normalizedLabels) {
+      if (low === label || low === `${label}:`) {
+        const next = lines[index + 1] ? cleanLabelValue(lines[index + 1]) : "";
+        if (next && next.length <= maxLength) return next;
+      }
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const inline = low.match(new RegExp(`${escaped}\\s*[:#-]\\s*(.+)$`, "i"));
+      if (inline?.[1]) {
+        const raw = line.slice(line.toLowerCase().indexOf(inline[1].toLowerCase()));
+        const value = cleanLabelValue(raw || inline[1]);
+        if (value && value.length <= maxLength) return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+function mergeExtracted(base: Extracted, patch: Partial<Extracted>): Extracted {
+  const out: Extracted = { ...base };
+  for (const [key, value] of Object.entries(patch) as Array<[keyof Extracted, Extracted[keyof Extracted]]>) {
+    if (value === undefined || value === null || value === "") continue;
+    (out as Record<string, unknown>)[key] = value;
+  }
+  return out;
+}
+
+function extractVoucherStructuredData(text: string): Partial<Extracted> {
+  const normalized = normalizeText(text);
+  const low = normalized.toLowerCase();
+  const checkIn = pickDateNear(text, ["check-in", "check in", "entrada", "arrival", "chegada"])
+    ?? parseFastDate(extractBestLabelValue(text, ["data entrada", "dt entrada", "entrada"]) ?? "");
+  const checkOut = pickDateNear(text, ["check-out", "check out", "saida", "saída", "departure", "partida"])
+    ?? parseFastDate(extractBestLabelValue(text, ["data saida", "data saída", "dt saida", "dt saída", "saida", "saída"]) ?? "");
+  const code = cleanExternalCode(extractBestLabelValue(text, [
+    "voucher", "localizador", "codigo", "código", "reserva", "numero da reserva", "número da reserva",
+    "confirmation number", "booking number", "reservation number",
+  ]));
+  const guest = extractBestLabelValue(text, [
+    "hospede", "hóspede", "nome do hospede", "nome do hóspede", "guest", "guest name", "passageiro", "colaborador",
+  ]);
+  const companyName = extractBestLabelValue(text, [
+    "empresa", "cliente", "razao social", "razão social", "company", "corporativo",
+  ]);
+  const costCenter = extractBestLabelValue(text, [
+    "centro de custo", "centro custo", "cost center", "cc", "c.c.", "os", "ordem de servico", "ordem de serviço", "projeto",
+  ], 120) ?? extractFirstByPatterns(normalized, [
+    /\b(?:CC|OS|PROJETO|CENTRO DE CUSTO)\s*[:#-]?\s*([A-Z0-9._/-]{3,40})\b/i,
+  ]);
+  const billingInfo = extractBestLabelValue(text, [
+    "faturamento", "instrucoes de faturamento", "instruções de faturamento", "billing", "forma de pagamento", "pagamento",
+  ], 280);
+  const billingObs = extractBestLabelValue(text, [
+    "observacao", "observação", "observacoes", "observações", "obs", "remarks", "notas", "alertas",
+  ], 300);
+  const fiscalData = extractBestLabelValue(text, ["cnpj", "dados fiscais", "fiscal"], 220);
+  const requestedBy = extractBestLabelValue(text, ["solicitante", "requested by", "responsavel", "responsável", "aprovador"], 120);
+  const phone = extractBestLabelValue(text, ["telefone", "phone", "celular", "whatsapp"], 60);
+  const email = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  const totalMatch = normalized.match(/(?:total|valor total|valor|amount)\s*[:#-]?\s*(?:r\$)?\s*([\d.,]+)/i)
+    ?? normalized.match(/R\$\s*([\d.]+,\d{2})/i);
+  const totalAmount = totalMatch?.[1] ? parseBrazilianNumber(totalMatch[1]) : undefined;
+  const tariffMatch = normalized.match(/(?:diaria|diária|tarifa|daily rate|rate)\s*[:#-]?\s*(?:r\$)?\s*([\d.,]+)/i);
+  const tariff = tariffMatch?.[1] ? parseBrazilianNumber(tariffMatch[1]) : undefined;
+  const adultsMatch = normalized.match(/(?:adultos|adults?)\s*[:#-]?\s*(\d{1,2})/i);
+  const childrenMatch = normalized.match(/(?:criancas|crianças|children|kids)\s*[:#-]?\s*(\d{1,2})/i);
+  const category = low.includes("suite presidencial")
+    ? "suite presidencial"
+    : low.includes("master")
+      ? "master"
+      : low.includes("executivo") || low.includes("standard")
+        ? "executivo"
+        : undefined;
+  const extras = [
+    low.includes("estacionamento") ? "estacionamento" : null,
+    low.includes("lavanderia") ? "lavanderia" : null,
+    low.includes("frigobar") ? "frigobar" : null,
+    low.includes("cafe") || low.includes("café") ? "cafe da manha" : null,
+  ].filter(Boolean).join(", ") || undefined;
+  const billingFragments = [
+    billingInfo,
+    low.includes("extras a parte") || low.includes("extras à parte") ? "extras a parte" : null,
+    low.includes("faturar diarias") || low.includes("faturar diárias") ? "faturar diarias" : null,
+    low.includes("nota fiscal") || low.includes("nf") ? "nota fiscal" : null,
+  ].filter(Boolean).join(" | ") || undefined;
+
+  return {
+    external_reservation_code: code ?? undefined,
+    guest_name: guest,
+    check_in: checkIn ?? undefined,
+    check_out: checkOut ?? undefined,
+    category,
+    company_name: companyName,
+    cost_center: costCenter,
+    billing_info: billingFragments,
+    billing_obs: billingObs,
+    fiscal_data: fiscalData,
+    requested_by: requestedBy,
+    contact_phone: phone,
+    contact_email: email,
+    total_amount: totalAmount,
+    tariff,
+    adults: adultsMatch?.[1] ? Math.max(1, Number(adultsMatch[1])) : undefined,
+    children: childrenMatch?.[1] ? Math.max(0, Number(childrenMatch[1])) : undefined,
+    payment_method: companyName || costCenter || billingFragments ? "BILLED" : undefined,
+    extras,
+    source: "B2B_VOUCHER",
+  };
+}
+
+function evaluateExtraction(extracted: Extracted): { extracted: Extracted; sufficient: boolean; reason: string } {
+  const hasRequired = Boolean(
+    extracted.is_reservation &&
+    extracted.guest_name &&
+    validIsoDate(extracted.check_in) &&
+    validIsoDate(extracted.check_out) &&
+    extracted.check_in! < extracted.check_out! &&
+    cleanExternalCode(extracted.external_reservation_code),
+  );
+  return {
+    extracted: { ...extracted, confidence: hasRequired ? "high" : extracted.confidence },
+    sufficient: hasRequired,
+    reason: hasRequired ? "voucher_parser_complete" : "voucher_parser_incomplete",
+  };
+}
+
 function extractFastReservation(args: {
   senderEmail: string;
   subject: string;
@@ -486,31 +619,40 @@ function extractFastReservation(args: {
   const hasRequired = Boolean(guestName && validIsoDate(resolvedCheckIn) && validIsoDate(resolvedCheckOut) && resolvedCheckIn! < resolvedCheckOut!);
   const sufficient = Boolean(isReservation && hasRequired && externalCode);
 
+  const base: Extracted = {
+    is_reservation: isReservation,
+    confidence: sufficient ? "high" : (isReservation ? "medium" : "low"),
+    guest_name: guestName,
+    check_in: resolvedCheckIn,
+    check_out: resolvedCheckOut,
+    adults: adultsMatch?.[1] ? Math.max(1, Number(adultsMatch[1])) : 1,
+    children: childrenMatch?.[1] ? Math.max(0, Number(childrenMatch[1])) : 0,
+    category,
+    contact_email: emailMatch?.[0] ?? args.senderEmail,
+    contact_phone: phoneMatch?.[1] ? cleanLabelValue(phoneMatch[1]) : undefined,
+    total_amount: totalAmount,
+    tariff: undefined,
+    source,
+    external_reservation_code: externalCode ?? undefined,
+    requested_by: "fast-email-parser",
+    notes: "Extraido por parser rapido sem IA.",
+  };
+
+  const voucherStructured = args.vouchers.length > 0
+    ? args.vouchers.map(v => extractVoucherStructuredData(v.text)).reduce((acc, item) => mergeExtracted(acc, item), base)
+    : base;
+  const evaluated = args.vouchers.length > 0 ? evaluateExtraction({ ...voucherStructured, is_reservation: voucherStructured.is_reservation || isReservation }) : null;
+
   return {
-    sufficient,
-    reason: sufficient
+    sufficient: evaluated?.sufficient ?? sufficient,
+    reason: evaluated?.sufficient
+      ? evaluated.reason
+      : sufficient
       ? "fast_parser_complete"
       : isReservation
         ? "fast_parser_incomplete"
         : "fast_parser_no_match",
-    extracted: {
-      is_reservation: isReservation,
-      confidence: sufficient ? "high" : (isReservation ? "medium" : "low"),
-      guest_name: guestName,
-      check_in: resolvedCheckIn,
-      check_out: resolvedCheckOut,
-      adults: adultsMatch?.[1] ? Math.max(1, Number(adultsMatch[1])) : 1,
-      children: childrenMatch?.[1] ? Math.max(0, Number(childrenMatch[1])) : 0,
-      category,
-      contact_email: emailMatch?.[0] ?? args.senderEmail,
-      contact_phone: phoneMatch?.[1] ? cleanLabelValue(phoneMatch[1]) : undefined,
-      total_amount: totalAmount,
-      tariff: undefined,
-      source,
-      external_reservation_code: externalCode ?? undefined,
-      requested_by: "fast-email-parser",
-      notes: "Extraido por parser rapido sem IA.",
-    },
+    extracted: evaluated?.extracted ?? base,
   };
 }
 
@@ -798,7 +940,7 @@ serve(async (req) => {
 
   // Vouchers de link (B2B etc): para empresas, baixa antes do LLM para preservar faturamento/campos corporativos.
   const voucherUrls = extractVoucherUrls(`${msg.body ?? ""}\n${msg.body_html ?? ""}`, cfg.voucher_url_domains ?? []);
-  const vouchers: Array<{ url: string; text: string }> = [];
+  const vouchers: VoucherFetchResult[] = [];
   let fastResult = extractFastReservation({
     senderEmail: msg.contact_identifier ?? "",
     subject: msg.subject ?? "",
@@ -808,12 +950,12 @@ serve(async (req) => {
     defaultCategory: cfg.default_category ?? "executivo",
   });
 
-  const requiresLlmEnrichment = Boolean(company || hasParseableAttachments);
+  let requiresLlmEnrichment = false;
 
   if ((!fastResult.sufficient || requiresLlmEnrichment) && voucherUrls.length > 0) {
     for (const url of voucherUrls) {
-      const text = await fetchVoucherText(url);
-      if (text) vouchers.push({ url, text });
+      const voucher = await fetchVoucherText(url);
+      if (voucher) vouchers.push(voucher);
     }
     if (vouchers.length > 0) {
       fastResult = extractFastReservation({
@@ -826,6 +968,10 @@ serve(async (req) => {
       });
     }
   }
+
+  requiresLlmEnrichment = Boolean(
+    !fastResult.sufficient && (company || hasParseableAttachments),
+  );
 
   let downloadedAtt: Array<{ name: string; mime: string; base64: string }> = [];
   let extracted: Extracted;
