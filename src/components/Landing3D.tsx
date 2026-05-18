@@ -474,6 +474,210 @@ function ReceptionScreen() {
 }
 
 /* ============================================================
+ * 7. MARKETING — campanhas / segmentos / disparos
+ * ============================================================ */
+function MarketingScreen() {
+  const funnel = [
+    { l: 'Base de hóspedes',         v: 4820, w: 100, c: 'bg-ink' },
+    { l: 'Segmento · Vista Mar',     v: 1320, w: 72,  c: 'bg-ink/85' },
+    { l: 'Aberturas (WhatsApp)',     v:  942, w: 52,  c: 'bg-gold' },
+    { l: 'Cliques no link de oferta',v:  286, w: 16,  c: 'bg-gold/70' },
+    { l: 'Reservas confirmadas',     v:   38, w: 4,   c: 'bg-emerald-700' },
+  ];
+  const campaigns = [
+    { n: 'Inverno · Vista Mar 3 noites', ch: 'WhatsApp',   st: 'ativa',    cv: '4,1%',  rv: 'R$ 28,4k', cc: 'bg-emerald-50 text-emerald-700' },
+    { n: 'Day-use spa · executivos',     ch: 'E-mail',     st: 'agendada', cv: '—',     rv: '—',        cc: 'bg-amber-50 text-amber-700' },
+    { n: 'Recompra hóspedes 90d',        ch: 'WhatsApp',   st: 'ativa',    cv: '6,8%',  rv: 'R$ 12,1k', cc: 'bg-emerald-50 text-emerald-700' },
+    { n: 'Aniversariantes · upgrade',    ch: 'E-mail+SMS', st: 'rascunho', cv: '—',     rv: '—',        cc: 'bg-stone-100 text-stone-600' },
+  ];
+  return (
+    <Frame url="royalpms.app · marketing">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Campanhas · Maio</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">Funil de conversão</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">+R$ 40,5k geradas</span>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {funnel.map(f => (
+            <div key={f.l}>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-ink/80">{f.l}</span>
+                <span className="font-display text-ink">{f.v.toLocaleString('pt-BR')}</span>
+              </div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-paper/60">
+                <div className={`h-full rounded-full ${f.c}`} style={{ width: `${f.w}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-xl border border-ink/10">
+          <div className="grid grid-cols-12 border-b border-ink/10 bg-paper/40 px-3 py-2 text-[10px] uppercase tracking-wider text-stone-500">
+            <span className="col-span-6">Campanha</span><span className="col-span-2">Canal</span><span className="col-span-2 text-right">Conv.</span><span className="col-span-2 text-right">Receita</span>
+          </div>
+          {campaigns.map(c => (
+            <div key={c.n} className="grid grid-cols-12 items-center border-b border-ink/5 px-3 py-2 text-[11px] last:border-0">
+              <div className="col-span-6 flex items-center gap-2 min-w-0">
+                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase ${c.cc}`}>{c.st}</span>
+                <span className="truncate text-ink">{c.n}</span>
+              </div>
+              <span className="col-span-2 text-stone-600">{c.ch}</span>
+              <span className="col-span-2 text-right font-display text-ink">{c.cv}</span>
+              <span className="col-span-2 text-right font-display text-ink">{c.rv}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 8. FINANCEIRO — DRE + conciliação bancária
+ * ============================================================ */
+function FinanceScreen() {
+  const dre = [
+    { l: 'Receita bruta',          v: 'R$ 412.840', w: 100, neg: false },
+    { l: 'Deduções (impostos)',    v: '-R$ 38.120', w: 9,   neg: true  },
+    { l: 'Custos operacionais',    v: '-R$ 168.450', w: 41,  neg: true  },
+    { l: 'Despesas administrativas',v:'-R$ 62.300', w: 15,  neg: true  },
+    { l: 'GOP',                    v: 'R$ 143.970', w: 35,  neg: false, hl: true },
+  ];
+  const bank = [
+    { d: '17/05', t: 'Pix · reserva #1842',           v: '+R$ 2.160,00', s: 'conciliado', c: 'text-emerald-700 bg-emerald-50' },
+    { d: '17/05', t: 'Stone D+1 · cartões 16/05',     v: '+R$ 18.420,90', s: 'conciliado', c: 'text-emerald-700 bg-emerald-50' },
+    { d: '17/05', t: 'Fornecedor · lavanderia Aliança',v:'-R$ 4.380,00',  s: 'a conferir', c: 'text-amber-700 bg-amber-50' },
+    { d: '16/05', t: 'Folha de pagamento · 1ª parcela', v:'-R$ 38.600,00', s: 'conciliado', c: 'text-emerald-700 bg-emerald-50' },
+    { d: '16/05', t: 'Tarifa bancária',                v:'-R$ 89,90',     s: 'conciliado', c: 'text-emerald-700 bg-emerald-50' },
+  ];
+  return (
+    <Frame url="royalpms.app · financeiro">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">DRE · Maio (parcial)</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">Margem GOP <span className="text-emerald-700">34,9%</span></p>
+          </div>
+          <div className="flex gap-1.5">
+            {['Maio','Abr','Mar'].map((m,i) => (
+              <span key={m} className={`rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider ${i===0?'bg-ink text-paper':'bg-paper/60 text-ink/70'}`}>{m}</span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {dre.map(d => (
+            <div key={d.l} className={`rounded-lg ${d.hl ? 'border border-ink/15 bg-ink text-paper' : 'bg-paper/40'} px-3 py-2`}>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className={d.hl ? '' : 'text-ink/80'}>{d.l}</span>
+                <span className={`font-display text-sm ${d.neg ? 'text-red-700' : d.hl ? 'text-gold' : 'text-ink'}`}>{d.v}</span>
+              </div>
+              <div className={`mt-1.5 h-1 w-full overflow-hidden rounded-full ${d.hl ? 'bg-paper/15' : 'bg-paper/70'}`}>
+                <div className={`h-full rounded-full ${d.neg ? 'bg-red-700/70' : d.hl ? 'bg-gold' : 'bg-ink/60'}`} style={{ width: `${d.w}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Conciliação bancária · Itaú 4567-8</p>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-medium text-emerald-700">98% conciliado</span>
+          </div>
+          <div className="mt-2 divide-y divide-ink/10 rounded-xl border border-ink/10">
+            {bank.map((b,i) => (
+              <div key={i} className="grid grid-cols-12 items-center px-3 py-2 text-[11px]">
+                <span className="col-span-2 text-stone-500">{b.d}</span>
+                <span className="col-span-6 truncate text-ink/85">{b.t}</span>
+                <span className={`col-span-2 text-right font-display ${b.v.startsWith('+') ? 'text-emerald-700' : 'text-red-700'}`}>{b.v}</span>
+                <span className={`col-span-2 text-center rounded-full py-0.5 text-[9px] font-medium uppercase tracking-wider ${b.c}`}>{b.s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 9. EVENTOS — propostas + linha do tempo do salão
+ * ============================================================ */
+function EventsScreen() {
+  const proposals = [
+    { c: 'Casamento · Santos & Almeida', d: '14/jun', pax: 180, v: 'R$ 92.400', s: 'fechada',     cl: 'bg-emerald-700 text-paper' },
+    { c: 'Convenção · Banco Próspero',   d: '22/jun', pax: 240, v: 'R$ 138.000', s: 'negociação', cl: 'bg-gold text-ink' },
+    { c: 'Aniversário · Família Lopes',  d: '02/jul', pax:  60, v: 'R$ 18.600',  s: 'proposta',   cl: 'bg-paper/60 text-ink ring-1 ring-ink/10' },
+    { c: 'Workshop · Studio Norte',      d: '08/jul', pax:  35, v: 'R$ 9.200',   s: 'rascunho',   cl: 'bg-stone-200 text-stone-700' },
+  ];
+  const timeline = [
+    { h: '08:00', t: 'Montagem · equipe de produção' },
+    { h: '11:30', t: 'Coffee break · 80 pax · Salão Atlântico' },
+    { h: '12:30', t: 'Almoço · 240 pax · Salão Boreal' },
+    { h: '15:00', t: 'Coffee + brigadeiros · 240 pax' },
+    { h: '18:30', t: 'Encerramento + coquetel' },
+  ];
+  return (
+    <Frame url="royalpms.app · eventos">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Pipeline · próximos 60 dias</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">R$ 258,2k em propostas ativas</p>
+          </div>
+          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">Nova proposta</button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          {[
+            { n: '7', l: 'Propostas em curso' },
+            { n: '3', l: 'Salões reservados' },
+            { n: '78%', l: 'Conversão (90d)' },
+          ].map(s => (
+            <div key={s.l} className="rounded-xl bg-paper/40 p-3">
+              <p className="font-display text-2xl font-light text-ink">{s.n}</p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-wider text-stone-500">{s.l}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {proposals.map(p => (
+            <div key={p.c} className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper/40 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-ink">{p.c}</p>
+                <p className="mt-0.5 text-[10px] text-stone-500">{p.d} · {p.pax} pax · <span className="text-ink/80">{p.v}</span></p>
+              </div>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${p.cl}`}>{p.s}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-ink/10 bg-ink p-3 text-paper">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-paper/55">Linha do tempo · 22/jun · Banco Próspero</p>
+            <p className="text-[10px] text-paper/55">Salão Boreal · 240 pax</p>
+          </div>
+          <ol className="mt-3 space-y-1.5">
+            {timeline.map(e => (
+              <li key={e.h} className="flex items-center gap-3 text-[11px]">
+                <span className="w-12 font-display text-gold">{e.h}</span>
+                <span className="h-1 w-1 rounded-full bg-gold" />
+                <span className="text-paper/85">{e.t}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
  * HERO VITRINE — peça única com tilt suave + cards orbitando
  * ============================================================ */
 function HeroVitrine() {
@@ -898,6 +1102,30 @@ export default function Landing3D() {
                 desc="Pré-check-in pelo celular do hóspede, FNRH preenchida automaticamente, garantia pré-validada. A recepção entrega chave — não preenche formulário."
                 screen={<ReceptionScreen />}
                 accent="radial-gradient(closest-side, oklch(0.85 0.10 75 / 0.40), transparent 70%)"
+              />
+              <Showcase
+                index="06" side="right"
+                kicker="· Marketing"
+                title="Campanhas que conhecem o hóspede."
+                desc="Segmente a base por categoria, frequência e perfil de consumo. Dispare WhatsApp, e-mail e SMS no mesmo fluxo — e acompanhe receita atribuída em tempo real."
+                screen={<MarketingScreen />}
+                accent="radial-gradient(closest-side, oklch(0.72 0.12 320 / 0.30), transparent 70%)"
+              />
+              <Showcase
+                index="07" side="left"
+                kicker="· Financeiro"
+                title="DRE em tempo real, conciliação no automático."
+                desc="Receitas, custos e despesas por centro de custo, com DRE consolidada e conciliação bancária por OFX. O contador vê o mesmo número que a gerência."
+                screen={<FinanceScreen />}
+                accent="radial-gradient(closest-side, oklch(0.55 0.12 145 / 0.32), transparent 70%)"
+              />
+              <Showcase
+                index="08" side="right"
+                kicker="· Eventos"
+                title="Da proposta ao faturamento, em uma linha."
+                desc="Salões reservados sem conflito, propostas versionadas, contratos assinados digitalmente e timeline operacional para a equipe de produção — tudo na mesma base."
+                screen={<EventsScreen />}
+                accent="radial-gradient(closest-side, oklch(0.72 0.12 75 / 0.32), transparent 70%)"
               />
             </div>
           </div>
