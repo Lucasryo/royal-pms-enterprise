@@ -11,6 +11,7 @@ import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import Landing3D from './components/Landing3D';
+import ResetPassword from './components/ResetPassword';
 import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
@@ -98,6 +99,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   const { status: pushStatus, subscribe: subscribePush } = usePushNotifications(profile?.id);
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
@@ -266,9 +268,18 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[App] onAuthStateChange:', event, session ? 'has session' : 'no session');
+      if (event === 'PASSWORD_RECOVERY') {
+        // usuário chegou pelo link de redefinição — não considera logado
+        setRecoveryMode(true);
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
       setUser(session?.user ?? null);
       if (event === 'SIGNED_OUT') {
         setProfile(null);
+        setRecoveryMode(false);
         setCurrentView('dashboard');
         setLoading(false);
       }
@@ -449,6 +460,7 @@ export default function App() {
     );
   }
 
+  if (recoveryMode) return <ResetPassword onDone={() => setRecoveryMode(false)} />;
   if (!user || !profile) return <Landing3D />;
 
   const activeNavigationItem = navigationItems.find(i => i.id === currentView);
