@@ -299,6 +299,8 @@ export interface Reservation {
   fiscal_data?: string;
   billing_info?: string;
   requested_by?: string;
+  source_message_id?: string;
+  external_reservation_code?: string;
 }
 
 export interface ReservationRequest extends Omit<Reservation, 'id' | 'status'> {

@@ -4536,6 +4536,8 @@ type EmailParserConfig = {
   min_confidence: 'high' | 'medium' | 'low';
   default_category: string;
   voucher_url_domains: string[];
+  auto_confirm_enabled: boolean;
+  auto_confirm_sender_whitelist: string[];
 };
 
 const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
@@ -4546,6 +4548,8 @@ const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
   min_confidence: 'medium',
   default_category: 'executivo',
   voucher_url_domains: ['b2breservas.com.br'],
+  auto_confirm_enabled: false,
+  auto_confirm_sender_whitelist: [],
 };
 
 function EmailParserSection() {
@@ -4619,8 +4623,8 @@ function EmailParserSection() {
   if (loading) return null;
 
   return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+    <section className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
             <Bot className="w-5 h-5 text-violet-600" />
@@ -4635,23 +4639,33 @@ function EmailParserSection() {
         </span>
       </div>
 
-      <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
-        <div>
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-50">
+        <div className="min-w-0">
           <p className="font-bold text-sm text-neutral-900">Ativar parser</p>
           <p className="text-xs text-neutral-500">Usa a API key do bot (Claude). Custo ~$0.0005 por email classificado.</p>
         </div>
-        <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+        <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full shrink-0 ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
           <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
         </button>
       </div>
 
-      <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
-        <div>
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-50">
+        <div className="min-w-0">
           <p className="font-bold text-sm text-neutral-900">Sempre classificar</p>
           <p className="text-xs text-neutral-500">Se ligado, manda TODO email pro LLM (mais caro). Se desligado, só os que batem whitelist ou keyword.</p>
         </div>
-        <button onClick={() => setConfig(p => ({ ...p, always_classify: !p.always_classify }))} className={`w-10 h-6 rounded-full ${config.always_classify ? 'bg-violet-500' : 'bg-neutral-300'}`}>
+        <button onClick={() => setConfig(p => ({ ...p, always_classify: !p.always_classify }))} className={`w-10 h-6 rounded-full shrink-0 ${config.always_classify ? 'bg-violet-500' : 'bg-neutral-300'}`}>
           <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.always_classify ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+        <div className="min-w-0">
+          <p className="font-bold text-sm text-amber-950">Auto-confirmar reservas confiaveis</p>
+          <p className="text-xs text-amber-800">Desligado por padrao. Quando ligado, so confirma com remetente confiavel, codigo externo, alta confianca e disponibilidade.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, auto_confirm_enabled: !p.auto_confirm_enabled }))} className={`w-10 h-6 rounded-full shrink-0 ${config.auto_confirm_enabled ? 'bg-amber-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.auto_confirm_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
         </button>
       </div>
 

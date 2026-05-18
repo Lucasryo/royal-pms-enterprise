@@ -212,6 +212,104 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
   const estimateTotal = estimateNights * (formData.tariff || 0);
   const formatBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  const iterStayDates = (checkIn: string, checkOut: string) => {
+    const dates: string[] = [];
+    const start = new Date(`${checkIn}T12:00:00`);
+    const end = new Date(`${checkOut}T12:00:00`);
+    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+    return dates;
+  };
+
+  const checkRequestAvailability = async (request: ReservationRequest) => {
+    const category = String(request.category || 'executivo').toLowerCase();
+    const checkIn = request.check_in;
+    const checkOut = request.check_out;
+    const dates = iterStayDates(checkIn, checkOut);
+
+    const { data: blockedRows } = await supabase
+      .from('booking_blocked_dates')
+      .select('start_date, end_date, reason, category')
+      .eq('active', true)
+      .lte('start_date', checkOut)
+      .gte('end_date', checkIn)
+      .or(`category.is.null,category.eq.${category}`);
+
+    const blocked = (blockedRows ?? []) as Array<{ start_date: string; end_date: string; reason?: string | null }>;
+    const blockedDates = dates.filter((day) => blocked.some((row) => row.start_date <= day && row.end_date >= day));
+    if (blockedDates.length > 0) {
+      const firstBlock = blocked.find((row) => row.start_date <= blockedDates[0] && row.end_date >= blockedDates[0]);
+      return {
+        available: false,
+        min_left: 0,
+        total: 0,
+        full_dates: blockedDates,
+        reason: firstBlock?.reason
+          ? `Reservas bloqueadas para este periodo: ${firstBlock.reason}`
+          : `Reservas bloqueadas para ${blockedDates.length} data(s) do periodo.`,
+      };
+    }
+
+    const { data: roomRows } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('category', category)
+      .eq('is_virtual', false);
+    const total = (roomRows ?? []).length;
+    if (total === 0) {
+      return { available: false, min_left: 0, total: 0, full_dates: [], reason: 'Categoria sem inventario cadastrado.' };
+    }
+
+    let reqQuery = supabase
+      .from('reservation_requests')
+      .select('id, check_in, check_out')
+      .eq('category', category)
+      .neq('status', 'REJECTED')
+      .lte('check_in', checkOut)
+      .gt('check_out', checkIn);
+
+    if (request.id) reqQuery = reqQuery.neq('id', request.id);
+
+    const [resvResult, reqResult] = await Promise.all([
+      supabase
+        .from('reservations')
+        .select('check_in, check_out')
+        .eq('category', category)
+        .neq('status', 'CANCELLED')
+        .lte('check_in', checkOut)
+        .gt('check_out', checkIn),
+      reqQuery,
+    ]);
+
+    if (resvResult.error) throw resvResult.error;
+    if (reqResult.error) throw reqResult.error;
+
+    const all = [
+      ...((resvResult.data ?? []) as Array<{ check_in: string; check_out: string }>),
+      ...((reqResult.data ?? []) as Array<{ check_in: string; check_out: string }>),
+    ];
+
+    let minLeft = total;
+    const fullDates: string[] = [];
+    for (const day of dates) {
+      const occupied = all.filter((row) => row.check_in <= day && row.check_out > day).length;
+      const left = total - occupied;
+      if (left < minLeft) minLeft = left;
+      if (left <= 0) fullDates.push(day);
+    }
+
+    return {
+      available: minLeft > 0,
+      min_left: Math.max(0, minLeft),
+      total,
+      full_dates: fullDates,
+      reason: fullDates.length > 0
+        ? `Sem disponibilidade nesta categoria para ${fullDates.length} data(s) do periodo.`
+        : '',
+    };
+  };
+
   useEffect(() => {
     fetchData();
     const resChannel = supabase.channel('reservations-sync').on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, fetchData).subscribe();
@@ -326,7 +424,35 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     }
     try {
       setLoading(true);
-      const { id: _reqId, source_message_id: _sourceMsg, ...requestData } = request as any;
+      const requestAvailability = await checkRequestAvailability(request);
+      if (!requestAvailability.available) {
+        const reviewNote = `REVISAO: aprovacao bloqueada por disponibilidade em ${new Date().toISOString()} - ${requestAvailability.reason}`;
+        await supabase
+          .from('reservation_requests')
+          .update({
+            billing_obs: [request.billing_obs, reviewNote].filter(Boolean).join(' | '),
+          })
+          .eq('id', request.id);
+        toast.error(requestAvailability.reason || 'Sem disponibilidade para aprovar esta solicitacao.');
+        await logAudit({
+          user_id: profile.id,
+          user_name: profile.name,
+          action: 'Aprovacao bloqueada',
+          details: {
+            module: 'reservas',
+            reservation_code: request.reservation_code,
+            guest_name: request.guest_name,
+            reason: requestAvailability.reason,
+            full_dates: requestAvailability.full_dates,
+            summary: `Aprovacao bloqueada por indisponibilidade para ${request.guest_name}`,
+          },
+          type: 'update'
+        });
+        fetchData();
+        return;
+      }
+
+      const { id: _reqId, ...requestData } = request as any;
       const { data: reservation, error: approveError } = await supabase
         .from('reservations')
         .insert([{

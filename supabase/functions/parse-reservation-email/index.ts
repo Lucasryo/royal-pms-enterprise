@@ -22,6 +22,8 @@ type ParserConfig = {
   min_confidence: "high" | "medium" | "low";
   default_category: string;
   voucher_url_domains: string[];
+  auto_confirm_enabled: boolean;
+  auto_confirm_sender_whitelist: string[];
 };
 type BotConfig = { api_key: string; model: string; provider: string };
 type AttachmentRef = { path: string; name: string; size: number; mime: string };
@@ -40,6 +42,7 @@ type Extracted = {
   total_amount?: number;
   tariff?: number;
   source?: string;
+  external_reservation_code?: string;
   notes?: string;
   // Corporativo
   is_corporate?: boolean;
@@ -54,6 +57,18 @@ type Extracted = {
   company_cnpj?: string;
 };
 
+class GroqRateLimitError extends Error {
+  retryAfterSeconds: number | null;
+  detail: string;
+
+  constructor(detail: string, retryAfterSeconds: number | null) {
+    super("Groq rate limit reached");
+    this.name = "GroqRateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.detail = detail;
+  }
+}
+
 async function loadConfig(): Promise<ParserConfig> {
   const defaults: ParserConfig = {
     enabled: false, always_classify: false,
@@ -61,6 +76,8 @@ async function loadConfig(): Promise<ParserConfig> {
     subject_keywords: ["reserva", "booking", "reservation", "confirmation"],
     min_confidence: "medium", default_category: "executivo",
     voucher_url_domains: ["b2breservas.com.br"],
+    auto_confirm_enabled: false,
+    auto_confirm_sender_whitelist: [],
   };
   const { data } = await admin.from("app_settings").select("value").eq("id", "email_parser_config").maybeSingle();
   if (!data?.value) return defaults;
@@ -237,6 +254,7 @@ function buildExtractionTool(): ToolSchema {
         total_amount: { type: "number", description: "Valor total em BRL" },
         tariff: { type: "number", description: "Tarifa por noite em BRL" },
         source: { type: "string", description: "BOOKING_COM, AIRBNB, EXPEDIA, PETROBRAS, DIRECT_EMAIL, etc." },
+        external_reservation_code: { type: "string", description: "Codigo externo da reserva/voucher/OTA/agencia/empresa. Ex: Booking confirmation number, codigo B2B, localizador, voucher number. Omitir se nao existir claramente." },
         notes: { type: "string" },
 
         is_corporate: { type: "boolean", description: "true se eh reserva de empresa (Petrobras, etc). OTAs nao contam." },
@@ -280,10 +298,132 @@ Regras corporativas:
 - "OS 12345", "CC-XXXX", "projeto YYYY" = cost_center
 - Se tem PDF/imagem anexada (voucher Petrobras, screenshot interno), leia TUDO o que conseguir
 - Tarifa pode estar so em uma das fontes (corpo ou anexo) - use a mais especifica
+- Sempre extraia external_reservation_code quando houver codigo/localizador/numero de voucher claramente identificado. Nao invente codigo.
 
 Datas SEMPRE YYYY-MM-DD (converta de "20/01/2026" ou "20 de janeiro de 2026"). Se incerto sobre algum campo, OMITA (nao invente).
 confidence="high" se tem nome+datas+valor. "medium" se faltam alguns. "low" se esta adivinhando.
 Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyList}${companyContext}`;
+}
+
+function cleanExternalCode(value: unknown): string | null {
+  const text = String(value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (text.length < 4 || text.length > 80) return null;
+  return text.replace(/[^A-Z0-9._/-]/g, "");
+}
+
+function cleanCategory(value: unknown, fallback: string): string {
+  const category = String(value ?? fallback).trim().toLowerCase();
+  return ["executivo", "master", "suite presidencial"].includes(category) ? category : fallback;
+}
+
+function iterDates(startISO: string, endISO: string): string[] {
+  const out: string[] = [];
+  const start = new Date(`${startISO}T12:00:00Z`);
+  const end = new Date(`${endISO}T12:00:00Z`);
+  for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+async function checkAvailability(
+  category: string,
+  checkIn: string,
+  checkOut: string,
+): Promise<{ available: boolean; min_left: number; total: number; full_dates: string[]; reason: string; blocked?: boolean }> {
+  const dates = iterDates(checkIn, checkOut);
+  const { data: blockedRows } = await admin
+    .from("booking_blocked_dates")
+    .select("start_date, end_date, reason, category")
+    .eq("active", true)
+    .lte("start_date", checkOut)
+    .gte("end_date", checkIn)
+    .or(`category.is.null,category.eq.${category}`);
+
+  type BlockedRow = { start_date: string; end_date: string; reason: string | null };
+  const blocked = (blockedRows ?? []) as BlockedRow[];
+  const blockedDatesInRange = dates.filter((d) => blocked.some((b) => b.start_date <= d && b.end_date >= d));
+  if (blockedDatesInRange.length > 0) {
+    const firstBlock = blocked.find((b) => b.start_date <= blockedDatesInRange[0] && b.end_date >= blockedDatesInRange[0]);
+    return {
+      available: false,
+      min_left: 0,
+      total: 0,
+      full_dates: blockedDatesInRange,
+      reason: firstBlock?.reason
+        ? `Reservas bloqueadas para este periodo: ${firstBlock.reason}`
+        : `Reservas bloqueadas para ${blockedDatesInRange.length} data(s) do periodo.`,
+      blocked: true,
+    };
+  }
+
+  const { data: roomRows } = await admin
+    .from("rooms")
+    .select("id")
+    .eq("category", category)
+    .eq("is_virtual", false);
+  const total = (roomRows ?? []).length;
+  if (total === 0) return { available: false, min_left: 0, total: 0, full_dates: [], reason: "Categoria sem inventario cadastrado." };
+
+  const [resvRes, reqRes] = await Promise.all([
+    admin
+      .from("reservations")
+      .select("check_in, check_out")
+      .eq("category", category)
+      .neq("status", "CANCELLED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+    admin
+      .from("reservation_requests")
+      .select("check_in, check_out")
+      .eq("category", category)
+      .neq("status", "REJECTED")
+      .lte("check_in", checkOut)
+      .gt("check_out", checkIn),
+  ]);
+
+  type Booked = { check_in: string; check_out: string };
+  const all: Booked[] = [
+    ...((resvRes.data ?? []) as Booked[]),
+    ...((reqRes.data ?? []) as Booked[]),
+  ];
+
+  let minLeft = total;
+  const fullDates: string[] = [];
+  for (const date of dates) {
+    const occupied = all.filter((r) => r.check_in <= date && r.check_out > date).length;
+    const left = total - occupied;
+    if (left < minLeft) minLeft = left;
+    if (left <= 0) fullDates.push(date);
+  }
+
+  return {
+    available: minLeft > 0,
+    min_left: Math.max(0, minLeft),
+    total,
+    full_dates: fullDates,
+    reason: fullDates.length > 0
+      ? `Sem disponibilidade nesta categoria para ${fullDates.length} data(s) do periodo.`
+      : "",
+  };
+}
+
+async function logImportEvent(payload: Record<string, unknown>) {
+  try {
+    await admin.from("reservation_import_logs").insert([{
+      channel: "email",
+      event_type: payload.event_type ?? "parser_event",
+      inbox_message_id: payload.inbox_message_id ?? null,
+      reservation_request_id: payload.reservation_request_id ?? null,
+      reservation_id: payload.reservation_id ?? null,
+      external_reservation_code: payload.external_reservation_code ?? null,
+      source_message_id: payload.source_message_id ?? null,
+      reason: payload.reason ?? null,
+      payload,
+    }]);
+  } catch (err) {
+    console.warn(`[reservation-import-log] ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 function buildUserText(subject: string, body: string, bodyHtml: string, vouchers: Array<{ url: string; text: string }>): string {
@@ -357,9 +497,19 @@ async function extractViaGroq(
       if (!call) return { is_reservation: false, confidence: "low" };
       try { return JSON.parse(call.function.arguments) as Extracted; } catch { return { is_reservation: false, confidence: "low" }; }
     }
-    lastErr = `${r.status}: ${(await r.text()).slice(0, 200)}`;
-    if (r.status !== 429 && r.status < 500) throw new Error(`Groq ${lastErr}`);
+    const errorText = await r.text();
+    lastErr = `${r.status}: ${errorText.slice(0, 200)}`;
     const retryAfter = Number(r.headers.get("retry-after")) || 0;
+    if (r.status === 429) {
+      let groqError: { error?: { message?: string; type?: string; code?: string } } | null = null;
+      try { groqError = JSON.parse(errorText); } catch { /* ignore */ }
+      const message = groqError?.error?.message ?? errorText;
+      const isDailyTokenLimit = message.toLowerCase().includes("tokens per day") || message.toLowerCase().includes("tpd");
+      if (isDailyTokenLimit || retryAfter > 300) {
+        throw new GroqRateLimitError(message.slice(0, 500), retryAfter || null);
+      }
+    }
+    if (r.status !== 429 && r.status < 500) throw new Error(`Groq ${lastErr}`);
     const waitMs = retryAfter > 0 ? Math.min(retryAfter * 1000, 30_000) : 1000 * Math.pow(2, attempt);
     await new Promise(res => setTimeout(res, waitMs));
   }
@@ -379,7 +529,10 @@ async function extractReservation(
   const tool = buildExtractionTool();
   const systemPrompt = buildSystemPrompt(companyHint, companies);
   const userText = buildUserText(subject, body, bodyHtml, vouchers);
-  if (botCfg.provider === "groq") return extractViaGroq(botCfg, systemPrompt, userText, tool);
+  if (botCfg.provider === "groq") {
+    const compactUserText = userText.length > 5000 ? `${userText.slice(0, 5000)}\n\n[conteudo truncado para reduzir uso de tokens no Groq]` : userText;
+    return extractViaGroq(botCfg, systemPrompt, compactUserText, tool);
+  }
   return extractViaAnthropic(botCfg, systemPrompt, userText, attachments, tool);
 }
 
@@ -406,8 +559,28 @@ serve(async (req) => {
   if (msg.direction !== "in") return json({ skipped: "not_incoming" });
 
   const sourceKey = `email:${msg.id}`;
-  const { data: existing } = await admin.from("reservation_requests").select("id").eq("source_message_id", sourceKey).maybeSingle();
-  if (existing) return json({ skipped: "already_processed", reservation_request_id: (existing as { id: string }).id });
+  const { data: existingRequestBySource } = await admin.from("reservation_requests").select("id").eq("source_message_id", sourceKey).maybeSingle();
+  if (existingRequestBySource) {
+    await logImportEvent({
+      event_type: "duplicate_source_message",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reservation_request_id: (existingRequestBySource as { id: string }).id,
+      reason: "Mensagem ja processada em reservation_requests.",
+    });
+    return json({ skipped: "already_processed", reservation_request_id: (existingRequestBySource as { id: string }).id });
+  }
+  const { data: existingReservationBySource } = await admin.from("reservations").select("id").eq("source_message_id", sourceKey).maybeSingle();
+  if (existingReservationBySource) {
+    await logImportEvent({
+      event_type: "duplicate_source_message",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reservation_id: (existingReservationBySource as { id: string }).id,
+      reason: "Mensagem ja processada em reservations.",
+    });
+    return json({ skipped: "already_confirmed", reservation_id: (existingReservationBySource as { id: string }).id });
+  }
 
   // Carrega empresas ativas pra identificar (LLM + heuristica)
   const allCompanies = await loadActiveCompanies();
@@ -441,6 +614,22 @@ serve(async (req) => {
   try {
     extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies, vouchers);
   } catch (err) {
+    if (err instanceof GroqRateLimitError) {
+      await logImportEvent({
+        event_type: "llm_rate_limited",
+        inbox_message_id: msg.id,
+        source_message_id: sourceKey,
+        reason: "Groq atingiu limite de tokens; email nao foi classificado.",
+        retry_after_seconds: err.retryAfterSeconds,
+        detail: err.detail,
+      });
+      return json({
+        skipped: "llm_rate_limited",
+        provider: "groq",
+        retry_after_seconds: err.retryAfterSeconds,
+        detail: err.detail,
+      }, 429);
+    }
     return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
 
@@ -462,26 +651,120 @@ serve(async (req) => {
   }
 
   if (!extracted.guest_name || !extracted.check_in || !extracted.check_out) {
+    await logImportEvent({
+      event_type: "manual_review_required",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reason: "Dados obrigatorios ausentes.",
+      extracted,
+    });
     return json({ skipped: "missing_required", extracted });
   }
-  if (extracted.check_in >= extracted.check_out) return json({ skipped: "invalid_dates", extracted });
+  if (extracted.check_in >= extracted.check_out) {
+    await logImportEvent({
+      event_type: "manual_review_required",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reason: "Datas invalidas.",
+      extracted,
+    });
+    return json({ skipped: "invalid_dates", extracted });
+  }
+
+  const category = cleanCategory(extracted.category, cfg.default_category ?? "executivo");
+  const externalReservationCode = cleanExternalCode(extracted.external_reservation_code);
+
+  if (externalReservationCode) {
+    const [duplicateRequest, duplicateReservation] = await Promise.all([
+      admin.from("reservation_requests").select("id, reservation_code").eq("external_reservation_code", externalReservationCode).maybeSingle(),
+      admin.from("reservations").select("id, reservation_code").eq("external_reservation_code", externalReservationCode).maybeSingle(),
+    ]);
+    if (duplicateRequest.data || duplicateReservation.data) {
+      await logImportEvent({
+        event_type: "duplicate_external_code",
+        inbox_message_id: msg.id,
+        source_message_id: sourceKey,
+        external_reservation_code: externalReservationCode,
+        reservation_request_id: (duplicateRequest.data as { id?: string } | null)?.id ?? null,
+        reservation_id: (duplicateReservation.data as { id?: string } | null)?.id ?? null,
+        reason: "Codigo externo ja importado.",
+        extracted,
+      });
+      return json({
+        skipped: "duplicate_external_reservation_code",
+        external_reservation_code: externalReservationCode,
+        reservation_request_id: (duplicateRequest.data as { id?: string } | null)?.id ?? null,
+        reservation_id: (duplicateReservation.data as { id?: string } | null)?.id ?? null,
+      });
+    }
+  } else {
+    const [fallbackRequestDuplicates, fallbackReservationDuplicates] = await Promise.all([
+      admin
+        .from("reservation_requests")
+        .select("id")
+        .ilike("guest_name", extracted.guest_name)
+        .eq("check_in", extracted.check_in)
+        .eq("check_out", extracted.check_out)
+        .eq("category", category)
+        .neq("status", "REJECTED")
+        .limit(1),
+      admin
+        .from("reservations")
+        .select("id")
+        .ilike("guest_name", extracted.guest_name)
+        .eq("check_in", extracted.check_in)
+        .eq("check_out", extracted.check_out)
+        .eq("category", category)
+        .neq("status", "CANCELLED")
+        .limit(1),
+    ]);
+    if ((fallbackRequestDuplicates.data ?? []).length > 0 || (fallbackReservationDuplicates.data ?? []).length > 0) {
+      const requestDuplicateId = ((fallbackRequestDuplicates.data ?? []) as Array<{ id: string }>)[0]?.id ?? null;
+      const reservationDuplicateId = ((fallbackReservationDuplicates.data ?? []) as Array<{ id: string }>)[0]?.id ?? null;
+      await logImportEvent({
+        event_type: "possible_duplicate",
+        inbox_message_id: msg.id,
+        source_message_id: sourceKey,
+        reservation_request_id: requestDuplicateId,
+        reservation_id: reservationDuplicateId,
+        reason: "Possivel duplicidade por hospede, periodo e categoria sem codigo externo.",
+        extracted,
+      });
+      return json({ skipped: "possible_duplicate", reservation_request_id: requestDuplicateId, reservation_id: reservationDuplicateId });
+    }
+  }
+
+  const availability = await checkAvailability(category, extracted.check_in, extracted.check_out);
+  const hasAvailability = availability.available;
 
   const code = "EML-" + Math.random().toString(36).slice(2, 8).toUpperCase();
   const billingObsCombined = [
+    !hasAvailability ? `REVISAO: ${availability.reason || "Sem disponibilidade no periodo."}` : null,
     extracted.billing_obs,
     extracted.extras ? `Extras: ${extracted.extras}` : null,
+    externalReservationCode ? `Codigo externo: ${externalReservationCode}` : null,
   ].filter(Boolean).join(" | ") || null;
 
-  const { data: inserted, error } = await admin.from("reservation_requests").insert([{
+  const senderLow = (msg.contact_identifier ?? "").toLowerCase();
+  const autoConfirmWhitelist = cfg.auto_confirm_sender_whitelist?.length ? cfg.auto_confirm_sender_whitelist : cfg.sender_whitelist;
+  const trustedForAutoConfirm = autoConfirmWhitelist.some(d => senderLow.includes(d.toLowerCase()));
+  const canAutoConfirm = Boolean(
+    cfg.auto_confirm_enabled &&
+    trustedForAutoConfirm &&
+    extracted.confidence === "high" &&
+    externalReservationCode &&
+    hasAvailability,
+  );
+
+  const reservationPayload = {
     guest_name: extracted.guest_name,
     check_in: extracted.check_in,
     check_out: extracted.check_out,
-    status: "REQUESTED",
     company_id: company?.id ?? null,
     total_amount: extracted.total_amount ?? 0,
     reservation_code: code,
     tariff: extracted.tariff ?? 0,
-    category: extracted.category ?? cfg.default_category ?? "executivo",
+    category,
     guests_per_uh: (extracted.adults ?? 1) + (extracted.children ?? 0),
     adults: extracted.adults ?? 1,
     children: extracted.children ?? 0,
@@ -495,14 +778,68 @@ serve(async (req) => {
     payment_method: extracted.payment_method ?? (company ? "BILLED" : "CREDIT_CARD"),
     billing_info: extracted.billing_info ?? null,
     source_message_id: sourceKey,
+    external_reservation_code: externalReservationCode,
+  };
+
+  if (canAutoConfirm) {
+    const { data: confirmed, error: confirmError } = await admin.from("reservations").insert([{
+      ...reservationPayload,
+      status: "CONFIRMED",
+      created_at: new Date().toISOString(),
+    }]).select("id, reservation_code").single();
+    if (confirmError) return json({ error: confirmError.message }, 500);
+
+    await logImportEvent({
+      event_type: "auto_confirmed",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reservation_id: (confirmed as { id: string }).id,
+      external_reservation_code: externalReservationCode,
+      reason: "Reserva confirmada automaticamente por criterios confiaveis.",
+      availability,
+      extracted,
+    });
+
+    return json({
+      confirmed: true,
+      reservation_id: (confirmed as { id: string }).id,
+      code: (confirmed as { reservation_code: string }).reservation_code,
+      company: company?.name ?? null,
+      external_reservation_code: externalReservationCode,
+      availability,
+      attachments_processed: downloadedAtt.length,
+      vouchers_fetched: vouchers.length,
+      extracted,
+    });
+  }
+
+  const { data: inserted, error } = await admin.from("reservation_requests").insert([{
+    ...reservationPayload,
+    status: "REQUESTED",
   }]).select("id, reservation_code").single();
   if (error) return json({ error: error.message }, 500);
+
+  await logImportEvent({
+    event_type: hasAvailability ? "request_created" : "manual_review_required",
+    inbox_message_id: msg.id,
+    source_message_id: sourceKey,
+    reservation_request_id: (inserted as { id: string }).id,
+    external_reservation_code: externalReservationCode,
+    reason: hasAvailability
+      ? (cfg.auto_confirm_enabled ? "Nao atende todos os criterios de auto-confirmacao." : "Auto-confirmacao desativada.")
+      : (availability.reason || "Sem disponibilidade no periodo."),
+    availability,
+    extracted,
+  });
 
   return json({
     created: true,
     reservation_request_id: (inserted as { id: string }).id,
     code: (inserted as { reservation_code: string }).reservation_code,
     company: company?.name ?? null,
+    external_reservation_code: externalReservationCode,
+    availability,
+    auto_confirm_candidate: canAutoConfirm,
     attachments_processed: downloadedAtt.length,
     vouchers_fetched: vouchers.length,
     extracted,
