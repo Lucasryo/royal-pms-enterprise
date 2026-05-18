@@ -326,7 +326,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
     }
     try {
       setLoading(true);
-      const { id: _reqId, ...requestData } = request as any;
+      const { id: _reqId, source_message_id: _sourceMsg, ...requestData } = request as any;
       const { data: reservation, error: approveError } = await supabase
         .from('reservations')
         .insert([{
