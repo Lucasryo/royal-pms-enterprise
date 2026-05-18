@@ -69,15 +69,33 @@ function useMouseParallax(strength = 12) {
  * ============================================================ */
 function Frame({ url, children, dark, className }: { url: string; children: ReactNode; dark?: boolean; className?: string }) {
   return (
-    <div className={`overflow-hidden rounded-xl border ${dark ? 'border-paper/15 bg-ink' : 'border-ink/10 bg-white'} shadow-[0_30px_80px_-30px_rgba(20,15,10,0.45)] ${className ?? ''}`}>
-      <div className={`flex items-center justify-between border-b px-4 py-2.5 ${dark ? 'border-paper/10 bg-ink/80' : 'border-ink/10 bg-paper/60'}`}>
-        <div className="flex items-center gap-1.5">
-          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
-          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
-          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
+    <div
+      className={`crisp-3d overflow-hidden rounded-2xl border-2 ${
+        dark ? 'border-paper/15 bg-ink' : 'border-ink/15 bg-white'
+      } shadow-[0_50px_120px_-30px_rgba(20,15,10,0.55),_0_8px_24px_-12px_rgba(20,15,10,0.25)] ring-1 ring-inset ${
+        dark ? 'ring-paper/5' : 'ring-ink/[0.03]'
+      } ${className ?? ''}`}
+    >
+      <div
+        className={`flex items-center justify-between border-b-2 px-5 py-3 ${
+          dark
+            ? 'border-paper/10 bg-gradient-to-b from-ink to-[oklch(0.13_0.012_60)]'
+            : 'border-ink/10 bg-gradient-to-b from-paper to-[oklch(0.96_0.012_85)]'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full ${dark ? 'bg-paper/20' : 'bg-red-400/80'}`} />
+          <span className={`h-3 w-3 rounded-full ${dark ? 'bg-paper/20' : 'bg-amber-400/80'}`} />
+          <span className={`h-3 w-3 rounded-full ${dark ? 'bg-paper/20' : 'bg-emerald-400/80'}`} />
         </div>
-        <span className={`text-[10px] uppercase tracking-[0.18em] ${dark ? 'text-paper/45' : 'text-stone-500'}`}>{url}</span>
-        <span className="w-10" />
+        <span
+          className={`rounded-full px-3 py-0.5 text-xs font-medium tracking-[0.04em] ${
+            dark ? 'bg-paper/8 text-paper/70' : 'bg-ink/5 text-ink/70'
+          }`}
+        >
+          {url}
+        </span>
+        <span className="w-14" />
       </div>
       {children}
     </div>
@@ -99,42 +117,42 @@ function DashboardScreen() {
       <div className="p-5 text-paper sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-paper/45">Painel · Hotel Boutique</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-paper/45">Painel · Hotel Boutique</p>
             <p className="mt-1 font-display text-xl font-light">Quarta · 18 mai · 14h22</p>
           </div>
           <div className="flex items-center gap-2 rounded-full bg-paper/8 px-3 py-1">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse-dot" />
-            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-paper/70">ao vivo</span>
+            <span className="text-xs font-medium uppercase tracking-[0.18em] text-paper/70">ao vivo</span>
           </div>
         </div>
 
         {/* KPI principal */}
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Ocupação</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">Ocupação</p>
             <p className="mt-1 font-display text-3xl font-light">84%</p>
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-paper/10">
               <div className="h-full w-[84%] rounded-full bg-gradient-to-r from-gold to-gold-soft" />
             </div>
-            <p className="mt-1.5 text-[10px] text-paper/55">68 / 81 UHs</p>
+            <p className="mt-1.5 text-xs text-paper/55">68 / 81 UHs</p>
           </div>
           <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">ADR</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">ADR</p>
             <p className="mt-1 font-display text-3xl font-light">R$ 286</p>
-            <p className="mt-2.5 text-[10px] text-emerald-300/90">▲ 4,2% vs semana</p>
+            <p className="mt-2.5 text-xs text-emerald-300/90">▲ 4,2% vs semana</p>
           </div>
           <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">RevPAR</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">RevPAR</p>
             <p className="mt-1 font-display text-3xl font-light">R$ 240</p>
-            <p className="mt-2.5 text-[10px] text-emerald-300/90">▲ 6,8% vs semana</p>
+            <p className="mt-2.5 text-xs text-emerald-300/90">▲ 6,8% vs semana</p>
           </div>
         </div>
 
         {/* Gráfico de barras */}
         <div className="mt-5 rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Receita diária · últimos 12 dias</p>
-            <p className="text-[10px] text-paper/55">R$ 142,8 mil acum.</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">Receita diária · últimos 12 dias</p>
+            <p className="text-xs text-paper/55">R$ 142,8 mil acum.</p>
           </div>
           <div className="mt-4 flex h-24 items-end gap-1.5">
             {bars.map((h, i) => (
@@ -150,7 +168,7 @@ function DashboardScreen() {
         {/* Sparkline + atividade */}
         <div className="mt-3 grid gap-3 sm:grid-cols-5">
           <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10 sm:col-span-2">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Tendência ADR · 15d</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">Tendência ADR · 15d</p>
             <svg viewBox="0 0 260 80" className="mt-2 w-full">
               <defs>
                 <linearGradient id="spg" x1="0" x2="0" y1="0" y2="1">
@@ -163,8 +181,8 @@ function DashboardScreen() {
             </svg>
           </div>
           <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10 sm:col-span-3">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Atividade recente</p>
-            <ul className="mt-3 space-y-2 text-[11px]">
+            <p className="text-xs uppercase tracking-[0.2em] text-paper/45">Atividade recente</p>
+            <ul className="mt-3 space-y-2 text-xs">
               {[
                 ['bg-gold',    'UH 312 liberada para governança',     'há 2 min'],
                 ['bg-emerald-400', 'Pagamento reserva #1842 conciliado', 'há 12 min'],
@@ -173,7 +191,7 @@ function DashboardScreen() {
                 <li key={i} className="flex items-center gap-2.5">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
                   <span className="flex-1 truncate text-paper/85">{t}</span>
-                  <span className="text-[10px] text-paper/45">{ts}</span>
+                  <span className="text-xs text-paper/45">{ts}</span>
                 </li>
               ))}
             </ul>
@@ -206,33 +224,33 @@ function RatesScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Tarifário · Maio</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Tarifário · Maio</p>
             <p className="mt-1 font-display text-xl font-light text-ink">Categoria Luxo Vista Mar</p>
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-stone-500">
+          <div className="flex items-center gap-2 text-xs text-stone-500">
             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-ink" /> 90%+</span>
             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-gold/80" /> 75%</span>
             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-gold/40" /> 60%</span>
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-7 gap-1 text-[10px]">
+        <div className="mt-5 grid grid-cols-7 gap-1 text-xs">
           {days.map(d => <div key={d} className="text-center font-medium uppercase tracking-wider text-stone-500">{d}</div>)}
           {cells.map((c, i) => (
             <div key={i} className={`rounded-md ${heat(c.occ)} p-1.5`}>
-              <p className="text-[9px] opacity-70">{i + 1}</p>
-              <p className="mt-0.5 font-display text-[11px] font-medium leading-none">R${c.rate}</p>
-              <p className="mt-0.5 text-[9px] opacity-70">{c.occ}%</p>
+              <p className="text-[10px] opacity-70">{i + 1}</p>
+              <p className="mt-0.5 font-display text-xs font-medium leading-none">R${c.rate}</p>
+              <p className="mt-0.5 text-[10px] opacity-70">{c.occ}%</p>
             </div>
           ))}
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-ink/10 pt-3">
           <div className="flex items-center gap-3">
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Channel manager sincronizado</span>
-            <span className="text-[10px] text-stone-500">há 1 min</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Channel manager sincronizado</span>
+            <span className="text-xs text-stone-500">há 1 min</span>
           </div>
-          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">
+          <button className="rounded-full bg-ink px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-paper">
             Aplicar regra de yield
           </button>
         </div>
@@ -264,10 +282,10 @@ function HousekeepingScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Governança · Andar 3</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Governança · Andar 3</p>
             <p className="mt-1 font-display text-xl font-light text-ink">Escala da camareira · Joana M.</p>
           </div>
-          <div className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">
+          <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium uppercase tracking-wider text-emerald-700">
             7 de 12 prontos
           </div>
         </div>
@@ -277,16 +295,16 @@ function HousekeepingScreen() {
             <div key={r.n} className={`rounded-lg border ${meta[r.s].cls} p-2.5`}>
               <div className="flex items-center justify-between">
                 <p className="font-display text-base font-medium leading-none">{r.n}</p>
-                <span className="text-[9px] uppercase tracking-wider opacity-80">{meta[r.s].lbl}</span>
+                <span className="text-[10px] uppercase tracking-wider opacity-80">{meta[r.s].lbl}</span>
               </div>
               {r.g
-                ? <p className="mt-2 text-[10px] opacity-80 truncate">{r.g}</p>
-                : <p className="mt-2 text-[10px] opacity-50">—</p>}
+                ? <p className="mt-2 text-xs opacity-80 truncate">{r.g}</p>
+                : <p className="mt-2 text-xs opacity-50">—</p>}
             </div>
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-[10px]">
+        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-xs">
           <div>
             <p className="text-stone-500">Tempo médio</p>
             <p className="font-display text-lg font-light text-ink">28 min</p>
@@ -323,10 +341,10 @@ function MaintenanceScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Fila de chamados</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Fila de chamados</p>
             <p className="mt-1 font-display text-xl font-light text-ink">5 abertos · 2 em SLA crítico</p>
           </div>
-          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">
+          <button className="rounded-full bg-ink px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-paper">
             Novo chamado
           </button>
         </div>
@@ -334,17 +352,17 @@ function MaintenanceScreen() {
         <div className="mt-5 space-y-2">
           {items.map((i, k) => (
             <div key={k} className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper/40 px-3 py-2.5">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${pclr(i.p)}`}>{i.p}</span>
+              <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${pclr(i.p)}`}>{i.p}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-ink">{i.t}</p>
-                <p className="mt-0.5 text-[10px] text-stone-500">Responsável: <span className="text-ink/80">{i.u}</span> · SLA {i.sla}</p>
+                <p className="mt-0.5 text-xs text-stone-500">Responsável: <span className="text-ink/80">{i.u}</span> · SLA {i.sla}</p>
               </div>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${i.c}`}>{i.s}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wider ${i.c}`}>{i.s}</span>
             </div>
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-[10px]">
+        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-xs">
           <div><p className="text-stone-500">Tempo médio resolução</p><p className="font-display text-base text-ink">47 min</p></div>
           <div><p className="text-stone-500">SLA do mês</p><p className="font-display text-base text-emerald-700">96,4%</p></div>
           <div><p className="text-stone-500">Reincidências</p><p className="font-display text-base text-ink">2</p></div>
@@ -370,16 +388,16 @@ function POSScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Mesa 04 · Restaurante</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Mesa 04 · Restaurante</p>
             <p className="mt-1 font-display text-xl font-light text-ink">Hóspede · Mariana Aragão · UH 412</p>
           </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">aberta</span>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium uppercase tracking-wider text-emerald-700">aberta</span>
         </div>
 
         <div className="mt-5 divide-y divide-ink/10 rounded-xl border border-ink/10">
           {items.map(([q, n, v]) => (
             <div key={n} className="flex items-center gap-3 px-3 py-2 text-sm">
-              <span className="w-6 rounded bg-paper/60 text-center text-[11px] font-medium text-ink">{q}</span>
+              <span className="w-6 rounded bg-paper/60 text-center text-xs font-medium text-ink">{q}</span>
               <span className="flex-1 text-ink/85">{n}</span>
               <span className="font-display text-ink">{v}</span>
             </div>
@@ -388,20 +406,20 @@ function POSScreen() {
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="rounded-xl bg-paper/40 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-stone-500">Sub-total</p>
+            <p className="text-xs uppercase tracking-wider text-stone-500">Sub-total</p>
             <p className="font-display text-lg text-ink">R$ 140,00</p>
           </div>
           <div className="rounded-xl bg-ink p-3 text-paper">
-            <p className="text-[10px] uppercase tracking-wider text-paper/55">Total c/ couvert 10%</p>
+            <p className="text-xs uppercase tracking-wider text-paper/55">Total c/ couvert 10%</p>
             <p className="font-display text-lg">R$ 154,00</p>
           </div>
         </div>
 
         <div className="mt-3 flex gap-2">
-          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-[11px] font-medium uppercase tracking-wider text-ink/80">
+          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-xs font-medium uppercase tracking-wider text-ink/80">
             Dividir conta
           </button>
-          <button className="flex-1 rounded-lg bg-gold py-2 text-[11px] font-medium uppercase tracking-wider text-ink">
+          <button className="flex-1 rounded-lg bg-gold py-2 text-xs font-medium uppercase tracking-wider text-ink">
             Lançar no apto. 412
           </button>
         </div>
@@ -418,8 +436,8 @@ function ReceptionScreen() {
     <Frame url="royalpms.app · recepção / check-in">
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Check-in · 14h22</p>
-          <span className="rounded-full bg-gold/15 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-amber-800">VIP · 3ª estadia</span>
+          <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Check-in · 14h22</p>
+          <span className="rounded-full bg-gold/15 px-3 py-1 text-xs font-medium uppercase tracking-wider text-amber-800">VIP · 3ª estadia</span>
         </div>
 
         <div className="mt-4 rounded-xl border border-ink/10 bg-paper/50 p-4">
@@ -427,31 +445,31 @@ function ReceptionScreen() {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink font-display text-lg text-paper">MA</div>
             <div className="min-w-0">
               <p className="font-display text-lg text-ink">Mariana Aragão</p>
-              <p className="text-[11px] text-stone-500">RG verificado · LGPD aceita · pré-check-in feito 09h12</p>
+              <p className="text-xs text-stone-500">RG verificado · LGPD aceita · pré-check-in feito 09h12</p>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
             <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
-              <p className="text-[10px] text-stone-500">Unidade habitacional</p>
+              <p className="text-xs text-stone-500">Unidade habitacional</p>
               <p className="mt-0.5 font-display text-base text-ink">412 · Luxo Vista Mar</p>
             </div>
             <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
-              <p className="text-[10px] text-stone-500">Saída prevista</p>
+              <p className="text-xs text-stone-500">Saída prevista</p>
               <p className="mt-0.5 font-display text-base text-ink">21/mai · 11h00</p>
             </div>
             <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
-              <p className="text-[10px] text-stone-500">Tarifa / noite</p>
+              <p className="text-xs text-stone-500">Tarifa / noite</p>
               <p className="mt-0.5 font-display text-base text-ink">R$ 720,00</p>
             </div>
             <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
-              <p className="text-[10px] text-stone-500">Garantia</p>
+              <p className="text-xs text-stone-500">Garantia</p>
               <p className="mt-0.5 font-display text-base text-emerald-700">Pré-paga</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 space-y-1.5 text-[11px]">
+        <div className="mt-4 space-y-1.5 text-xs">
           {[
             'FNRH preenchida automaticamente do pré-check-in',
             'Vincular cartão para extras (frigobar, A&B, spa)',
@@ -465,8 +483,8 @@ function ReceptionScreen() {
         </div>
 
         <div className="mt-4 flex gap-2">
-          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-[11px] font-medium uppercase tracking-wider text-ink/80">Imprimir FNRH</button>
-          <button className="flex-1 rounded-lg bg-ink py-2 text-[11px] font-medium uppercase tracking-wider text-paper">Liberar chave</button>
+          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-xs font-medium uppercase tracking-wider text-ink/80">Imprimir FNRH</button>
+          <button className="flex-1 rounded-lg bg-ink py-2 text-xs font-medium uppercase tracking-wider text-paper">Liberar chave</button>
         </div>
       </div>
     </Frame>
@@ -495,16 +513,16 @@ function MarketingScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Campanhas · Maio</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Campanhas · Maio</p>
             <p className="mt-1 font-display text-xl font-light text-ink">Funil de conversão</p>
           </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">+R$ 40,5k geradas</span>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium uppercase tracking-wider text-emerald-700">+R$ 40,5k geradas</span>
         </div>
 
         <div className="mt-5 space-y-2">
           {funnel.map(f => (
             <div key={f.l}>
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-ink/80">{f.l}</span>
                 <span className="font-display text-ink">{f.v.toLocaleString('pt-BR')}</span>
               </div>
@@ -516,13 +534,13 @@ function MarketingScreen() {
         </div>
 
         <div className="mt-5 overflow-hidden rounded-xl border border-ink/10">
-          <div className="grid grid-cols-12 border-b border-ink/10 bg-paper/40 px-3 py-2 text-[10px] uppercase tracking-wider text-stone-500">
+          <div className="grid grid-cols-12 border-b border-ink/10 bg-paper/40 px-3 py-2 text-xs uppercase tracking-wider text-stone-500">
             <span className="col-span-6">Campanha</span><span className="col-span-2">Canal</span><span className="col-span-2 text-right">Conv.</span><span className="col-span-2 text-right">Receita</span>
           </div>
           {campaigns.map(c => (
-            <div key={c.n} className="grid grid-cols-12 items-center border-b border-ink/5 px-3 py-2 text-[11px] last:border-0">
+            <div key={c.n} className="grid grid-cols-12 items-center border-b border-ink/5 px-3 py-2 text-xs last:border-0">
               <div className="col-span-6 flex items-center gap-2 min-w-0">
-                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase ${c.cc}`}>{c.st}</span>
+                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase ${c.cc}`}>{c.st}</span>
                 <span className="truncate text-ink">{c.n}</span>
               </div>
               <span className="col-span-2 text-stone-600">{c.ch}</span>
@@ -559,12 +577,12 @@ function FinanceScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">DRE · Maio (parcial)</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">DRE · Maio (parcial)</p>
             <p className="mt-1 font-display text-xl font-light text-ink">Margem GOP <span className="text-emerald-700">34,9%</span></p>
           </div>
           <div className="flex gap-1.5">
             {['Maio','Abr','Mar'].map((m,i) => (
-              <span key={m} className={`rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider ${i===0?'bg-ink text-paper':'bg-paper/60 text-ink/70'}`}>{m}</span>
+              <span key={m} className={`rounded-full px-2.5 py-1 text-xs font-medium uppercase tracking-wider ${i===0?'bg-ink text-paper':'bg-paper/60 text-ink/70'}`}>{m}</span>
             ))}
           </div>
         </div>
@@ -572,7 +590,7 @@ function FinanceScreen() {
         <div className="mt-5 space-y-2">
           {dre.map(d => (
             <div key={d.l} className={`rounded-lg ${d.hl ? 'border border-ink/15 bg-ink text-paper' : 'bg-paper/40'} px-3 py-2`}>
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-xs">
                 <span className={d.hl ? '' : 'text-ink/80'}>{d.l}</span>
                 <span className={`font-display text-sm ${d.neg ? 'text-red-700' : d.hl ? 'text-gold' : 'text-ink'}`}>{d.v}</span>
               </div>
@@ -585,16 +603,16 @@ function FinanceScreen() {
 
         <div className="mt-5">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Conciliação bancária · Itaú 4567-8</p>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-medium text-emerald-700">98% conciliado</span>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Conciliação bancária · Itaú 4567-8</p>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">98% conciliado</span>
           </div>
           <div className="mt-2 divide-y divide-ink/10 rounded-xl border border-ink/10">
             {bank.map((b,i) => (
-              <div key={i} className="grid grid-cols-12 items-center px-3 py-2 text-[11px]">
+              <div key={i} className="grid grid-cols-12 items-center px-3 py-2 text-xs">
                 <span className="col-span-2 text-stone-500">{b.d}</span>
                 <span className="col-span-6 truncate text-ink/85">{b.t}</span>
                 <span className={`col-span-2 text-right font-display ${b.v.startsWith('+') ? 'text-emerald-700' : 'text-red-700'}`}>{b.v}</span>
-                <span className={`col-span-2 text-center rounded-full py-0.5 text-[9px] font-medium uppercase tracking-wider ${b.c}`}>{b.s}</span>
+                <span className={`col-span-2 text-center rounded-full py-0.5 text-[10px] font-medium uppercase tracking-wider ${b.c}`}>{b.s}</span>
               </div>
             ))}
           </div>
@@ -626,10 +644,10 @@ function EventsScreen() {
       <div className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Pipeline · próximos 60 dias</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">Pipeline · próximos 60 dias</p>
             <p className="mt-1 font-display text-xl font-light text-ink">R$ 258,2k em propostas ativas</p>
           </div>
-          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">Nova proposta</button>
+          <button className="rounded-full bg-ink px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-paper">Nova proposta</button>
         </div>
 
         <div className="mt-5 grid grid-cols-3 gap-3">
@@ -640,7 +658,7 @@ function EventsScreen() {
           ].map(s => (
             <div key={s.l} className="rounded-xl bg-paper/40 p-3">
               <p className="font-display text-2xl font-light text-ink">{s.n}</p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-wider text-stone-500">{s.l}</p>
+              <p className="mt-0.5 text-xs uppercase tracking-wider text-stone-500">{s.l}</p>
             </div>
           ))}
         </div>
@@ -650,21 +668,21 @@ function EventsScreen() {
             <div key={p.c} className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper/40 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-ink">{p.c}</p>
-                <p className="mt-0.5 text-[10px] text-stone-500">{p.d} · {p.pax} pax · <span className="text-ink/80">{p.v}</span></p>
+                <p className="mt-0.5 text-xs text-stone-500">{p.d} · {p.pax} pax · <span className="text-ink/80">{p.v}</span></p>
               </div>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${p.cl}`}>{p.s}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wider ${p.cl}`}>{p.s}</span>
             </div>
           ))}
         </div>
 
         <div className="mt-4 rounded-xl border border-ink/10 bg-ink p-3 text-paper">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-paper/55">Linha do tempo · 22/jun · Banco Próspero</p>
-            <p className="text-[10px] text-paper/55">Salão Boreal · 240 pax</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-paper/55">Linha do tempo · 22/jun · Banco Próspero</p>
+            <p className="text-xs text-paper/55">Salão Boreal · 240 pax</p>
           </div>
           <ol className="mt-3 space-y-1.5">
             {timeline.map(e => (
-              <li key={e.h} className="flex items-center gap-3 text-[11px]">
+              <li key={e.h} className="flex items-center gap-3 text-xs">
                 <span className="w-12 font-display text-gold">{e.h}</span>
                 <span className="h-1 w-1 rounded-full bg-gold" />
                 <span className="text-paper/85">{e.t}</span>
@@ -692,7 +710,7 @@ function HeroVitrine() {
         style={{ background: 'radial-gradient(closest-side, rgba(218,170,90,0.35), transparent 70%)' }}
       />
 
-      <motion.div style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }} className="relative">
+      <motion.div style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }} className="relative crisp-3d">
         {/* tela principal */}
         <div style={{ transform: 'translateZ(40px)' }}>
           <DashboardScreen />
@@ -712,9 +730,9 @@ function HeroVitrine() {
               </svg>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Faturamento</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-stone-500">Faturamento</p>
               <p className="font-display text-lg font-medium leading-tight text-ink">R$ 142,8 mil</p>
-              <p className="text-[10px] text-stone-500">acumulado · maio</p>
+              <p className="text-xs text-stone-500">acumulado · maio</p>
             </div>
           </div>
         </motion.div>
@@ -726,9 +744,9 @@ function HeroVitrine() {
           style={{ transform: 'translateZ(160px)' }}
           className="absolute -right-4 -top-6 hidden w-60 rounded-2xl border border-ink/10 bg-paper/95 p-4 shadow-2xl backdrop-blur md:block"
         >
-          <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Reserva confirmada</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-stone-500">Reserva confirmada</p>
           <p className="mt-1 font-display text-sm text-ink">Família Carvalho · 3 noites</p>
-          <div className="mt-2 flex items-center justify-between text-[10px] text-stone-500">
+          <div className="mt-2 flex items-center justify-between text-xs text-stone-500">
             <span>Suíte Master · 28–30 mai</span>
             <span className="font-display text-ink">R$ 4.320</span>
           </div>
@@ -774,8 +792,9 @@ const modules = [
   { n: '04', title: 'Manutenção',  desc: 'Chamados priorizados por UH, fotos, fila por setor e SLA.',                 icon: ic('M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z') },
   { n: '05', title: 'A&B / POS',   desc: 'Comandas, débito em conta e ponto de venda integrado.',                     icon: ic('M4 3v18M4 8h6M10 3v18M14 3l2 5v13M16 8h4') },
   { n: '06', title: 'Eventos',     desc: 'Salões, propostas, contratos e produção do orçamento ao faturamento.',      icon: ic('M5 21V8l7-5 7 5v13M9 21v-6h6v6') },
-  { n: '07', title: 'Financeiro',  desc: 'Conciliação bancária, contas a pagar/receber, DRE.',                        icon: ic('M12 1v22M17 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7') },
-  { n: '08', title: 'Auditoria',   desc: 'Trilha completa, fechamento noturno e relatórios fiscais.',                  icon: ic('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13l2 2 4-4') },
+  { n: '07', title: 'Marketing',   desc: 'Campanhas segmentadas por WhatsApp, e-mail e SMS com receita atribuída.',    icon: ic('M3 11l18-8-8 18-2-8-8-2z') },
+  { n: '08', title: 'Financeiro',  desc: 'Conciliação bancária, contas a pagar/receber, DRE.',                        icon: ic('M12 1v22M17 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7') },
+  { n: '09', title: 'Auditoria',   desc: 'Trilha completa, fechamento noturno e relatórios fiscais.',                  icon: ic('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13l2 2 4-4') },
 ];
 
 /* ============================================================
@@ -793,7 +812,7 @@ function Showcase({
   return (
     <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-14">
       <div className={`lg:col-span-5 ${side === 'right' ? 'lg:order-2' : ''}`}>
-        <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">{kicker}</p>
+        <p className="text-xs uppercase tracking-[0.28em] text-stone-500">{kicker}</p>
         <div className="mt-3 flex items-baseline gap-4">
           <span className="font-display text-2xl font-light italic text-gold">{index}</span>
           <h3 className="font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink sm:text-4xl">{title}</h3>
@@ -813,7 +832,7 @@ function Showcase({
             rotateY: useTransform(ry, v => (v as number) + tiltY),
             transformStyle: 'preserve-3d',
           }}
-          className="relative"
+          className="relative crisp-3d"
         >
           {screen}
         </motion.div>
@@ -897,7 +916,7 @@ export default function Landing3D() {
             </div>
             <div className="leading-tight">
               <p className="font-display text-sm font-medium tracking-tight text-ink">Royal PMS</p>
-              <p className="hidden text-[10px] uppercase tracking-[0.18em] text-stone-500 sm:block">Plataforma de hotelaria</p>
+              <p className="hidden text-xs uppercase tracking-[0.18em] text-stone-500 sm:block">Plataforma de hotelaria</p>
             </div>
           </a>
 
@@ -965,7 +984,7 @@ export default function Landing3D() {
                 className="inline-flex items-center gap-3 rounded-full border border-ink/10 bg-paper px-4 py-1.5"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse-dot" />
-                <span className="text-[11px] uppercase tracking-[0.22em] text-stone-500">PMS para hotelaria independente</span>
+                <span className="text-xs uppercase tracking-[0.22em] text-stone-500">PMS para hotelaria independente</span>
               </motion.div>
 
               <motion.h1
@@ -1034,7 +1053,7 @@ export default function Landing3D() {
         {/* MARQUEE */}
         <section className="relative border-y border-ink/10 bg-paper py-8">
           <div className="mx-auto mb-5 max-w-7xl px-6 lg:px-10">
-            <p className="text-center text-[11px] uppercase tracking-[0.28em] text-stone-500">Uma plataforma · toda a operação do hotel</p>
+            <p className="text-center text-xs uppercase tracking-[0.28em] text-stone-500">Uma plataforma · toda a operação do hotel</p>
           </div>
           <div className="relative overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
             <div className="flex w-max animate-marquee gap-16 whitespace-nowrap">
@@ -1051,7 +1070,7 @@ export default function Landing3D() {
           <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <div className="grid gap-8 lg:grid-cols-12">
               <div className="lg:col-span-5">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Telas do sistema</p>
+                <p className="text-xs uppercase tracking-[0.28em] text-stone-500">· Telas do sistema</p>
                 <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                   Veja o Royal PMS <span className="italic">em ação.</span>
                 </h2>
@@ -1136,7 +1155,7 @@ export default function Landing3D() {
           <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <div className="grid gap-8 lg:grid-cols-12">
               <div className="lg:col-span-5">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Módulos</p>
+                <p className="text-xs uppercase tracking-[0.28em] text-stone-500">· Módulos</p>
                 <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                   Toda a operação <span className="italic">em uma plataforma.</span>
                 </h2>
@@ -1146,7 +1165,7 @@ export default function Landing3D() {
               </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-12 grid grid-cols-1 gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-3">
               {modules.map(m => <TiltCard key={m.n} {...m} />)}
             </div>
           </div>
@@ -1164,7 +1183,7 @@ export default function Landing3D() {
           />
           <div className="relative mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <div className="max-w-3xl">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Como entregamos</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-paper/50">· Como entregamos</p>
               <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
                 Do <span className="italic text-gold">caderno de turno</span> à decisão em tempo real.
               </h2>
@@ -1189,7 +1208,7 @@ export default function Landing3D() {
         {/* CTA */}
         <section id="contato" className="relative bg-paper py-20 sm:py-28 lg:py-32">
           <div className="mx-auto max-w-4xl px-5 text-center sm:px-6 lg:px-10">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Próximo passo</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-stone-500">· Próximo passo</p>
             <h2 className="mt-4 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-5xl lg:text-6xl">
               Sua operação merece <span className="italic">profundidade.</span>
             </h2>

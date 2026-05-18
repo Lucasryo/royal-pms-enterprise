@@ -99,6 +99,16 @@
 }
 .animate-marquee { animation: marquee-slide 38s linear infinite; }
 
+/* GPU-promoted layer for 3D-rotated panels — evita blur sub-pixel */
+.crisp-3d {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  will-change: transform;
+}
+
 .text-balance { text-wrap: balance; }
 .text-pretty { text-wrap: pretty; }
 
