@@ -104,35 +104,18 @@ function pickRate(rates: RateRow[], dateISO: string): RateRow | null {
 
 async function checkAvailability(category: string, checkIn: string, checkOut: string) {
   const dates = iterDates(checkIn, checkOut);
-  if (dates.length === 0) return { available: false, min_left: 0, total: 0, full_dates: [], reason: "Periodo invalido (check_out deve ser apos check_in)." };
+  if (dates.length === 0) return { available: false, full_dates: [], reason: "Periodo invalido (check_out deve ser apos check_in)." };
 
+  // Inventario do bot vem APENAS de booking_blocked_dates (Reservas > Bloqueio de Datas).
+  // Se nao esta bloqueado, esta disponivel.
   const { data: blockedRows } = await adminClient.from("booking_blocked_dates").select("start_date, end_date, reason, category").eq("active", true).lte("start_date", checkOut).gte("end_date", checkIn).or(`category.is.null,category.eq.${category}`);
   const blocked = (blockedRows ?? []) as Array<{ start_date: string; end_date: string; reason: string | null }>;
   const blockedDates = dates.filter(d => blocked.some(b => b.start_date <= d && b.end_date >= d));
   if (blockedDates.length > 0) {
     const first = blocked.find(b => b.start_date <= blockedDates[0] && b.end_date >= blockedDates[0]);
-    return { available: false, min_left: 0, total: 0, full_dates: blockedDates, reason: first?.reason ? `Bloqueado: ${first.reason}` : `Bloqueado em ${blockedDates.length} dia(s).` };
+    return { available: false, full_dates: blockedDates, reason: first?.reason ? `Bloqueado: ${first.reason}` : `Bloqueado em ${blockedDates.length} dia(s).` };
   }
-
-  const { data: roomRows } = await adminClient.from("rooms").select("id").eq("category", category).eq("is_virtual", false);
-  const total = (roomRows ?? []).length;
-  if (total === 0) return { available: false, min_left: 0, total: 0, full_dates: [], reason: "Categoria sem inventario." };
-
-  const [resvRes, reqRes] = await Promise.all([
-    adminClient.from("reservations").select("check_in, check_out").eq("category", category).neq("status", "CANCELLED").lte("check_in", checkOut).gt("check_out", checkIn),
-    adminClient.from("reservation_requests").select("check_in, check_out").eq("category", category).neq("status", "REJECTED").lte("check_in", checkOut).gt("check_out", checkIn),
-  ]);
-  const all = [...((resvRes.data ?? []) as Array<{ check_in: string; check_out: string }>), ...((reqRes.data ?? []) as Array<{ check_in: string; check_out: string }>)];
-
-  let minLeft = total;
-  const fullDates: string[] = [];
-  for (const date of dates) {
-    const occupied = all.filter(r => r.check_in <= date && r.check_out > date).length;
-    const left = total - occupied;
-    if (left < minLeft) minLeft = left;
-    if (left <= 0) fullDates.push(date);
-  }
-  return { available: minLeft > 0, min_left: Math.max(0, minLeft), total, full_dates: fullDates, reason: fullDates.length > 0 ? `Sem vaga em ${fullDates.length} dia(s).` : "" };
+  return { available: true, full_dates: [], reason: "" };
 }
 
 async function getRates(category: string, checkIn: string, checkOut: string, adults: number, children: number) {
@@ -177,7 +160,7 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<un
 const TOOLS_ANTHROPIC = [
   {
     name: "check_availability",
-    description: "Verifica se ha vaga numa categoria de UH entre 2 datas. Retorna {available, min_left, total, full_dates, reason}.",
+    description: "Verifica se as datas estao liberadas (sem bloqueio manual em Reservas > Bloqueio de Datas) pra uma categoria. Retorna {available, full_dates, reason}. NAO checa ocupacao real — confiamos no bloqueio manual.",
     input_schema: { type: "object", properties: {
       category: { type: "string", enum: ["executivo", "master", "suite presidencial"], description: "Categoria da UH" },
       check_in: { type: "string", description: "Data check-in YYYY-MM-DD" },
