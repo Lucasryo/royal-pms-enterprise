@@ -10,7 +10,7 @@ import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
-import MarketingLanding from './components/MarketingLanding';
+import Landing3D from './components/Landing3D';
 import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
@@ -449,7 +449,7 @@ export default function App() {
     );
   }
 
-  if (!user || !profile) return <MarketingLanding />;
+  if (!user || !profile) return <Landing3D />;
 
   const activeNavigationItem = navigationItems.find(i => i.id === currentView);
   const activeMeta = NAV_META[currentView];
