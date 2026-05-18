@@ -51,6 +51,7 @@ type Extracted = {
   requested_by?: string;
   extras?: string;
   company_name?: string;
+  company_cnpj?: string;
 };
 
 async function loadConfig(): Promise<ParserConfig> {
@@ -78,29 +79,39 @@ async function loadBotConfig(): Promise<BotConfig | null> {
   } catch { return null; }
 }
 
-type CompanyRow = { id: string; name: string; email_domain: string | null; parser_aliases: string[] | null };
+type CompanyRow = { id: string; name: string; cnpj: string | null; email_domain: string | null; parser_aliases: string[] | null };
 
 async function loadActiveCompanies(): Promise<CompanyRow[]> {
   const { data } = await admin.from("companies")
-    .select("id, name, email_domain, parser_aliases")
+    .select("id, name, cnpj, email_domain, parser_aliases")
     .ilike("status", "active");
   return (data ?? []) as CompanyRow[];
+}
+
+function normalizeCnpj(s: string): string {
+  return s.replace(/\D/g, "");
 }
 
 function matchCompanyHeuristic(companies: CompanyRow[], senderEmail: string, subject: string, body: string): CompanyRow | null {
   const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
   const haystack = `${senderEmail}\n${subject}\n${body}`.toLowerCase();
-  // 1) dominio bate exato
+  const haystackDigits = normalizeCnpj(haystack);
+  // 1) CNPJ bate (mais confiavel)
+  for (const c of companies) {
+    const cnpjDigits = c.cnpj ? normalizeCnpj(c.cnpj) : "";
+    if (cnpjDigits.length === 14 && haystackDigits.includes(cnpjDigits)) return c;
+  }
+  // 2) dominio bate exato
   const byDomain = companies.find(c => c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain);
   if (byDomain) return byDomain;
-  // 2) algum alias aparece no remetente/assunto/corpo
+  // 3) algum alias aparece no remetente/assunto/corpo
   for (const c of companies) {
     for (const alias of c.parser_aliases ?? []) {
       const a = alias.trim().toLowerCase();
       if (a.length >= 3 && haystack.includes(a)) return c;
     }
   }
-  // 3) nome da empresa aparece no corpo
+  // 4) nome da empresa aparece no corpo
   for (const c of companies) {
     if (c.name && haystack.includes(c.name.toLowerCase())) return c;
   }
@@ -114,6 +125,12 @@ function matchCompanyByName(companies: CompanyRow[], name: string): CompanyRow |
     c.name.toLowerCase() === n ||
     (c.parser_aliases ?? []).some(a => a.trim().toLowerCase() === n),
   ) ?? null;
+}
+
+function matchCompanyByCnpj(companies: CompanyRow[], cnpj: string): CompanyRow | null {
+  const digits = normalizeCnpj(cnpj);
+  if (digits.length !== 14) return null;
+  return companies.find(c => c.cnpj && normalizeCnpj(c.cnpj) === digits) ?? null;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -231,6 +248,7 @@ function buildExtractionTool(): ToolSchema {
         requested_by: { type: "string", description: "Nome do solicitante na empresa (quem aprovou/pediu)" },
         extras: { type: "string", description: "Servicos extras (estacionamento, lavanderia, frigobar, etc) separado por virgula" },
         company_name: { type: "string", description: "Nome EXATO da empresa cliente conforme aparece na lista de empresas cadastradas (ou um dos aliases). Se nao bater com nenhuma empresa da lista, deixe vazio." },
+        company_cnpj: { type: "string", description: "CNPJ da empresa cliente quando aparece no voucher/email (qualquer formato, ex: '12.345.678/0001-00' ou '12345678000100'). Usado como chave de match mais confiavel que nome." },
       },
       required: ["is_reservation", "confidence"],
     },
@@ -241,10 +259,13 @@ function buildSystemPrompt(companyHint: { id: string; name: string } | null, com
   const today = new Date().toISOString().slice(0, 10);
   const companyContext = companyHint ? `\n\nCONTEXTO: O remetente/conteudo aponta pra "${companyHint.name}" (empresa cadastrada). Assuma is_corporate=true e payment_method=BILLED. Use company_name="${companyHint.name}".` : "";
   const companyList = companies.length > 0
-    ? `\n\nEMPRESAS CADASTRADAS (use o campo company_name pra escolher uma destas — nome canonico ou alias):\n${companies.map(c => {
+    ? `\n\nEMPRESAS CADASTRADAS (use company_name + company_cnpj pra identificar):\n${companies.map(c => {
         const aliases = (c.parser_aliases ?? []).filter(Boolean).join(", ");
-        return `- ${c.name}${aliases ? ` (aliases: ${aliases})` : ""}`;
-      }).join("\n")}\n\nIMPORTANTE: O remetente do email muitas vezes eh AGENCIA (Star/Accenture, Voetur, Kontik, etc) — a empresa REAL eh a mencionada no corpo. Use os aliases pra resolver. Se o email eh de agencia mista (Copastur, etc) sem empresa clara, deixe company_name vazio.`
+        const parts = [c.name];
+        if (c.cnpj) parts.push(`CNPJ ${c.cnpj}`);
+        if (aliases) parts.push(`aliases: ${aliases}`);
+        return `- ${parts.join(" | ")}`;
+      }).join("\n")}\n\nIMPORTANTE: O remetente do email muitas vezes eh AGENCIA (B2B, Star/Accenture, Voetur, Kontik, etc) — a empresa REAL eh a mencionada no voucher/corpo. Preencha company_cnpj quando o CNPJ aparecer no voucher (eh a chave mais confiavel). Use os aliases/nome pra resolver tambem. Se eh agencia mista sem empresa clara, deixe ambos vazios.`
     : "";
   return `Voce eh um parser de emails de reserva de hotel. Hoje eh ${today}.
 
@@ -423,10 +444,14 @@ serve(async (req) => {
     return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
 
-  // LLM pode ter identificado a empresa pelo conteudo (ex: Star/Accenture -> Petrorio)
-  if (extracted.company_name) {
-    const llmMatched = matchCompanyByName(allCompanies, extracted.company_name);
-    if (llmMatched) company = llmMatched;
+  // LLM pode ter identificado a empresa pelo conteudo. CNPJ tem prioridade (mais confiavel que nome).
+  if (extracted.company_cnpj) {
+    const byCnpj = matchCompanyByCnpj(allCompanies, extracted.company_cnpj);
+    if (byCnpj) company = byCnpj;
+  }
+  if (!company && extracted.company_name) {
+    const byName = matchCompanyByName(allCompanies, extracted.company_name);
+    if (byName) company = byName;
   }
 
   if (!extracted.is_reservation) return json({ skipped: "not_reservation", confidence: extracted.confidence });
