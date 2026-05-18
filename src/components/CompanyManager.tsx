@@ -22,7 +22,8 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
     phone: '',
     address: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
-    slug: ''
+    slug: '',
+    parser_aliases: '' as string, // CSV no form; convertido pra string[] no submit
   });
 
   function normalizeCompanyStatus(status: Company['status']): 'ACTIVE' | 'INACTIVE' {
@@ -53,10 +54,15 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
     setLoading(true);
 
     try {
+      const aliasesArray = formData.parser_aliases
+        .split(',')
+        .map(s => s.trim().toLowerCase())
+        .filter(Boolean);
+      const payload = { ...formData, parser_aliases: aliasesArray };
       if (editingCompany) {
         const { error } = await supabase
           .from('companies')
-          .update(formData)
+          .update(payload)
           .eq('id', editingCompany.id);
         
         if (error) throw error;
@@ -71,7 +77,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       } else {
         const { error } = await supabase
           .from('companies')
-          .insert([{ ...formData, created_at: new Date().toISOString() }]);
+          .insert([{ ...payload, created_at: new Date().toISOString() }]);
         
         if (error) throw error;
         toast.success('Empresa cadastrada com sucesso');
@@ -104,12 +110,14 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       phone: '',
       address: '',
       status: 'ACTIVE',
-      slug: ''
+      slug: '',
+      parser_aliases: '',
     });
   }
 
   function handleEdit(company: Company) {
     setEditingCompany(company);
+    const aliases = (company as Company & { parser_aliases?: string[] | null }).parser_aliases ?? [];
     setFormData({
       name: company.name,
       cnpj: company.cnpj || '',
@@ -118,7 +126,8 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       phone: company.phone || '',
       address: company.address || '',
       status: normalizeCompanyStatus(company.status),
-      slug: company.slug || ''
+      slug: company.slug || '',
+      parser_aliases: aliases.join(', '),
     });
     setIsModalOpen(true);
   }
@@ -317,6 +326,17 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                     placeholder="petrobras.com.br"
                   />
                   <p className="text-[10px] text-neutral-500">Emails de @{formData.email_domain || 'domínio'} serão automaticamente vinculados a esta empresa nas reservas criadas pelo parser.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-500 uppercase">Aliases do parser <span className="text-neutral-400 font-normal normal-case">(palavras-chave que aparecem no email)</span></label>
+                  <input
+                    value={formData.parser_aliases}
+                    onChange={(e) => setFormData({ ...formData, parser_aliases: e.target.value })}
+                    className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-neutral-900/10 focus:outline-none font-mono"
+                    placeholder="star, accenture, petrorio assets"
+                  />
+                  <p className="text-[10px] text-neutral-500">Separados por vírgula. O bot vincula a reserva a esta empresa se qualquer alias aparecer no remetente, assunto ou corpo do email. Ex: Petrorio = "star, accenture", Petrobras = "voetur", Constellation = "kontik".</p>
                 </div>
 
                 <div className="space-y-1">
