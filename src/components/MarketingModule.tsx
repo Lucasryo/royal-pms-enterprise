@@ -3572,43 +3572,45 @@ function CRMTab() {
 
 // ─── WhatsApp Simulator Tab ───────────────────────────────────────────────────
 
+type SimMsg = { text: string; type: 'in' | 'out'; time: string; tools?: string[]; cost?: number };
+
 function SimulatorTab() {
-  const [messages, setMessages] = useState([
-    { text: 'Olá! Gostaria de fazer uma reserva para o próximo fim de semana.', type: 'in' as const, time: '10:31' },
-    { text: 'Olá! Seja bem-vindo ao Royal PMS Palace Hotel 🏨 Temos disponibilidade! Para 2 pessoas, nossa UH Executiva está R$ 359/noite. Inclui café da manhã, Wi-Fi e estacionamento. Deseja confirmar?', type: 'out' as const, time: '10:31' },
-    { text: 'Sim! Vou querer o pacote completo. Tem piscina?', type: 'in' as const, time: '10:32' },
-    { text: 'Sim! Temos piscina descoberta disponível das 7h às 22h 🏊 Posso confirmar a reserva agora?', type: 'out' as const, time: '10:32' },
-  ]);
+  const [messages, setMessages] = useState<SimMsg[]>([]);
   const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  function sendMessage() {
-    if (!input.trim()) return;
-    const userMsg = { text: input, type: 'in' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+  async function sendMessage() {
+    if (!input.trim() || sending) return;
+    const text = input;
+    const userMsg: SimMsg = { text, type: 'in', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
-
-    setTimeout(() => {
-      const botReplies = [
-        'Perfeito! Vou verificar a disponibilidade para você. 😊',
-        'Nossa tarifa inclui café da manhã das 6h às 10h. Posso reservar agora?',
-        'Excelente escolha! Você prefere pagar via PIX ou cartão de crédito?',
-        'Check-in a partir das 14h e checkout até as 11h. Confirmado?',
-        'Obrigado pelo seu interesse! Vou te enviar os dados de pagamento em instantes.',
-      ];
-      const reply = botReplies[Math.floor(Math.random() * botReplies.length)];
-      setMessages(prev => [...prev, { text: reply, type: 'out' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
-    }, 1000);
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-respond-meta', {
+        body: { test_only: true, test_text: text },
+        headers: { 'x-test-call': '1' },
+      });
+      if (error) throw error;
+      const d = data as { reply?: string; tools_used?: string[]; cost_usd?: number; skipped?: string; error?: string };
+      const reply = d.reply || (d.skipped ? `(${d.skipped})` : d.error ? `Erro: ${d.error}` : '(sem resposta)');
+      setMessages(prev => [...prev, { text: reply, type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), tools: d.tools_used, cost: d.cost_usd }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { text: 'Erro: ' + (e instanceof Error ? e.message : String(e)), type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <div className="space-y-4">
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Simulador</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Testar WhatsApp Bot</h2>
-        <p className="text-sm text-neutral-500">Simule uma conversa real com o assistente virtual do hotel.</p>
+        <h2 className="text-xl font-semibold text-neutral-950">Testar bot ao vivo</h2>
+        <p className="text-sm text-neutral-500">Cada mensagem chama o bot real (auto-respond-meta) — usa a config salva em Treinamento IA.</p>
       </div>
 
       {/* Phone frame */}
@@ -3625,14 +3627,27 @@ function SimulatorTab() {
             </div>
             {/* Messages area */}
             <div className="h-80 overflow-y-auto p-3 space-y-2" style={{ background: '#0c1a22 url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3C/svg%3E")' }}>
+              {messages.length === 0 && (
+                <p className="text-center text-white/40 text-[10px] py-8">Digite uma mensagem pra começar — ex: "Tem master pra 20 a 22 de jan?"</p>
+              )}
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-[#005C4B] text-white' : 'bg-[#202C33] text-white'}`}>
                     {msg.text}
-                    <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}</p>
+                    {msg.tools && msg.tools.length > 0 && (
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {msg.tools.map((t, j) => <span key={j} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200">🔧 {t}</span>)}
+                      </div>
+                    )}
+                    <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}{msg.cost != null && msg.cost > 0 && ` · $${msg.cost.toFixed(5)}`}</p>
                   </div>
                 </div>
               ))}
+              {sending && (
+                <div className="flex justify-end">
+                  <div className="bg-[#005C4B] text-white px-3 py-2 rounded-xl text-xs"><span className="opacity-60">digitando...</span></div>
+                </div>
+              )}
               <div ref={bottomRef} />
             </div>
             {/* Input */}
