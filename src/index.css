@@ -109,6 +109,36 @@
   will-change: transform;
 }
 
+/* ─── Editorial aura (login) — SSJ vibes em tons leves de ouro ─── */
+@keyframes aura-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.45; }
+  50%      { transform: translate(-50%, -50%) scale(1.18); opacity: 0.78; }
+}
+@keyframes aura-flare {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.95) rotate(0deg);   opacity: 0.40; }
+  50%      { transform: translate(-50%, -50%) scale(1.12) rotate(180deg); opacity: 0.68; }
+}
+@keyframes aura-flicker {
+  0%, 100% { opacity: 0.60; transform: translate(-50%, -50%) scale(1);    }
+  20%      { opacity: 0.88; }
+  50%      { opacity: 0.42; transform: translate(-50%, -50%) scale(1.05); }
+  80%      { opacity: 0.92; }
+}
+@keyframes aura-text-glow {
+  0%, 100% { text-shadow: 0 0 14px rgba(218,170,90,0.42), 0 0 36px rgba(218,170,90,0.18); }
+  50%      { text-shadow: 0 0 28px rgba(218,170,90,0.72), 0 0 56px rgba(218,170,90,0.32); }
+}
+@keyframes aura-spark {
+  0%   { transform: translate(-50%, -50%) translateY(0) scale(1);   opacity: 0; }
+  20%  { opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) translateY(-160px) scale(0.4); opacity: 0; }
+}
+.aura-pulse   { animation: aura-pulse 3.2s ease-in-out infinite; }
+.aura-flare   { animation: aura-flare 5.4s ease-in-out infinite; }
+.aura-flicker { animation: aura-flicker 2.6s ease-in-out infinite; }
+.aura-text    { animation: aura-text-glow 3.6s ease-in-out infinite; }
+.aura-spark   { animation: aura-spark 2.8s ease-out infinite; }
+
 .text-balance { text-wrap: balance; }
 .text-pretty { text-wrap: pretty; }
 
