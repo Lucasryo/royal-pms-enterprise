@@ -21,6 +21,7 @@ type ParserConfig = {
   subject_keywords: string[];
   min_confidence: "high" | "medium" | "low";
   default_category: string;
+  voucher_url_domains: string[];
 };
 type BotConfig = { api_key: string; model: string; provider: string };
 type AttachmentRef = { path: string; name: string; size: number; mime: string };
@@ -58,6 +59,7 @@ async function loadConfig(): Promise<ParserConfig> {
     sender_whitelist: ["booking.com", "airbnb.com", "expedia.com"],
     subject_keywords: ["reserva", "booking", "reservation", "confirmation"],
     min_confidence: "medium", default_category: "executivo",
+    voucher_url_domains: ["b2breservas.com.br"],
   };
   const { data } = await admin.from("app_settings").select("value").eq("id", "email_parser_config").maybeSingle();
   if (!data?.value) return defaults;
@@ -140,6 +142,58 @@ async function loadAttachments(refs: AttachmentRef[]): Promise<Array<{ name: str
   return out;
 }
 
+function extractVoucherUrls(text: string, domains: string[]): string[] {
+  if (!text || domains.length === 0) return [];
+  const urls = text.match(/https?:\/\/[^\s<>"']+/gi) ?? [];
+  const lowered = domains.map(d => d.toLowerCase().trim()).filter(Boolean);
+  const matched: string[] = [];
+  for (const raw of urls) {
+    // limpa cauda comum (pontuacao final)
+    const url = raw.replace(/[.,;:)\]}>"']+$/, "");
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      if (lowered.some(d => host === d || host.endsWith(`.${d}`))) {
+        if (!matched.includes(url)) matched.push(url);
+      }
+    } catch { /* invalid url */ }
+    if (matched.length >= 3) break;
+  }
+  return matched;
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#?\w+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchVoucherText(url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const r = await fetch(url, { signal: controller.signal, headers: { "user-agent": "Mozilla/5.0 (RoyalPMS-bot)" } });
+    clearTimeout(timeout);
+    if (!r.ok) return null;
+    const ct = r.headers.get("content-type") ?? "";
+    if (!ct.includes("text/html") && !ct.includes("text/plain")) return null;
+    const html = await r.text();
+    return htmlToText(html).slice(0, 6000);
+  } catch (err) {
+    console.warn(`[voucher-fetch] ${url}: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
+}
+
 type ToolSchema = {
   name: string;
   description: string;
@@ -211,8 +265,13 @@ confidence="high" se tem nome+datas+valor. "medium" se faltam alguns. "low" se e
 Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyList}${companyContext}`;
 }
 
-function buildUserText(subject: string, body: string, bodyHtml: string): string {
-  return `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}`;
+function buildUserText(subject: string, body: string, bodyHtml: string, vouchers: Array<{ url: string; text: string }>): string {
+  const base = `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}`;
+  if (vouchers.length === 0) return base;
+  const voucherSection = vouchers
+    .map(v => `\n\n--- CONTEUDO DO VOUCHER (${v.url}) ---\n${v.text}`)
+    .join("");
+  return base + voucherSection;
 }
 
 async function extractViaAnthropic(
@@ -294,10 +353,11 @@ async function extractReservation(
   attachments: Array<{ name: string; mime: string; base64: string }>,
   companyHint: { id: string; name: string } | null,
   companies: CompanyRow[],
+  vouchers: Array<{ url: string; text: string }>,
 ): Promise<Extracted> {
   const tool = buildExtractionTool();
   const systemPrompt = buildSystemPrompt(companyHint, companies);
-  const userText = buildUserText(subject, body, bodyHtml);
+  const userText = buildUserText(subject, body, bodyHtml, vouchers);
   if (botCfg.provider === "groq") return extractViaGroq(botCfg, systemPrompt, userText, tool);
   return extractViaAnthropic(botCfg, systemPrompt, userText, attachments, tool);
 }
@@ -348,9 +408,17 @@ serve(async (req) => {
   const attRefs = (msg.attachments ?? []) as AttachmentRef[];
   const downloadedAtt = await loadAttachments(attRefs);
 
+  // Vouchers de link (B2B etc): extrai URLs dos dominios configurados, baixa HTML, manda como contexto pro LLM
+  const voucherUrls = extractVoucherUrls(`${msg.body ?? ""}\n${msg.body_html ?? ""}`, cfg.voucher_url_domains ?? []);
+  const vouchers: Array<{ url: string; text: string }> = [];
+  for (const url of voucherUrls) {
+    const text = await fetchVoucherText(url);
+    if (text) vouchers.push({ url, text });
+  }
+
   let extracted: Extracted;
   try {
-    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies);
+    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies, vouchers);
   } catch (err) {
     return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
@@ -411,6 +479,7 @@ serve(async (req) => {
     code: (inserted as { reservation_code: string }).reservation_code,
     company: company?.name ?? null,
     attachments_processed: downloadedAtt.length,
+    vouchers_fetched: vouchers.length,
     extracted,
   });
 });

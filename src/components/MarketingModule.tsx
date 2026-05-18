@@ -4535,6 +4535,7 @@ type EmailParserConfig = {
   subject_keywords: string[];
   min_confidence: 'high' | 'medium' | 'low';
   default_category: string;
+  voucher_url_domains: string[];
 };
 
 const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
@@ -4544,6 +4545,7 @@ const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
   subject_keywords: ['reserva', 'booking', 'reservation', 'confirmation'],
   min_confidence: 'medium',
   default_category: 'executivo',
+  voucher_url_domains: ['b2breservas.com.br'],
 };
 
 function EmailParserSection() {
@@ -4552,6 +4554,7 @@ function EmailParserSection() {
   const [saving, setSaving] = useState(false);
   const [senderInput, setSenderInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
+  const [voucherInput, setVoucherInput] = useState('');
   const [reprocessing, setReprocessing] = useState(false);
 
   useEffect(() => {
@@ -4605,6 +4608,12 @@ function EmailParserSection() {
     if (!s || config.subject_keywords.includes(s)) return;
     setConfig(p => ({ ...p, subject_keywords: [...p.subject_keywords, s] }));
     setKeywordInput('');
+  }
+  function addVoucherDomain() {
+    const s = voucherInput.trim().toLowerCase();
+    if (!s || (config.voucher_url_domains ?? []).includes(s)) return;
+    setConfig(p => ({ ...p, voucher_url_domains: [...(p.voucher_url_domains ?? []), s] }));
+    setVoucherInput('');
   }
 
   if (loading) return null;
@@ -4676,6 +4685,23 @@ function EmailParserSection() {
             </span>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Domínios de voucher (links no corpo do email)</label>
+        <div className="flex gap-2 mb-2">
+          <input value={voucherInput} onChange={e => setVoucherInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addVoucherDomain(); } }} placeholder="b2breservas.com.br" className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addVoucherDomain} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(config.voucher_url_domains ?? []).map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, voucher_url_domains: (p.voucher_url_domains ?? []).filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+        <p className="text-[10px] text-neutral-400 mt-1">Quando email contém link com algum desses domínios, o bot baixa o HTML do voucher e lê os dados de reserva. Útil pra B2B Reservas, Decolar e outras agências que mandam só o link.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
