@@ -14,7 +14,6 @@ export const APP_VIEW_LABELS: Record<AppView, string> = {
   housekeeping: 'Governanca',
   operations: 'Operacoes',
   pos: 'POS Restaurante',
-  professional: 'Gestao Pro',
   events: 'Eventos',
   guests: 'Hospedes',
   companies: 'Empresas',
@@ -27,6 +26,8 @@ export const APP_VIEW_LABELS: Record<AppView, string> = {
   profile: 'Perfil',
   'prio-billing': 'Faturamento Prio',
   reports: 'Relatorios',
+  'maintenance-qr': 'QR Manutencao',
+  'housekeeping-staff': 'Equipe Governanca',
   marketing: 'Marketing',
 };
 

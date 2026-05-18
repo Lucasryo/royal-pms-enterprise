@@ -221,17 +221,17 @@ export default function PublicBookingEngine() {
             <>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-red-200">Sem disponibilidade</p>
               <p className="mt-1 font-display text-xl font-light leading-tight">Lotado nestas datas</p>
-              <p className="mt-1 text-xs text-white/85">{quote.reason}</p>
+              <p className="mt-1 text-xs text-white/85">{'reason' in quote ? quote.reason : 'Sem disponibilidade para essas datas.'}</p>
             </>
           ) : quote && quote.ok && !quote.available ? (
             <>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-300">Cotacao manual</p>
-              <p className="mt-1 text-sm leading-5 text-white/85">{quote.reason}</p>
+              <p className="mt-1 text-sm leading-5 text-white/85">{'reason' in quote ? quote.reason : 'Cotacao manual necessaria.'}</p>
             </>
           ) : quote && !quote.ok ? (
             <>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-red-300">Erro</p>
-              <p className="mt-1 text-sm leading-5 text-white/85">{quote.error}</p>
+              <p className="mt-1 text-sm leading-5 text-white/85">{'error' in quote ? quote.error : 'Erro inesperado.'}</p>
             </>
           ) : (
             <>

@@ -10,7 +10,7 @@ import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
-import MarketingLanding from './components/MarketingLanding';
+import Landing3D from './components/Landing3D';
 import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
@@ -267,7 +267,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[App] onAuthStateChange:', event, session ? 'has session' : 'no session');
       setUser(session?.user ?? null);
-      if (!session) {
+      if (event === 'SIGNED_OUT') {
         setProfile(null);
         setCurrentView('dashboard');
         setLoading(false);
@@ -414,7 +414,7 @@ export default function App() {
   }
   if (path === '/board/maintenance') {
     // Requires authentication — do not expose active tickets publicly
-    if (!session) {
+    if (!user) {
       return (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
           <div className="text-center bg-white/5 border border-white/10 rounded-3xl p-8 max-w-sm">
@@ -449,7 +449,7 @@ export default function App() {
     );
   }
 
-  if (!user || !profile) return <MarketingLanding />;
+  if (!user || !profile) return <Landing3D />;
 
   const activeNavigationItem = navigationItems.find(i => i.id === currentView);
   const activeMeta = NAV_META[currentView];

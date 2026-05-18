@@ -7,6 +7,7 @@ const CHAT_ID        = Deno.env.get("TELEGRAM_CHAT_ID")           ?? "";
 const SUPA_URL       = Deno.env.get("SUPABASE_URL")               ?? "";
 const SUPA_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")  ?? "";
 const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET")    ?? "";
+const BOT_MAINTENANCE_SECRET = Deno.env.get("BOT_MAINTENANCE_SECRET") ?? "";
 
 const db = createClient(SUPA_URL, SUPA_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -42,6 +43,107 @@ async function tg(method: string, body: Record<string, unknown>) {
   const data = await r.json();
   if (!data.ok) console.error(`[tg] ${method}:`, JSON.stringify(data));
   return data;
+}
+
+type TelegramApiResult = { ok?: boolean; result?: Record<string, unknown>; description?: string; error_code?: number };
+
+async function deleteChatMessage(chatId: unknown, messageId: unknown): Promise<boolean> {
+  const numericMessageId = Number(messageId);
+  if (!numericMessageId) return false;
+  const data = await tg("deleteMessage", { chat_id: chatId, message_id: numericMessageId });
+  return data?.ok === true;
+}
+
+async function deleteChatMessageResult(chatId: unknown, messageId: unknown): Promise<TelegramApiResult> {
+  const numericMessageId = Number(messageId);
+  if (!numericMessageId) return { ok: false, description: "missing message_id" };
+  return await tg("deleteMessage", { chat_id: chatId, message_id: numericMessageId }) as TelegramApiResult;
+}
+
+async function cleanupPromptAndReply(message: Record<string, unknown>): Promise<void> {
+  const chatId = (message.chat as Record<string, unknown>)?.id ?? CHAT_ID;
+  const replyTo = (message.reply_to_message as Record<string, unknown>) ?? {};
+  await deleteChatMessage(chatId, message.message_id);
+  await deleteChatMessage(chatId, replyTo.message_id);
+}
+
+async function isAuthorizedInternal(authHeader: string | null): Promise<boolean> {
+  if (!authHeader?.startsWith("Bearer ")) return false;
+  const token = authHeader.slice(7);
+  if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return true;
+  if (BOT_MAINTENANCE_SECRET && token === BOT_MAINTENANCE_SECRET) return true;
+
+  const { data, error } = await db.auth.getUser(token);
+  return !error && !!data.user;
+}
+
+async function getInternalUser(authHeader: string | null) {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  if (WEBHOOK_SECRET && token === WEBHOOK_SECRET) return { id: "system", role: "admin", name: "Sistema" };
+  if (BOT_MAINTENANCE_SECRET && token === BOT_MAINTENANCE_SECRET) return { id: "system", role: "admin", name: "Sistema" };
+
+  const { data, error } = await db.auth.getUser(token);
+  if (error || !data.user) return null;
+
+  const { data: profile } = await db
+    .from("profiles")
+    .select("id,name,role")
+    .eq("id", data.user.id)
+    .single();
+  return profile ?? null;
+}
+
+async function logTelegramNotification(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  opts: { ticketId?: string | null; payload?: Record<string, unknown> } = {},
+) {
+  try {
+    await db.from("maintenance_notification_logs").insert({
+      ticket_id: opts.ticketId ?? null,
+      recipient_name: "Telegram",
+      channel: "telegram",
+      event_type: eventType,
+      status,
+      payload: opts.payload ?? null,
+    });
+  } catch (e) {
+    console.error("[logTelegramNotification] failed:", e);
+  }
+}
+
+function normalizedTelegramEvent(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  payload: Record<string, unknown> = {},
+): string {
+  if (eventType === "ticket_card_send" && status === "sent" && payload.notify === true) return "new_ticket_push";
+  if (eventType === "ticket_card_send" && status === "skipped") return "card_skip_existing";
+  if (eventType === "ticket_card_edit") return "card_edit";
+  if (eventType === "ticket_card_delete" && status === "failed") return "card_delete_failed";
+  if (eventType === "ticket_card_delete") return "card_delete";
+  return eventType;
+}
+
+function telegramLogPayload(payload: Record<string, unknown>, method?: string, result?: unknown): Record<string, unknown> {
+  return {
+    ...payload,
+    ...(method ? { telegram_method: method } : {}),
+    telegram_error_description: result ? telegramErrorDescription(result) || null : payload.telegram_error_description ?? null,
+  };
+}
+
+async function logTelegramCardEvent(
+  eventType: string,
+  status: "sent" | "edited" | "deleted" | "failed" | "skipped",
+  opts: { ticketId?: string | null; payload?: Record<string, unknown>; telegramMethod?: string; telegramResult?: unknown } = {},
+) {
+  const payload = telegramLogPayload(opts.payload ?? {}, opts.telegramMethod, opts.telegramResult);
+  await logTelegramNotification(normalizedTelegramEvent(eventType, status, payload), status, {
+    ticketId: opts.ticketId,
+    payload,
+  });
 }
 
 // 3B: cache com TTL de 5 min para evitar rate limit do Telegram
@@ -102,13 +204,41 @@ function buildText(record: Record<string, unknown>, heading: string): string {
   return lines.join("\n");
 }
 
+function cardStatusLabel(record: Record<string, unknown>): string {
+  const status = (record.status as string) ?? "open";
+  const inspection = record.inspection_status as string | null | undefined;
+  if (status === "open") return "Aberto";
+  if (status === "in_progress" && record.awaiting_parts) return "Aguardando pecas";
+  if (status === "in_progress" && inspection === "rejected") return "Reprovado / retorno ao tecnico";
+  if (status === "in_progress") return "Em atendimento";
+  if (status === "resolved" && inspection === "pending" && record.inspector_tg_id) return "Vistoria em andamento";
+  if (status === "resolved" && inspection === "pending") return "Aguardando vistoria";
+  if (status === "resolved" && inspection === "approved" && !record.rating) return "Aprovado / aguardando avaliacao";
+  if (status === "resolved" && inspection === "approved" && record.rating) return "Concluido e avaliado";
+  if (status === "resolved") return "Resolvido";
+  return ST_LABEL[status] ?? status;
+}
+
+function buildTicketCardText(record: Record<string, unknown>): string {
+  const priority = (record.priority as string) ?? "medium";
+  const lines: string[] = [`${P_EMOJI[priority] ?? ""} *Chamado de manutencao*`, ""];
+  lines.push(`*${esc(record.title as string)}*`);
+  if (record.room_number) lines.push(`UH *${esc(record.room_number as string)}*`);
+  lines.push(`Status: *${esc(cardStatusLabel(record))}*`);
+  lines.push(`Prioridade: *${esc(P_LABEL[priority] ?? priority)}*`);
+  if (record.status_reason) lines.push(`Tecnico: *${esc(record.status_reason as string)}*`);
+  if (record.description) lines.push("", `_${esc(record.description as string)}_`);
+  if (record.resolution_notes) lines.push("", `Nota: ${esc(String(record.resolution_notes).slice(0, 500))}`);
+  if (record.inspection_notes) lines.push("", `Vistoria: ${esc(String(record.inspection_notes).slice(0, 300))}`);
+  if (record.rating) lines.push("", `Avaliacao: *${esc(String(record.rating))}/5*`);
+  lines.push("", `ID: \`${record.id as string}\``);
+  return lines.join("\n");
+}
+
 // ── keyboards ───────────────────────────────────────────────────────────────
 function openKb(id: string) {
   return { inline_keyboard: [
-    [
-      { text: "✅ Assumir",         callback_data: `assume:${id}` },
-      { text: "⚠️ Falta de Peças", callback_data: `parts:${id}`  },
-    ],
+    [{ text: "✅ Assumir", callback_data: `assume:${id}` }],
     [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
   ]};
 }
@@ -137,6 +267,13 @@ function partsReceivedKb(id: string, tgUserId?: number) {
   ]] };
 }
 
+function bindTechKb(id: string) {
+  return { inline_keyboard: [
+    [{ text: "✅ Assumir", callback_data: `assume:${id}` }],
+    [{ text: "📋 Ver detalhes", callback_data: `details:${id}` }],
+  ]};
+}
+
 function inspectionKb(id: string) {
   return { inline_keyboard: [[
     { text: "🔍 Assumir Vistoria", callback_data: `insp_assume:${id}` },
@@ -158,6 +295,418 @@ function ratingKb(id: string) {
     { text: "⭐ 4", callback_data: `rate:${id}:4` },
     { text: "⭐ 5", callback_data: `rate:${id}:5` },
   ]] };
+}
+
+function ticketCardKb(record: Record<string, unknown>) {
+  const id = record.id as string;
+  const status = record.status as string;
+  const inspection = record.inspection_status as string | null | undefined;
+  const techTgId = record.telegram_user_id ? Number(record.telegram_user_id) : undefined;
+  const inspectorTgId = record.inspector_tg_id ? Number(record.inspector_tg_id) : undefined;
+
+  if (status === "open") return openKb(id);
+  if (status === "in_progress" && !techTgId) return bindTechKb(id);
+  if (status === "in_progress" && record.awaiting_parts) return partsReceivedKb(id, techTgId);
+  if (status === "in_progress") return inProgressKb(id, techTgId);
+  if (status === "resolved" && inspection === "pending" && inspectorTgId) return inspectorActionsKb(id, inspectorTgId);
+  if (status === "resolved" && inspection === "pending") return inspectionKb(id);
+  if (status === "resolved" && inspection === "approved" && !record.rating) return ratingKb(id);
+  return { inline_keyboard: [] };
+}
+
+async function saveTicketCardRef(ticketId: string, chatId: unknown, messageId: unknown) {
+  const numericMessageId = Number(messageId);
+  if (!ticketId || !numericMessageId) return;
+  await db.from("maintenance_tickets").update({
+    telegram_chat_id: Number(chatId),
+    telegram_message_id: numericMessageId,
+    telegram_card_updated_at: new Date().toISOString(),
+  }).eq("id", ticketId);
+}
+
+async function fetchTicket(ticketId: string) {
+  const { data } = await db.from("maintenance_tickets").select("*").eq("id", ticketId).single();
+  return data as Record<string, unknown> | null;
+}
+
+function telegramErrorDescription(result: unknown): string {
+  const error = result as { description?: unknown; error_code?: unknown };
+  return String(error?.description ?? error?.error_code ?? "").toLowerCase();
+}
+
+function isMessageNotModified(result: unknown): boolean {
+  return telegramErrorDescription(result).includes("message is not modified");
+}
+
+function shouldReplaceMissingCard(result: unknown): boolean {
+  const description = telegramErrorDescription(result);
+  return description.includes("message to edit not found")
+    || description.includes("message can't be edited")
+    || description.includes("message identifier is not specified")
+    || description.includes("message_id_invalid")
+    || description.includes("message not found");
+}
+
+async function sendTicketCard(
+  record: Record<string, unknown>,
+  chatId: unknown = CHAT_ID,
+  opts: { notifyNew?: boolean; source?: string } = {},
+): Promise<boolean> {
+  const ticketId = record.id as string;
+  const existingMessageId = Number(record.telegram_message_id);
+  if (ticketId && existingMessageId) {
+    await logTelegramCardEvent("ticket_card_send", "skipped", {
+      ticketId,
+      payload: {
+        reason: "card_already_exists",
+        source: opts.source ?? null,
+        notify: opts.notifyNew === true,
+        message_id: existingMessageId,
+      },
+    });
+    return await updateTicketCard(ticketId, chatId);
+  }
+
+  if (ticketId) {
+    const freshRecord = await fetchTicket(ticketId);
+    if (!freshRecord) return false;
+    const freshMessageId = Number(freshRecord.telegram_message_id);
+    if (freshMessageId) {
+      await logTelegramCardEvent("ticket_card_send", "skipped", {
+        ticketId,
+        payload: {
+          reason: "card_already_exists",
+          source: opts.source ?? null,
+          notify: opts.notifyNew === true,
+          message_id: freshMessageId,
+        },
+      });
+      return await updateTicketCard(ticketId, chatId);
+    }
+
+    const claimCutoff = new Date(Date.now() - 20_000).toISOString();
+    const { data: claimedRows, error: claimError } = await db.from("maintenance_tickets")
+      .update({ telegram_card_updated_at: new Date().toISOString() })
+      .eq("id", ticketId)
+      .is("telegram_message_id", null)
+      .or(`telegram_card_updated_at.is.null,telegram_card_updated_at.lt.${claimCutoff}`)
+      .select("id");
+
+    if (claimError) {
+      await logTelegramCardEvent("ticket_card_send", "failed", {
+        ticketId,
+        payload: { reason: "send_claim_failed", error: claimError.message, source: opts.source ?? null, notify: opts.notifyNew === true },
+      });
+      return false;
+    }
+
+    if (!claimedRows || claimedRows.length === 0) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+      const afterClaim = await fetchTicket(ticketId);
+      if (Number(afterClaim?.telegram_message_id)) return await updateTicketCard(ticketId, chatId);
+      await logTelegramCardEvent("ticket_card_send", "skipped", {
+        ticketId,
+        payload: { reason: "send_in_progress", source: opts.source ?? null, notify: opts.notifyNew === true },
+      });
+      return true;
+    }
+
+    record = freshRecord;
+  }
+
+  const result = await tg("sendMessage", {
+    chat_id: chatId,
+    text: buildTicketCardText(record),
+    parse_mode: "MarkdownV2",
+    disable_web_page_preview: true,
+    disable_notification: opts.notifyNew === true ? false : undefined,
+    reply_markup: ticketCardKb(record),
+  });
+  if (result?.ok) await saveTicketCardRef(record.id as string, chatId, result.result?.message_id);
+  else if (ticketId) {
+    await db.from("maintenance_tickets").update({
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId).is("telegram_message_id", null);
+  }
+  await logTelegramCardEvent("ticket_card_send", result?.ok ? "sent" : "failed", {
+    ticketId: record.id as string,
+    telegramMethod: "sendMessage",
+    telegramResult: result,
+    payload: {
+      chat_id: chatId,
+      message_id: result?.result?.message_id ?? null,
+      notify: opts.notifyNew === true,
+      source: opts.source ?? null,
+      telegram_error: result?.ok ? null : result,
+    },
+  });
+  return result?.ok === true;
+}
+
+async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT_ID): Promise<boolean> {
+  const record = await fetchTicket(ticketId);
+  if (!record) return false;
+  const chatId = record.telegram_chat_id ?? fallbackChatId;
+  const messageId = Number(record.telegram_message_id);
+  if (messageId) {
+    const edited = await tg("editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: buildTicketCardText(record),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: true,
+      reply_markup: ticketCardKb(record),
+    });
+    if (edited?.ok) {
+      await db.from("maintenance_tickets").update({
+        telegram_card_updated_at: new Date().toISOString(),
+      }).eq("id", ticketId);
+      await logTelegramCardEvent("ticket_card_edit", "edited", {
+        ticketId,
+        telegramMethod: "editMessageText",
+        telegramResult: edited,
+        payload: { chat_id: chatId, message_id: messageId },
+      });
+      return true;
+    }
+    if (isMessageNotModified(edited)) {
+      await db.from("maintenance_tickets").update({
+        telegram_card_updated_at: new Date().toISOString(),
+      }).eq("id", ticketId);
+      await logTelegramCardEvent("ticket_card_edit", "edited", {
+        ticketId,
+        telegramMethod: "editMessageText",
+        telegramResult: edited,
+        payload: { chat_id: chatId, message_id: messageId, note: "not_modified" },
+      });
+      return true;
+    }
+    await logTelegramCardEvent("ticket_card_edit", "failed", {
+      ticketId,
+      telegramMethod: "editMessageText",
+      telegramResult: edited,
+      payload: { chat_id: chatId, message_id: messageId, telegram_error: edited },
+    });
+    if (!shouldReplaceMissingCard(edited)) return false;
+    await db.from("maintenance_tickets").update({
+      telegram_chat_id: null,
+      telegram_message_id: null,
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId);
+    const freshRecord = await fetchTicket(ticketId);
+    return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId, { notifyNew: true, source: "card_recreated_after_missing" }) : false;
+  }
+  return await sendTicketCard(record, fallbackChatId, { notifyNew: true, source: "card_recreated_no_message_id" });
+}
+
+async function recreateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT_ID): Promise<boolean> {
+  const record = await fetchTicket(ticketId);
+  if (!record) return false;
+  const chatId = record.telegram_chat_id ?? fallbackChatId;
+  const messageId = Number(record.telegram_message_id);
+  if (messageId) {
+    const deletedResult = await deleteChatMessageResult(chatId, messageId);
+    await logTelegramCardEvent("ticket_card_delete", deletedResult?.ok ? "deleted" : "failed", {
+      ticketId,
+      telegramMethod: "deleteMessage",
+      telegramResult: deletedResult,
+      payload: { chat_id: chatId, message_id: messageId },
+    });
+  }
+  await db.from("maintenance_tickets").update({
+    telegram_chat_id: null,
+    telegram_message_id: null,
+    telegram_card_updated_at: null,
+  }).eq("id", ticketId);
+  const freshRecord = await fetchTicket(ticketId);
+  return freshRecord ? await sendTicketCard(freshRecord, fallbackChatId, { notifyNew: true, source: "card_recreated_manual" }) : false;
+}
+
+async function findTicketsNeedingCards(limit = 50): Promise<string[]> {
+  const [openCardRes, pendingCardRes] = await Promise.all([
+    db.from("maintenance_tickets")
+      .select("id")
+      .in("status", ["open", "in_progress"])
+      .is("telegram_message_id", null)
+      .order("created_at", { ascending: true })
+      .limit(limit),
+    db.from("maintenance_tickets")
+      .select("id")
+      .eq("status", "resolved")
+      .eq("inspection_status", "pending")
+      .is("telegram_message_id", null)
+      .order("created_at", { ascending: true })
+      .limit(limit),
+  ]);
+  return Array.from(new Set([
+    ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
+    ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
+  ])).slice(0, limit);
+}
+
+async function findRecentlyFailedCardTickets(limit = 50): Promise<string[]> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: failedLogs } = await db.from("maintenance_notification_logs")
+    .select("ticket_id")
+    .eq("channel", "telegram")
+    .eq("status", "failed")
+    .in("event_type", ["ticket_card_send", "ticket_card_edit", "new_ticket_push", "card_edit"])
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const failedIds = Array.from(new Set((failedLogs ?? [])
+    .map(log => log.ticket_id as string | null)
+    .filter((id): id is string => Boolean(id))));
+  if (failedIds.length === 0) return [];
+
+  const { data: activeTickets } = await db.from("maintenance_tickets")
+    .select("id")
+    .in("id", failedIds)
+    .or("status.in.(open,in_progress),and(status.eq.resolved,inspection_status.eq.pending)")
+    .limit(limit);
+  const activeIds = new Set((activeTickets ?? []).map(ticket => ticket.id as string));
+  return failedIds.filter(id => activeIds.has(id)).slice(0, limit);
+}
+
+async function runBotMaintenance(limit = 50) {
+  const missingIds = await findTicketsNeedingCards(limit);
+  const retryIds = await findRecentlyFailedCardTickets(limit);
+  const ids = Array.from(new Set([...missingIds, ...retryIds])).slice(0, limit);
+  let repaired = 0;
+  const failed: string[] = [];
+
+  for (const id of ids) {
+    const ok = await updateTicketCard(id, CHAT_ID);
+    if (ok) repaired++;
+    else failed.push(id);
+  }
+
+  const retryFailed = retryIds.filter(id => failed.includes(id)).length;
+  const summary = {
+    checked: ids.length,
+    repaired,
+    retry_failed: retryFailed,
+    persistent_failures: failed.length,
+    missing_cards_checked: missingIds.length,
+    recent_failures_checked: retryIds.length,
+    failed_ticket_ids: failed.slice(0, 25),
+  };
+  await logTelegramNotification("bot_maintenance", failed.length ? "failed" : ids.length ? "sent" : "skipped", {
+    payload: summary,
+  });
+  return { ok: true, ...summary };
+}
+
+async function runBotSelfTest(authHeader: string | null) {
+  const user = await getInternalUser(authHeader);
+  if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+
+  const errors: string[] = [];
+  let ticketId: string | null = null;
+  let sentCard = false;
+  let editedCard = false;
+  let deletedCard = false;
+  let cleanedTicket = false;
+
+  try {
+    const { data: ticket, error: insertError } = await db.from("maintenance_tickets").insert({
+      room_number: "BOT-TEST",
+      title: "Teste automatico do bot",
+      description: `Chamado temporario criado pelo teste do bot em ${new Date().toISOString()}`,
+      priority: "low",
+      status: "open",
+      status_reason: null,
+      reported_by: null,
+      housekeeping_reported_by: null,
+    }).select("*").single();
+    if (insertError || !ticket) {
+      errors.push(`create_ticket: ${insertError?.message ?? "ticket not returned"}`);
+      return { ok: false, created_ticket: false, sent_card: false, edited_card: false, deleted_card: false, cleaned_ticket: false, errors };
+    }
+
+    ticketId = ticket.id as string;
+    sentCard = await sendTicketCard(ticket as Record<string, unknown>, CHAT_ID, { notifyNew: true, source: "bot_self_test" });
+    if (!sentCard) errors.push("send_card: Telegram nao confirmou o envio do card");
+
+    const { error: updateError } = await db.from("maintenance_tickets").update({
+      description: `Chamado temporario editado pelo teste do bot em ${new Date().toISOString()}`,
+      telegram_card_updated_at: null,
+    }).eq("id", ticketId);
+    if (updateError) errors.push(`update_ticket: ${updateError.message}`);
+    else {
+      editedCard = await updateTicketCard(ticketId, CHAT_ID);
+      if (!editedCard) errors.push("edit_card: Telegram nao confirmou a edicao do card");
+    }
+
+    const fresh = await fetchTicket(ticketId);
+    const messageId = fresh?.telegram_message_id;
+    if (messageId) {
+      const deleted = await deleteChatMessageResult(fresh?.telegram_chat_id ?? CHAT_ID, messageId);
+      deletedCard = deleted?.ok === true;
+      await logTelegramCardEvent("ticket_card_delete", deletedCard ? "deleted" : "failed", {
+        ticketId,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
+        payload: {
+          chat_id: fresh?.telegram_chat_id ?? CHAT_ID,
+          message_id: messageId,
+          source: "bot_self_test",
+        },
+      });
+      if (!deletedCard) errors.push(`delete_card: ${telegramErrorDescription(deleted) || "Telegram nao confirmou a delecao"}`);
+    } else {
+      errors.push("delete_card: card sem message_id rastreado");
+    }
+
+    const { error: deleteError } = await db.from("maintenance_tickets").delete().eq("id", ticketId);
+    cleanedTicket = !deleteError;
+    if (deleteError) errors.push(`clean_ticket: ${deleteError.message}`);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (ticketId && !cleanedTicket) {
+      const { error } = await db.from("maintenance_tickets").delete().eq("id", ticketId);
+      cleanedTicket = !error;
+      if (error) errors.push(`final_cleanup: ${error.message}`);
+    }
+  }
+
+  const result = {
+    ok: errors.length === 0,
+    created_ticket: Boolean(ticketId),
+    sent_card: sentCard,
+    edited_card: editedCard,
+    deleted_card: deletedCard,
+    cleaned_ticket: cleanedTicket,
+    errors,
+  };
+  await logTelegramNotification("bot_self_test", result.ok ? "sent" : "failed", {
+    ticketId,
+    payload: { ...result, actor_id: user.id, actor_name: user.name },
+  });
+  return result;
+}
+
+function extractTelegramLogReason(payload: unknown): string | null {
+  const value = payload as Record<string, unknown> | null;
+  if (!value) return null;
+  const error = value.telegram_error as Record<string, unknown> | undefined;
+  const description = error?.description ?? value.error ?? value.reason;
+  if (description) return String(description).slice(0, 180);
+  if (Array.isArray(value.failed_ticket_ids) && value.failed_ticket_ids.length > 0) {
+    return `${value.failed_ticket_ids.length} chamados ainda com falha`;
+  }
+  return null;
+}
+
+async function rememberCallbackCard(ticketId: string, chatId: unknown, messageId: unknown) {
+  const numericMessageId = Number(messageId);
+  if (!ticketId || !numericMessageId) return;
+  const { data } = await db.from("maintenance_tickets")
+    .select("telegram_message_id")
+    .eq("id", ticketId)
+    .single();
+  if (!data?.telegram_message_id) await saveTicketCardRef(ticketId, chatId, numericMessageId);
 }
 
 // ── audit trail helper ──────────────────────────────────────────────────────
@@ -190,6 +739,136 @@ async function logEvent(opts: {
 }
 
 // ── sla alert ───────────────────────────────────────────────────────────────
+function ownerBlockMessage(ticket: Record<string, unknown> | null | undefined): string {
+  const owner = ticket?.status_reason ? String(ticket.status_reason) : "quem assumiu";
+  return `Apenas ${owner} pode alterar este chamado.`;
+}
+
+function isTicketOwnedBy(ticket: Record<string, unknown> | null | undefined, fromId: number): boolean {
+  return ticket?.status === "in_progress" &&
+    !!ticket.telegram_user_id &&
+    Number(ticket.telegram_user_id) === fromId;
+}
+
+async function ensureCallbackOwner(
+  ticket: Record<string, unknown>,
+  fromId: number,
+  callbackAlert: (text: string) => Promise<void>,
+): Promise<boolean> {
+  if (isTicketOwnedBy(ticket, fromId)) return true;
+  await logTelegramNotification("owner_lock_blocked", "skipped", {
+    ticketId: ticket.id as string | undefined,
+    payload: {
+      action: "telegram_card_action",
+      from_id: fromId,
+      owner_tg_id: ticket.telegram_user_id ?? null,
+      owner_name: ticket.status_reason ?? null,
+      status: ticket.status ?? null,
+    },
+  });
+  if (ticket.status !== "in_progress") {
+    await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status ?? "desconhecido"}).`);
+  } else {
+    await callbackAlert(ownerBlockMessage(ticket));
+  }
+  return false;
+}
+
+async function ensureReplyOwner(ticketId: string, fromId: number, chatId: unknown, message: Record<string, unknown>) {
+  const { data: ticket } = await db
+    .from("maintenance_tickets")
+    .select("status,telegram_user_id,status_reason")
+    .eq("id", ticketId)
+    .single();
+  if (isTicketOwnedBy(ticket as Record<string, unknown> | null, fromId)) return { ok: true, ticket };
+  await deleteChatMessage(chatId, message.message_id);
+  return { ok: false, ticket };
+}
+
+async function rejectInspectionAndReturnToTech(
+  ticketId: string,
+  actorTgId: number,
+  actorName: string,
+  chatId: unknown,
+  note?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanNote = note?.trim() || "Reprovado pela vistoria. O tecnico deve corrigir e concluir novamente.";
+  const { data: ticket } = await db
+    .from("maintenance_tickets")
+    .select("title,room_number,status,status_reason,telegram_user_id,inspection_status,inspector_tg_id")
+    .eq("id", ticketId)
+    .single();
+
+  if (!ticket) return { ok: false, error: "ticket_not_found" };
+  if (ticket.status !== "resolved" || ticket.inspection_status !== "pending") {
+    await updateTicketCard(ticketId, chatId);
+    return { ok: false, error: `not_pending_inspection:${ticket.status ?? "unknown"}` };
+  }
+  if (!ticket.inspector_tg_id) {
+    return { ok: false, error: "inspection_not_assumed" };
+  }
+  if (Number(ticket.inspector_tg_id) !== actorTgId) {
+    return { ok: false, error: "locked_to_other_inspector" };
+  }
+
+  const now = new Date().toISOString();
+  const { count } = await db.from("maintenance_tickets").update({
+    status: "in_progress",
+    inspection_status: "rejected",
+    inspection_notes: cleanNote,
+    inspected_at: now,
+    resolved_at: null,
+    awaiting_parts: false,
+    inspector_tg_id: null,
+    inspection_requested_at: null,
+    updated_at: now,
+  })
+    .eq("id", ticketId)
+    .eq("status", "resolved")
+    .eq("inspection_status", "pending")
+    .eq("inspector_tg_id", actorTgId)
+    .select("id", { count: "exact", head: true });
+
+  if (!count || count === 0) {
+    await updateTicketCard(ticketId, chatId);
+    return { ok: false, error: "stale_ticket" };
+  }
+
+  await logEvent({
+    ticketId,
+    actorType: "telegram_user",
+    actorId: String(actorTgId),
+    actorName,
+    event: "inspection_rejected",
+    prevStatus: "resolved",
+    newStatus: "in_progress",
+    notes: cleanNote.slice(0, 500),
+  });
+
+  await updateTicketCard(ticketId, chatId);
+
+  const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
+  const techMention = ticket.telegram_user_id
+    ? `[${ticket.status_reason ?? "Tecnico"}](tg://user?id=${ticket.telegram_user_id})`
+    : `*${esc(ticket.status_reason ?? "Tecnico")}*`;
+
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: [
+      `*Vistoria reprovada* por *${esc(actorName)}*`,
+      `Chamado: *${esc(ticket.title)}*${uhPart}`,
+      "",
+      `Motivo: _${esc(cleanNote)}_`,
+      "",
+      `${techMention}\\, o chamado voltou para em andamento\\. Por favor corrija e conclua novamente\\.`,
+    ].join("\n"),
+    parse_mode: "MarkdownV2",
+    reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ?? undefined),
+  });
+
+  return { ok: true };
+}
+
 async function sendSlaAlert() {
   const SLA: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
   const now = Date.now();
@@ -236,23 +915,13 @@ async function sendInspectionRequest(
   roomNumber: string | null,
   durationPart: string,
   resolutionNotes?: string,
-) {
-  const uhPart = roomNumber ? ` \\(UH ${esc(roomNumber)}\\)` : "";
-  const lines = [
-    `🔍 *Vistoria necessária*`, "",
-    `*${esc(ticketTitle)}*${uhPart}`,
-    `👷 Concluído por *${esc(techName)}*${durationPart}`,
-  ];
-  if (resolutionNotes) {
-    lines.push("", `📝 _${esc(resolutionNotes)}_`);
-  }
-  lines.push("", `_Somente moderadores do grupo podem assumir a vistoria\\._`, "", `🔖 \`${ticketId}\``);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: lines.join("\n"),
-    parse_mode: "MarkdownV2",
-    reply_markup: inspectionKb(ticketId),
-  });
+): Promise<boolean> {
+  void techName;
+  void ticketTitle;
+  void roomNumber;
+  void durationPart;
+  void resolutionNotes;
+  return await updateTicketCard(ticketId, chatId);
 }
 
 // ── daily report ────────────────────────────────────────────────────────────
@@ -404,13 +1073,10 @@ async function handleManualResend(payload: Record<string, unknown>) {
     extraLine = `\n📢 _Reenvio solicitado por ${esc(actorName)}_`;
   }
 
-  await tg("sendMessage", {
-    chat_id: CHAT_ID,
-    text: buildText(ticket, heading) + extraLine,
-    parse_mode: "MarkdownV2",
-    disable_web_page_preview: true,
-    ...(kb ? { reply_markup: kb } : {}),
-  });
+  void heading;
+  void kb;
+  void extraLine;
+  await updateTicketCard(id, CHAT_ID);
   return { ok: true };
 }
 
@@ -422,21 +1088,244 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "request_rating", "sla_alert", "request_inspection"];
+  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test"];
   if (internalTypes.includes(body.type as string)) {
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return { ok: false, error: "unauthorized" };
-    }
-    // Validate actual token value against WEBHOOK_SECRET
-    const token = authHeader.slice(7);
-    if (WEBHOOK_SECRET && token !== WEBHOOK_SECRET) {
-      return { ok: false, error: "invalid token" };
-    }
+    if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
 
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
+  if ((body.type as string) === "bot_self_test")  return await runBotSelfTest(authHeader);
+
+  if ((body.type as string) === "ticket_opened") {
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("*")
+      .eq("id", ticketId)
+      .eq("status", "open")
+      .gte("created_at", tenMinutesAgo)
+      .single();
+    if (!ticket) return { ok: false, error: "ticket not found or too old" };
+    const ok = await sendTicketCard(ticket, CHAT_ID, { notifyNew: true, source: "ticket_opened" });
+    return { ok, ticket_id: ticketId };
+  }
+
+  if ((body.type as string) === "bot_health") {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [
+      logsRes,
+      openRes,
+      progressRes,
+      unownedProgressRes,
+      pendingInspectionRes,
+      openCardRes,
+      pendingCardRes,
+    ] = await Promise.all([
+      db.from("maintenance_notification_logs")
+        .select("id,ticket_id,event_type,status,payload,created_at")
+        .eq("channel", "telegram")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "open"),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "in_progress").is("telegram_user_id", null),
+      db.from("maintenance_tickets").select("id", { count: "exact", head: true }).eq("status", "resolved").eq("inspection_status", "pending"),
+      db.from("maintenance_tickets")
+        .select("id")
+        .in("status", ["open", "in_progress"])
+        .is("telegram_message_id", null)
+        .limit(200),
+      db.from("maintenance_tickets")
+        .select("id")
+        .eq("status", "resolved")
+        .eq("inspection_status", "pending")
+        .is("telegram_message_id", null)
+        .limit(200),
+    ]);
+    const logs = logsRes.data ?? [];
+    const missingCardIds = [
+      ...(openCardRes.data ?? []).map(ticket => ticket.id as string),
+      ...(pendingCardRes.data ?? []).map(ticket => ticket.id as string),
+    ];
+    const maintenanceLogs = logs.filter(log => log.event_type === "bot_maintenance");
+    const lastMaintenance = maintenanceLogs[0] ?? null;
+    const persistentFailures = logs
+      .filter(log => log.status === "failed" && String(log.created_at) >= since)
+      .slice(0, 8)
+      .map(log => ({
+        id: log.id,
+        ticket_id: log.ticket_id,
+        event_type: log.event_type,
+        status: log.status,
+        created_at: log.created_at,
+        reason: extractTelegramLogReason(log.payload),
+      }));
+    return {
+      ok: true,
+      bot_configured: Boolean(BOT_TOKEN && CHAT_ID),
+      webhook_secret_configured: Boolean(WEBHOOK_SECRET),
+      last_event_at: logs[0]?.created_at ?? null,
+      failures_24h: logs.filter(log => log.status === "failed" && String(log.created_at) >= since).length,
+      last_bot_maintenance_at: lastMaintenance?.created_at ?? null,
+      last_bot_maintenance: lastMaintenance?.payload ?? null,
+      persistent_failures: persistentFailures,
+      open_count: openRes.count ?? 0,
+      in_progress_count: progressRes.count ?? 0,
+      unowned_in_progress_count: unownedProgressRes.count ?? 0,
+      pending_inspection_count: pendingInspectionRes.count ?? 0,
+      missing_card_count: missingCardIds.length,
+      missing_card_ticket_ids: missingCardIds.slice(0, 25),
+      recent_logs: logs,
+    };
+  }
+
+  if ((body.type as string) === "recreate_card") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const ok = await recreateTicketCard(ticketId, CHAT_ID);
+    return { ok, ticket_id: ticketId };
+  }
+
+  if ((body.type as string) === "bot_maintenance") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    return await runBotMaintenance(50);
+  }
+
+  if ((body.type as string) === "reconcile_cards") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    const ids = await findTicketsNeedingCards(50);
+    let repaired = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      const ok = await updateTicketCard(id, CHAT_ID);
+      if (ok) repaired++;
+      else failed.push(id);
+    }
+    return { ok: true, checked: ids.length, repaired, failed_count: failed.length, failed_ticket_ids: failed.slice(0, 25) };
+  }
+
+  if ((body.type as string) === "cleanup_test_tickets") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+
+    const hours = Math.min(Math.max(Number(body.hours ?? 24), 1), 72);
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    const { data: tickets } = await db
+      .from("maintenance_tickets")
+      .select("id,title,status_reason,resolution_notes,telegram_chat_id,telegram_message_id")
+      .gte("created_at", since)
+      .or("title.ilike.%teste%,status_reason.eq.Reset solicitado no PMS,resolution_notes.ilike.%Reset em%");
+
+    let deletedCards = 0;
+    const ids = (tickets ?? []).map(ticket => ticket.id as string);
+    for (const ticket of tickets ?? []) {
+      if (!ticket.telegram_message_id) continue;
+      const deleted = await deleteChatMessageResult(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (deleted?.ok) deletedCards++;
+      await logTelegramCardEvent("ticket_card_delete", deleted?.ok ? "deleted" : "failed", {
+        ticketId: ticket.id as string,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
+        payload: {
+          chat_id: ticket.telegram_chat_id ?? CHAT_ID,
+          message_id: ticket.telegram_message_id,
+          source: "cleanup_test_tickets",
+        },
+      });
+    }
+
+    if (ids.length > 0) {
+      await db.from("maintenance_notification_logs").delete().in("ticket_id", ids);
+      await db.from("maintenance_ticket_events").delete().in("ticket_id", ids);
+      await db.from("maintenance_tickets").delete().in("id", ids);
+    }
+
+    return { ok: true, tickets_deleted: ids.length, telegram_cards_deleted: deletedCards, hours };
+  }
+
+  if ((body.type as string) === "cleanup_all_tickets") {
+    const user = await getInternalUser(authHeader);
+    if (!user || !["admin", "manager"].includes(String(user.role))) return { ok: false, error: "forbidden" };
+    if (body.confirm !== "LIMPAR TODOS") return { ok: false, error: "confirmation_required" };
+
+    const { data: tickets } = await db
+      .from("maintenance_tickets")
+      .select("id,telegram_chat_id,telegram_message_id");
+
+    let deletedCards = 0;
+    let failedCards = 0;
+    const ids = (tickets ?? []).map(ticket => ticket.id as string);
+    const deleteErrors: string[] = [];
+    for (const ticket of tickets ?? []) {
+      if (!ticket.telegram_message_id) continue;
+      const deleted = await deleteChatMessageResult(ticket.telegram_chat_id ?? CHAT_ID, ticket.telegram_message_id);
+      if (deleted?.ok) deletedCards++;
+      else {
+        failedCards++;
+        const reason = telegramErrorDescription(deleted) || "unknown";
+        deleteErrors.push(`${ticket.telegram_message_id}: ${reason}`);
+      }
+      await logTelegramCardEvent("ticket_card_delete", deleted?.ok ? "deleted" : "failed", {
+        ticketId: ticket.id as string,
+        telegramMethod: "deleteMessage",
+        telegramResult: deleted,
+        payload: {
+          chat_id: ticket.telegram_chat_id ?? CHAT_ID,
+          message_id: ticket.telegram_message_id,
+          source: "cleanup_all_tickets",
+        },
+      });
+    }
+
+    if (ids.length > 0) {
+      await db.from("maintenance_notification_logs").delete().in("ticket_id", ids);
+      await db.from("maintenance_ticket_events").delete().in("ticket_id", ids);
+      await db.from("maintenance_tickets").delete().in("id", ids);
+    }
+
+    await logTelegramNotification("cleanup_all_tickets", failedCards ? "failed" : ids.length ? "deleted" : "skipped", {
+      payload: {
+        tickets_deleted: ids.length,
+        telegram_cards_deleted: deletedCards,
+        telegram_cards_failed: failedCards,
+        telegram_delete_errors: deleteErrors.slice(0, 10),
+        actor_id: user.id,
+        actor_name: user.name,
+      },
+    });
+
+    return {
+      ok: true,
+      tickets_deleted: ids.length,
+      telegram_cards_deleted: deletedCards,
+      telegram_cards_failed: failedCards,
+      telegram_delete_errors: deleteErrors.slice(0, 10),
+    };
+  }
+
+  if ((body.type as string) === "public_report") {
+    const ticketId = body.ticket_id as string;
+    if (!ticketId) return { ok: false, error: "missing ticket_id" };
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("*")
+      .eq("id", ticketId)
+      .eq("status", "open")
+      .gte("created_at", fiveMinutesAgo)
+      .single();
+    if (!ticket) return { ok: false, error: "ticket not found or too old" };
+    const ok = await sendTicketCard(ticket, CHAT_ID, { notifyNew: true, source: "public_report" });
+    return { ok, ticket_id: ticketId };
+  }
 
   if ((body.type as string) === "request_inspection") {
     const ticketId  = body.ticket_id as string;
@@ -470,12 +1359,8 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
       .from("maintenance_tickets").select("title,inspection_status").eq("id", ticketId).single();
     if (!tk) return { ok: false, error: "ticket not found" };
     if (tk.inspection_status !== "approved") return { ok: false, error: "inspection not approved" };
-    await tg("sendMessage", {
-      chat_id: CHAT_ID,
-      text: `⭐ *Vistoria aprovada\\!* Como foi o atendimento de *${esc(tk.title ?? "")}*\\? Avalie o chamado\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: ratingKb(ticketId),
-    });
+    void tk;
+    await updateTicketCard(ticketId, CHAT_ID);
     return { ok: true };
   }
 
@@ -509,12 +1394,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     const createdAt  = record.created_at  ? new Date(record.created_at  as string) : null;
     const mins = createdAt ? Math.round((resolvedAt.getTime() - createdAt.getTime()) / 60000) : null;
     heading = mins !== null ? `✅ *Resolvido em ${esc(formatDuration(mins))}*` : `✅ *Chamado resolvido*`;
-    await tg("sendMessage", {
-      chat_id: CHAT_ID,
-      text: buildText(record, heading),
-      parse_mode: "MarkdownV2",
-      disable_web_page_preview: false,
-    });
+    await updateTicketCard(id, CHAT_ID);
     // Fix D: only trigger inspection if not already dispatched via Telegram
     if (!record.inspection_status) {
       await sendInspectionRequest(
@@ -535,13 +1415,10 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
     kb = openKb(id);
   }
 
-  await tg("sendMessage", {
-    chat_id: CHAT_ID,
-    text: buildText(record, heading),
-    parse_mode: "MarkdownV2",
-    disable_web_page_preview: false,
-    ...(kb ? { reply_markup: kb } : {}),
-  });
+  void heading;
+  void kb;
+  if (event === "INSERT") await sendTicketCard(record, CHAT_ID, { notifyNew: true, source: "db_insert" });
+  else await updateTicketCard(id, CHAT_ID);
   return { ok: true };
 }
 
@@ -560,8 +1437,17 @@ async function handleCallback(query: Record<string, unknown>) {
   const action   = data.slice(0, colonIdx);
   const rest     = data.slice(colonIdx + 1);
 
-  // Immediately acknowledge callback to prevent Telegram retries
-  await tg("answerCallbackQuery", { callback_query_id: cbId });
+  let callbackAnswered = false;
+  const callbackOk = async (text?: string) => {
+    if (callbackAnswered) return;
+    callbackAnswered = true;
+    await tg("answerCallbackQuery", { callback_query_id: cbId, ...(text ? { text } : {}) });
+  };
+  const callbackAlert = async (text: string) => {
+    if (callbackAnswered) return;
+    callbackAnswered = true;
+    await tg("answerCallbackQuery", { callback_query_id: cbId, text, show_alert: true });
+  };
 
   // ── Rating ──────────────────────────────────────────────────────────────
   if (action === "rate") {
@@ -571,30 +1457,60 @@ async function handleCallback(query: Record<string, unknown>) {
     if (!ticketId || !rating || rating < 1 || rating > 5) {
       return { ok: true };
     }
+    await rememberCallbackCard(ticketId, chatId, msgId);
+
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode avaliar este chamado.");
+      return { ok: true };
+    }
+
+    const { data: ticket } = await db
+      .from("maintenance_tickets")
+      .select("status,inspection_status,inspector_tg_id,rating")
+      .eq("id", ticketId)
+      .single();
+    if (!ticket) return { ok: true };
+
+    if (ticket.status !== "resolved" || ticket.inspection_status !== "approved") {
+      await callbackAlert("Este chamado ainda nao esta aprovado para avaliacao.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (!ticket.inspector_tg_id) {
+      await callbackAlert("A avaliacao exige uma vistoria assumida por moderador.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (Number(ticket.inspector_tg_id) !== fromId) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode avaliar este chamado.");
+      return { ok: true };
+    }
+    if (ticket.rating) {
+      await updateTicketCard(ticketId, chatId);
+      await callbackOk("Chamado ja avaliado.");
+      return { ok: true };
+    }
 
     // 2E: atomic update — only write if rating is still null (prevents race condition)
     const { count: ratingCount } = await db.from("maintenance_tickets")
       .update({ rating, rated_by_tg_id: fromId, updated_at: new Date().toISOString() })
       .eq("id", ticketId)
+      .eq("status", "resolved")
+      .eq("inspection_status", "approved")
+      .eq("inspector_tg_id", fromId)
       .is("rating", null)
       .select("id", { count: "exact", head: true });
 
     if (!ratingCount || ratingCount === 0) {
       const { data: tk } = await db
         .from("maintenance_tickets").select("rating").eq("id", ticketId).single();
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `✅ Este chamado já foi avaliado com ${tk?.rating ?? "?"}/5 estrelas.`,
-        parse_mode: "MarkdownV2",
-      });
+      void tk;
+      await updateTicketCard(ticketId, chatId);
       return { ok: true };
     }
-    if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `⭐ Atendimento avaliado em *${rating}/5* por *${esc(name)}*`,
-      parse_mode: "MarkdownV2",
-    });
+    void name;
+    await updateTicketCard(ticketId, chatId);
+    await callbackOk("Avaliacao registrada.");
     return { ok: true };
   }
 
@@ -602,67 +1518,72 @@ async function handleCallback(query: Record<string, unknown>) {
   if (action === "insp_assume") {
     const ticketId = rest;
     if (!await isModerator(chatId, fromId)) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas moderadores do grupo podem assumir a vistoria\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas moderadores do grupo podem assumir a vistoria.");
       return { ok: true };
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,inspection_status,status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id,status").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
     // Only allow assuming inspection on resolved tickets
     if (ticket.status !== "resolved") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está aguardando vistoria \\(status: ${esc(ticket.status ?? "desconhecido")}\\)\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado nao esta aguardando vistoria (status: ${ticket.status ?? "desconhecido"}).`);
       return { ok: true };
     }
 
     // Block if another moderator already assumed (inspection_status is "pending" and inspector_tg_id is set)
-    if (ticket.inspection_status !== null) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
-        parse_mode: "MarkdownV2",
-      });
+    if (ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== fromId) {
+      await callbackAlert("A vistoria deste chamado ja foi assumida por outro moderador.");
       return { ok: true };
     }
 
-    // Fix B: save inspector_tg_id atomically; only update if inspection_status IS NULL
+    if (Number(ticket.inspector_tg_id) === fromId) {
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+
+    // Fix B: save inspector_tg_id atomically while inspection is waiting.
     const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "pending",
       inspector_tg_id: fromId,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId).is("inspection_status", null).select("id", { count: "exact", head: true });
+    }).eq("id", ticketId)
+      .eq("status", "resolved")
+      .is("inspector_tg_id", null)
+      .or("inspection_status.is.null,inspection_status.eq.pending")
+      .select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 A vistoria deste chamado já foi assumida por outro moderador\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("status,inspection_status,inspector_tg_id")
+        .eq("id", ticketId)
+        .single();
+
+      if (current?.status === "resolved" && Number(current.inspector_tg_id) === fromId) {
+        await updateTicketCard(ticketId, chatId);
+        return { ok: true };
+      }
+
+      if (current?.status !== "resolved") {
+        await callbackAlert(`Este chamado nao esta aguardando vistoria (status: ${current?.status ?? "desconhecido"}).`);
+        return { ok: true };
+      }
+
+      if (!current?.inspector_tg_id && (current?.inspection_status === null || current?.inspection_status === "pending")) {
+        await updateTicketCard(ticketId, chatId);
+        await callbackAlert("Nao consegui assumir a vistoria agora. Toque em Assumir Vistoria novamente.");
+        return { ok: true };
+      }
+
+      await callbackAlert("A vistoria deste chamado ja foi assumida por outro moderador.");
       return { ok: true };
     }
 
-    if (msgId) {
-      await tg("editMessageReplyMarkup", {
-        chat_id: chatId, message_id: msgId,
-        reply_markup: inspectorActionsKb(ticketId, fromId),
-      });
-    }
-
-    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔍 *${esc(name)}* assumiu a vistoria de *${esc(ticket.title)}*${uhPart}`,
-      parse_mode: "MarkdownV2",
-    });
+    void msgId;
+    void name;
+    await updateTicketCard(ticketId, chatId);
     return { ok: true };
   }
 
@@ -672,35 +1593,54 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId       = parts[0];
     const lockedInspId   = parts[1] ? Number(parts[1]) : null;
 
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas moderadores do grupo podem aprovar vistoria.");
+      return { ok: true };
+    }
+
     // Fix B: validate lock against DB inspector_tg_id too
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode aprovar\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode aprovar.");
       return { ok: true };
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,status_reason,inspector_tg_id").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,status,status_reason,inspection_status,inspector_tg_id").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
-    // Secondary DB-level lock check
-    if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode aprovar este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
+    if (ticket.status !== "resolved" || ticket.inspection_status !== "pending") {
+      await callbackAlert("Este chamado nao esta mais aguardando vistoria.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
+    if (!ticket.inspector_tg_id) {
+      await callbackAlert("A vistoria precisa ser assumida por um moderador antes de aprovar.");
+      await updateTicketCard(ticketId, chatId);
       return { ok: true };
     }
 
-    await db.from("maintenance_tickets").update({
+    // Secondary DB-level lock check
+    if (Number(ticket.inspector_tg_id) !== fromId) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode aprovar este chamado.");
+      return { ok: true };
+    }
+
+    const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "approved",
       inspected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
+    })
+      .eq("id", ticketId)
+      .eq("status", "resolved")
+      .eq("inspection_status", "pending")
+      .eq("inspector_tg_id", fromId)
+      .select("id", { count: "exact", head: true });
+
+    if (!count || count === 0) {
+      await callbackAlert("Este chamado nao esta mais aguardando esta vistoria.");
+      await updateTicketCard(ticketId, chatId);
+      return { ok: true };
+    }
 
     // 3C: audit
     await logEvent({
@@ -709,21 +1649,10 @@ async function handleCallback(query: Record<string, unknown>) {
       event: "inspection_approved", prevStatus: "pending", newStatus: "approved",
     });
 
-    if (msgId) await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } });
-
     const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `✅ *${esc(name)}* aprovou a vistoria de *${esc(ticket.title)}*${uhPart}`,
-      parse_mode: "MarkdownV2",
-    });
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `⭐ Como foi o atendimento de *${esc(ticket.title)}*${uhPart}\\?\nAtendido por *${esc(ticket.status_reason ?? "Técnico")}*\\. Avalie\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: ratingKb(ticketId),
-    });
+    void msgId;
+    void uhPart;
+    await updateTicketCard(ticketId, chatId);
     return { ok: true };
   }
 
@@ -733,36 +1662,29 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId     = parts[0];
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
+    if (!await isModerator(chatId, fromId)) {
+      await callbackAlert("Apenas moderadores do grupo podem reprovar vistoria.");
+      return { ok: true };
+    }
+
     if (lockedInspId && lockedInspId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode reprovar\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Apenas o vistoriador que assumiu pode reprovar.");
       return { ok: true };
     }
 
-    const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,inspector_tg_id").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
-
-    // DB-level lock check
-    if (ticket.inspector_tg_id && ticket.inspector_tg_id !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o vistoriador que assumiu pode reprovar este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
-      return { ok: true };
+    const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId);
+    if (result.ok) {
+      await callbackAlert("Vistoria reprovada. O chamado voltou para o tecnico corrigir.");
+    } else if (result.error === "inspection_not_assumed") {
+      await callbackAlert("A vistoria precisa ser assumida por um moderador antes de reprovar.");
+    } else if (result.error === "locked_to_other_inspector") {
+      await callbackAlert("Apenas o vistoriador que assumiu pode reprovar este chamado.");
+    } else if (result.error?.startsWith("not_pending_inspection")) {
+      await callbackAlert("Este chamado nao esta mais aguardando vistoria.");
+    } else {
+      await callbackAlert("Nao consegui reprovar a vistoria agora. Tente novamente.");
     }
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `❌ Descreva o problema encontrado \\[insp_reject:${esc(ticketId)}\\|${esc(String(fromId))}\\]:\n_${esc(ticket.title)}_`,
-      parse_mode: "MarkdownV2",
-      reply_to_message_id: msgId,
-      reply_markup: { force_reply: true, input_field_placeholder: "Descreva o problema encontrado..." },
-    });
+    void msgId;
     return { ok: true };
   }
 
@@ -774,17 +1696,9 @@ async function handleCallback(query: Record<string, unknown>) {
   if (!ticketId) {
     return { ok: true };
   }
+  await rememberCallbackCard(ticketId, chatId, msgId);
 
-  if (lockedTgUserId && lockedTgUserId !== fromId) {
-    const { data: tk } = await db
-      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔒 Apenas ${tk?.status_reason ?? "quem assumiu"} pode concluir ou reportar peças deste chamado\\.`,
-      parse_mode: "MarkdownV2",
-    });
-    return { ok: true };
-  }
+  void lockedTgUserId;
 
   // 3C: select específico — evita carregar campos desnecessários
   const { data: ticket } = await db
@@ -792,6 +1706,11 @@ async function handleCallback(query: Record<string, unknown>) {
     .select("id,status,room_number,title,created_at,status_reason,telegram_user_id,awaiting_parts,resolution_notes,inspection_status,description,assigned_to,priority,resolved_at,inspection_notes,inspected_at,rating")
     .eq("id", ticketId).single();
   if (!ticket) return { ok: true };
+
+  const ownerOnlyActions = ["parts_ok", "resolve", "parts", "note"];
+  if (ownerOnlyActions.includes(action) && !await ensureCallbackOwner(ticket, fromId, callbackAlert)) {
+    return { ok: true };
+  }
 
   if (action === "assume") {
     // Fix A+10: atomic update with status guard to prevent double-assume
@@ -801,16 +1720,19 @@ async function handleCallback(query: Record<string, unknown>) {
       updated_at: new Date().toISOString(),
       status_reason: name,
       telegram_user_id: fromId,
-    }).eq("id", ticketId).eq("status", "open").select("id", { count: "exact", head: true });
+    })
+      .eq("id", ticketId)
+      .or("status.eq.open,and(status.eq.in_progress,telegram_user_id.is.null)")
+      .select("id", { count: "exact", head: true });
 
     if (!count || count === 0) {
       // count=0 pode ser: (a) outro tecnico assumiu, OU (b) retry do Telegram do mesmo usuario
       // Buscar quem realmente assumiu para decidir
       const { data: current } = await db
         .from("maintenance_tickets")
-        .select("telegram_user_id, status_reason")
+        .select("telegram_user_id, status_reason, status")
         .eq("id", ticketId).single();
-      if (current?.telegram_user_id === fromId) {
+      if (Number(current?.telegram_user_id) === fromId) {
         // Caso (b): mesmo usuario, retry/duplicate — re-emite o teclado e finaliza silenciosamente
         if (msgId) {
           await tg("editMessageReplyMarkup", {
@@ -820,11 +1742,7 @@ async function handleCallback(query: Record<string, unknown>) {
         return { ok: true };
       }
       // Caso (a): realmente foi outro tecnico
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já foi assumido por ${current?.status_reason ?? "outro técnico"}\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado ja foi assumido por ${current?.status_reason ?? "outro tecnico"}.`);
       return { ok: true };
     }
 
@@ -854,42 +1772,32 @@ async function handleCallback(query: Record<string, unknown>) {
       actorId: String(fromId), actorName: name,
       event: "assumed", prevStatus: "open", newStatus: "in_progress",
     });
+    await updateTicketCard(ticketId, chatId);
 
   } else if (action === "parts_ok") {
     // 4C: técnico recebeu as peças — limpa flag e devolve ao fluxo normal
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("answerCallbackQuery", { callback_query_id: cbId,
-        text: `Chamado já está ${ticket.status}.`, show_alert: true });
+      await callbackAlert(`Chamado ja esta ${ticket.status}.`);
       return { ok: true };
     }
     await db.from("maintenance_tickets").update({
       awaiting_parts: false,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
-    if (msgId) await tg("editMessageReplyMarkup", {
-      chat_id: chatId, message_id: msgId,
-      reply_markup: inProgressKb(ticketId, lockedTgUserId ?? undefined),
-    });
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `📦 *${esc(name)}* confirmou que as peças foram recebidas\\. Chamado retomado\\!`,
-      parse_mode: "MarkdownV2",
-    });
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
+    await updateTicketCard(ticketId, chatId);
+    await callbackOk("Pecas recebidas. Chamado retomado.");
+    return { ok: true };
 
   } else if (action === "resolve") {
     // Fix 8: only allow resolve if ticket is in_progress
     if (ticket.status !== "in_progress") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está em andamento \\(status: ${esc(ticket.status)}\\)\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado nao esta em andamento (status: ${ticket.status}).`);
       return { ok: true };
     }
-    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
+    const lockSuffix = ticket.telegram_user_id ? `\\|${esc(String(ticket.telegram_user_id))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `✍️ Descreva a solução \\[${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
+      text: `✍️ Descreva a solução \\[resolve:${esc(ticketId)}${lockSuffix}\\]:\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
       reply_markup: { force_reply: true, input_field_placeholder: "Digite a solução aqui..." },
@@ -898,17 +1806,13 @@ async function handleCallback(query: Record<string, unknown>) {
   } else if (action === "parts") {
     // Fix 9: only allow parts report if ticket is active
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já está ${esc(ticket.status === "resolved" ? "resolvido" : "cancelado")}\\. Não é possível registrar falta de peças\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert(`Este chamado ja esta ${ticket.status === "resolved" ? "resolvido" : "cancelado"}.`);
       return { ok: true };
     }
-    const lockSuffix = lockedTgUserId ? `\\|${esc(String(lockedTgUserId))}` : "";
+    const lockSuffix = ticket.telegram_user_id ? `\\|${esc(String(ticket.telegram_user_id))}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `🔩 Quais peças são necessárias? \\[${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
+      text: `🔩 Quais peças são necessárias? \\[parts:${esc(ticketId)}${lockSuffix}\\]\n_${esc(ticket.title)}_`,
       parse_mode: "MarkdownV2",
       reply_to_message_id: msgId,
       reply_markup: { force_reply: true, input_field_placeholder: "Descreva as peças necessárias..." },
@@ -930,11 +1834,7 @@ async function handleCallback(query: Record<string, unknown>) {
 
   } else if (action === "note") {
     if (ticket.status === "resolved" || ticket.status === "cancelled") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado já está encerrado e não aceita novas notas\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Este chamado ja esta encerrado e nao aceita novas notas.");
       return { ok: true };
     }
     await tg("sendMessage", {
@@ -946,47 +1846,51 @@ async function handleCallback(query: Record<string, unknown>) {
     });
 
   } else if (action === "transfer") {
-    if (!lockedTgUserId || lockedTgUserId !== fromId) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `🔒 Apenas o técnico responsável pode transferir este chamado\\.`,
-        parse_mode: "MarkdownV2",
-      });
+    if (ticket.status !== "in_progress") {
+      await callbackAlert("Este chamado nao esta em andamento e nao pode ser transferido.");
       return { ok: true };
     }
-    if (ticket.status !== "in_progress") {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Este chamado não está em andamento e não pode ser transferido\\.`,
-        parse_mode: "MarkdownV2",
+    const isOwner = isTicketOwnedBy(ticket, fromId);
+    const isMod = await isModerator(chatId, fromId);
+    if (!isOwner && !isMod) {
+      await logTelegramNotification("owner_lock_blocked", "skipped", {
+        ticketId,
+        payload: {
+          action: "telegram_transfer",
+          from_id: fromId,
+          owner_tg_id: ticket.telegram_user_id ?? null,
+          owner_name: ticket.status_reason ?? null,
+          status: ticket.status ?? null,
+        },
       });
+      await callbackAlert(ownerBlockMessage(ticket));
       return { ok: true };
     }
     const { count: transferCount } = await db.from("maintenance_tickets")
       .update({ status: "open", telegram_user_id: null, assigned_to: null, status_reason: null, updated_at: new Date().toISOString() })
-      .eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .eq("id", ticketId).eq("status", "in_progress")
       .select("id", { count: "exact", head: true });
     if (!transferCount || transferCount === 0) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `⚠️ Chamado já foi alterado por outra ação\\.`,
-        parse_mode: "MarkdownV2",
-      });
+      await callbackAlert("Chamado ja foi alterado por outra acao.");
       return { ok: true };
     }
     await logEvent({
       ticketId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
-      event: "transferred", prevStatus: "in_progress", newStatus: "open",
-      notes: "técnico liberou chamado de volta para a fila",
+      event: isOwner ? "transferred" : "transferred_by_moderator", prevStatus: "in_progress", newStatus: "open",
+      notes: isOwner ? "tecnico liberou chamado de volta para a fila" : "moderador liberou chamado de volta para a fila",
     });
-    const uhPart = ticket.room_number ? ` — UH ${esc(ticket.room_number as string)}` : "";
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔄 *${esc(name)}* transferiu chamado de volta para a fila\\.\n📌 *${esc(ticket.title as string)}*${uhPart}\n\nOutro técnico pode assumir\\:`,
-      parse_mode: "MarkdownV2",
-      reply_markup: openKb(ticketId),
-    });
+    const cardUpdated = await updateTicketCard(ticketId, chatId);
+    await callbackOk("Chamado voltou para a fila.");
+    if (!cardUpdated) {
+      const uhPart = ticket.room_number ? ` - UH ${esc(ticket.room_number as string)}` : "";
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `*${esc(name)}* transferiu chamado de volta para a fila\\.\n*${esc(ticket.title as string)}*${uhPart}\n\nOutro tecnico pode assumir\\:`,
+        parse_mode: "MarkdownV2",
+        reply_markup: openKb(ticketId),
+      });
+    }
   }
 
   return { ok: true };
@@ -1035,49 +1939,37 @@ async function handleReply(message: Record<string, unknown>) {
       });
       return { ok: true };
     }
-
-    const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,status_reason,telegram_user_id,status").eq("id", ticketId).single();
-    if (!ticket) return { ok: true };
-
-    // Fix 11: only reject if ticket is still resolved (awaiting inspection)
-    if (ticket.status !== "resolved") {
+    if (!await isModerator(chatId, fromId)) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `⚠️ Este chamado não está mais aguardando vistoria \\(status atual: ${esc(ticket.status)}\\)\\.`,
+        text: `ðŸ”’ Apenas moderadores do grupo podem reprovar vistoria\\.`,
         parse_mode: "MarkdownV2",
       });
       return { ok: true };
     }
 
-    await db.from("maintenance_tickets").update({
-      status: "in_progress",
-      inspection_status: "rejected",
-      inspection_notes: userText,
-      inspected_at: new Date().toISOString(),
-      resolved_at: null,
-      awaiting_parts: false,
-      updated_at: new Date().toISOString(),
-    }).eq("id", ticketId);
-
-    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number)}\\)` : "";
-    const techMention = ticket.telegram_user_id
-      ? `[${ticket.status_reason ?? "Técnico"}](tg://user?id=${ticket.telegram_user_id})`
-      : `*${esc(ticket.status_reason ?? "Técnico")}*`;
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: [
-        `❌ *Vistoria reprovada* por *${esc(name)}*`,
-        `📋 ${esc(ticket.title)}${uhPart}`,
-        ``,
-        `📝 Motivo: _${esc(userText)}_`,
-        ``,
-        `👷 ${techMention}\\, o chamado voltou para em andamento\\. Por favor corrija e conclua novamente\\.`,
-      ].join("\n"),
-      parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ?? undefined),
-    });
+    const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId, userText);
+    if (result.ok) {
+      await cleanupPromptAndReply(message);
+    } else if (result.error === "inspection_not_assumed") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `âš ï¸ A vistoria precisa ser assumida por um moderador antes de reprovar\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    } else if (result.error === "locked_to_other_inspector") {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `ðŸ”’ Apenas o vistoriador que assumiu pode reprovar este chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    } else if (result.error?.startsWith("not_pending_inspection")) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Este chamado não está mais aguardando vistoria\\.`,
+        parse_mode: "MarkdownV2",
+      });
+    }
     return { ok: true };
   }
 
@@ -1182,7 +2074,7 @@ async function handleReply(message: Record<string, unknown>) {
       status_reason: tech.name,
       started_at: now,
       updated_at: now,
-      // telegram_user_id não é definido — qualquer técnico pode concluir
+      // telegram_user_id nao e definido aqui; o tecnico precisa assumir no card para vincular o Telegram.
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
@@ -1190,7 +2082,7 @@ async function handleReply(message: Record<string, unknown>) {
       chat_id: chatId,
       text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
       parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(ticketId),
+      reply_markup: bindTechKb(ticketId),
     });
     return { ok: true };
   }
@@ -1200,7 +2092,9 @@ async function handleReply(message: Record<string, unknown>) {
   if (noteMatch) {
     const tId     = noteMatch[1];
     const ownerId = Number(noteMatch[2]);
-    if (ownerId !== fromId) return { ok: true };
+    void ownerId;
+    const ownerCheck = await ensureReplyOwner(tId, fromId, chatId, message);
+    if (!ownerCheck.ok) return { ok: true };
     const noteText = userText.trim();
     if (!noteText) return { ok: true };
     const { data: tk } = await db.from("maintenance_tickets")
@@ -1208,7 +2102,8 @@ async function handleReply(message: Record<string, unknown>) {
     if (!tk || tk.status === "resolved" || tk.status === "cancelled") return { ok: true };
     const stamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
     const newNotes = [tk.resolution_notes, `[${stamp}] ${noteText}`].filter(Boolean).join("\n");
-    await db.from("maintenance_tickets").update({ resolution_notes: newNotes, updated_at: new Date().toISOString() }).eq("id", tId);
+    await db.from("maintenance_tickets").update({ resolution_notes: newNotes, updated_at: new Date().toISOString() })
+      .eq("id", tId).eq("status", "in_progress").eq("telegram_user_id", fromId);
     await logEvent({
       ticketId: tId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
@@ -1224,31 +2119,51 @@ async function handleReply(message: Record<string, unknown>) {
   }
 
   // ── Ticket force-reply responses [UUID] or [UUID|LOCKED_TG_ID] ───────────
-  const match = replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  const resolveMatch = replyText.match(/\[resolve:([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  const legacyResolveMatch = !resolveMatch && replyText.startsWith("✍️")
+    ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
+    : null;
+  const partsMatch = replyText.match(/\[parts:([0-9a-f-]{36})(?:\|(\d+))?\]/i);
+  const legacyPartsMatch = !partsMatch && replyText.startsWith("🔩")
+    ? replyText.match(/\[([0-9a-f-]{36})(?:\|(\d+))?\]/i)
+    : null;
+  const match = resolveMatch ?? legacyResolveMatch ?? partsMatch ?? legacyPartsMatch;
   if (!match) return { ok: true };
   const ticketId       = match[1];
   const lockedTgUserId = match[2] ? Number(match[2]) : null;
+  const replyValue     = userText.trim();
 
-  if (lockedTgUserId && lockedTgUserId !== fromId) {
-    const { data: tk } = await db
-      .from("maintenance_tickets").select("status_reason").eq("id", ticketId).single();
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔒 Apenas *${esc(tk?.status_reason ?? "quem assumiu")}* pode finalizar este chamado\\.`,
-      parse_mode: "MarkdownV2",
-    });
-    return { ok: true };
-  }
+  void lockedTgUserId;
+  const ownerCheck = await ensureReplyOwner(ticketId, fromId, chatId, message);
+  if (!ownerCheck.ok) return { ok: true };
 
-  const isResolve = replyText.startsWith("✍️");
-  const isParts   = replyText.startsWith("🔩");
+  const isResolve = !!(resolveMatch ?? legacyResolveMatch);
+  const isParts   = !!(partsMatch ?? legacyPartsMatch);
 
   if (isResolve) {
+    if (!replyValue) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Envie uma descrição da solução para concluir o chamado\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("created_at,title,room_number,status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("created_at,title,room_number,status,telegram_user_id,resolution_notes").eq("id", ticketId).single();
 
     // Fix F/8: validate ticket is still in_progress before resolving
     if (!ticket || ticket.status !== "in_progress") {
+      const alreadyResolvedBySameTech =
+        ticket?.status === "resolved" &&
+        Number(ticket.telegram_user_id) === fromId &&
+        String(ticket.resolution_notes ?? "") === replyValue;
+      if (alreadyResolvedBySameTech) {
+        await updateTicketCard(ticketId, chatId);
+        await cleanupPromptAndReply(message);
+        return { ok: true, skipped: "already-resolved" };
+      }
       await tg("sendMessage", {
         chat_id: chatId,
         text: `⚠️ Este chamado não pode ser concluído pois não está em andamento \\(status: ${esc(ticket?.status ?? "desconhecido")}\\)\\.`,
@@ -1267,15 +2182,33 @@ async function handleReply(message: Record<string, unknown>) {
       status: "resolved",
       resolved_at: now,
       updated_at: now,
-      resolution_notes: userText,
+      resolution_notes: replyValue,
       status_reason: name,
       awaiting_parts: false,
-      inspection_status: null,
+      inspection_status: "pending",
       inspector_tg_id: null,
-      inspection_requested_at: now,
-    }).eq("id", ticketId).eq("status", "in_progress").select("id", { count: "exact", head: true });
+      inspection_notes: null,
+      inspected_at: null,
+      inspection_requested_at: null,
+      rating: null,
+      rated_by_tg_id: null,
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId).select("id", { count: "exact", head: true });
 
     if (!resolvedCount || resolvedCount === 0) {
+      const { data: current } = await db
+        .from("maintenance_tickets")
+        .select("status,telegram_user_id,resolution_notes")
+        .eq("id", ticketId)
+        .single();
+      const alreadyResolvedBySameTech =
+        current?.status === "resolved" &&
+        Number(current.telegram_user_id) === fromId &&
+        String(current.resolution_notes ?? "") === replyValue;
+      if (alreadyResolvedBySameTech) {
+        await updateTicketCard(ticketId, chatId);
+        await cleanupPromptAndReply(message);
+        return { ok: true, skipped: "already-resolved" };
+      }
       await tg("sendMessage", {
         chat_id: chatId,
         text: `⚠️ Chamado já foi alterado por outra ação e não pôde ser concluído\\.`,
@@ -1289,16 +2222,10 @@ async function handleReply(message: Record<string, unknown>) {
       ticketId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
       event: "resolved", prevStatus: "in_progress", newStatus: "resolved",
-      notes: userText.slice(0, 500),
+      notes: replyValue.slice(0, 500),
     });
 
     const durationPart = mins !== null ? ` em *${esc(formatDuration(mins))}*` : "";
-
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `✅ Concluído${durationPart} por *${esc(name)}*\\!\n📝 ${esc(userText)}`,
-      parse_mode: "MarkdownV2",
-    });
 
     // Send inspection request directly (DB trigger removed)
     await sendInspectionRequest(
@@ -1306,10 +2233,24 @@ async function handleReply(message: Record<string, unknown>) {
       name,
       ticket.title ?? "",
       ticket.room_number ?? null,
-      mins !== null ? ` em *${esc(formatDuration(mins))}*` : "",
-      userText || undefined,
+      durationPart,
+      replyValue,
     );
+    await db.from("maintenance_tickets").update({
+      inspection_requested_at: now,
+      updated_at: now,
+    }).eq("id", ticketId).eq("status", "resolved").is("inspection_requested_at", null);
+    await cleanupPromptAndReply(message);
   } else if (isParts) {
+    if (!replyValue) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ Descreva quais peças são necessárias antes de registrar falta de peças\\.`,
+        parse_mode: "MarkdownV2",
+      });
+      return { ok: true };
+    }
+
     const { data: ticket } = await db
       .from("maintenance_tickets").select("status").eq("id", ticketId).single();
 
@@ -1326,14 +2267,10 @@ async function handleReply(message: Record<string, unknown>) {
     await db.from("maintenance_tickets").update({
       updated_at: new Date().toISOString(),
       awaiting_parts: true,
-      resolution_notes: `⚠️ Aguardando pecas: ${userText} (${name})`,
-    }).eq("id", ticketId);
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `🔩 *Falta de peças registrada* por *${esc(name)}*\n\n📦 ${esc(userText)}\n\n_O chamado foi sinalizado no PMS como aguardando material\\._`,
-      parse_mode: "MarkdownV2",
-      reply_markup: partsReceivedKb(ticketId, lockedTgUserId ?? undefined),
-    });
+      resolution_notes: `Aguardando pecas: ${replyValue} (${name})`,
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
+    await updateTicketCard(ticketId, chatId);
+    await cleanupPromptAndReply(message);
   }
 
   return { ok: true };
@@ -1838,11 +2775,12 @@ serve(async (req) => {
     const tgSecret     = req.headers.get("x-telegram-bot-api-secret-token");
     const isFromTg     = !!(body.callback_query || body.message || body.edited_message);
     const isInternal   = !!body.type && !!authHeader?.startsWith("Bearer ");
+    const isPublicReport = body.type === "public_report";
     if (isFromTg) {
       if (WEBHOOK_SECRET && tgSecret !== WEBHOOK_SECRET) {
         return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
-    } else if (!isInternal) {
+    } else if (!isInternal && !isPublicReport) {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 

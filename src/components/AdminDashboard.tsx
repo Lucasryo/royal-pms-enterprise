@@ -3534,11 +3534,11 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   <p className="text-sm text-red-900">{viewingFileDetails.disputeReason}</p>
                   <p className="text-[10px] text-red-400 mt-2">Enviado em: {new Date(viewingFileDetails.disputeAt).toLocaleString('pt-BR')}</p>
                   
-                  {viewingFileDetails.disputeImages && viewingFileDetails.disputeImages.length > 0 && (
+                  {viewingFileDetails.dispute_images && viewingFileDetails.dispute_images.length > 0 && (
                     <div className="mt-4">
                       <p className="text-xs font-bold text-red-600 uppercase mb-2">Imagens Anexadas</p>
                       <div className="flex flex-wrap gap-2">
-                        {viewingFileDetails.disputeImages.map((img, i) => (
+                        {viewingFileDetails.dispute_images.map((img, i) => (
                           <a key={i} href={img} target="_blank" rel="noreferrer" className="w-20 h-20 rounded-lg overflow-hidden border border-red-200 hover:opacity-80 transition-opacity">
                             <img src={img} alt={`Anexo ${i+1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           </a>

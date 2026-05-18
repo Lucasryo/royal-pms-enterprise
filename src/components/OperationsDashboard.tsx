@@ -649,6 +649,9 @@ function TicketModal({
       reporterId: profile.id,
       reporterName: profile.name,
     });
+    if (ticket?.id) {
+      await notifyMaintenanceTelegramOpened(ticket.id);
+    }
     if (ticket) {
       await notifyMaintenancePhoneEvent({
         event: 'opened',
@@ -768,6 +771,22 @@ async function notifyMaintenancePhoneEvent({
     });
   } catch (error) {
     console.warn('Phone notification skipped:', error);
+  }
+}
+
+async function notifyMaintenanceTelegramOpened(ticketId: string) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+    const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ type: 'ticket_opened', ticket_id: ticketId }),
+    });
+  } catch (error) {
+    console.warn('Telegram ticket notification skipped:', error);
   }
 }
 

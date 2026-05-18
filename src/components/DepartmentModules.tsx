@@ -105,6 +105,8 @@ type MaintTicket = {
   inspected_at: string | null;
   awaiting_parts: boolean | null;
   telegram_user_id: number | null;
+  telegram_message_id: number | null;
+  telegram_card_updated_at: string | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -138,6 +140,62 @@ function resolutionMins(t: { created_at: string; resolved_at: string | null }): 
 }
 
 type Collaborator = { id: string; name: string; role: string };
+type TelegramLog = {
+  id: string;
+  ticket_id: string | null;
+  recipient_name: string | null;
+  channel: string;
+  event_type: string;
+  status: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+type BotHealth = {
+  ok: boolean;
+  bot_configured: boolean;
+  webhook_secret_configured: boolean;
+  last_event_at: string | null;
+  last_bot_maintenance_at: string | null;
+  last_bot_maintenance: BotMaintenancePayload | null;
+  persistent_failures: BotPersistentFailure[];
+  failures_24h: number;
+  open_count: number;
+  in_progress_count: number;
+  unowned_in_progress_count: number;
+  pending_inspection_count: number;
+  missing_card_count: number;
+  missing_card_ticket_ids: string[];
+  recent_logs: TelegramLog[];
+};
+type BotMaintenanceResult = {
+  ok: boolean;
+  checked: number;
+  repaired: number;
+  retry_failed: number;
+  persistent_failures: number;
+};
+type BotPersistentFailure = {
+  id: string;
+  ticket_id: string | null;
+  event_type: string;
+  status: string;
+  created_at: string;
+  reason: string | null;
+};
+type BotMaintenancePayload = Partial<BotMaintenanceResult> & {
+  failed_ticket_ids?: string[];
+  missing_cards_checked?: number;
+  recent_failures_checked?: number;
+};
+type BotSelfTestResult = {
+  ok: boolean;
+  created_ticket: boolean;
+  sent_card: boolean;
+  edited_card: boolean;
+  deleted_card: boolean;
+  cleaned_ticket: boolean;
+  errors: string[];
+};
 
 function BoardTab() {
   function openFullscreen() {
@@ -187,7 +245,18 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [filterUH, setFilterUH] = useState('');
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [notifExpandedId, setNotifExpandedId] = useState<string | null>(null);
-  const [notifLogs, setNotifLogs] = useState<Record<string, { id: string; recipient_name: string; sent_at: string; event: string }[]>>({});
+  const [notifLogs, setNotifLogs] = useState<Record<string, TelegramLog[]>>({});
+  const [botHealth, setBotHealth] = useState<BotHealth | null>(null);
+  const [botHealthLoading, setBotHealthLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupAllLoading, setCleanupAllLoading] = useState(false);
+  const [botMaintenanceLoading, setBotMaintenanceLoading] = useState(false);
+  const [lastBotMaintenance, setLastBotMaintenance] = useState<BotMaintenanceResult | null>(null);
+  const [botSelfTestLoading, setBotSelfTestLoading] = useState(false);
+  const [lastBotSelfTest, setLastBotSelfTest] = useState<BotSelfTestResult | null>(null);
+  const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
+  const [showBotManual, setShowBotManual] = useState(false);
+  const [botLogMode, setBotLogMode] = useState<'all' | 'failures' | 'pushes' | 'edits' | 'skips'>('failures');
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -198,6 +267,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     fetchTickets();
+    void fetchBotHealth();
     if (canDirect) loadCollaborators();
     const ch = supabase
       .channel('maint-tickets-module')
@@ -219,12 +289,51 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_message_id,telegram_card_updated_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }
     setTickets((data ?? []) as MaintTicket[]);
     setLoading(false);
+  }
+
+  async function callBotFunction(body: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sessao invalida.');
+    const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.ok === false) throw new Error(data?.error ?? 'Falha ao chamar bot.');
+    return data;
+  }
+
+  async function logMaintenanceEvent(ticketId: string, event: string, prevStatus: string | null, newStatus: string | null, notes?: string) {
+    await supabase.from('maintenance_ticket_events').insert({
+      ticket_id: ticketId,
+      actor_type: 'pms_user',
+      actor_id: profile.id,
+      actor_name: profile.name,
+      event,
+      prev_status: prevStatus,
+      new_status: newStatus,
+      notes: notes ?? null,
+    });
+  }
+
+  async function fetchBotHealth() {
+    setBotHealthLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'bot_health' });
+      setBotHealth(data as BotHealth);
+    } catch {
+      setBotHealth(null);
+    } finally {
+      setBotHealthLoading(false);
+    }
   }
 
   async function assume(ticket: MaintTicket) {
@@ -324,6 +433,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     const { error } = await supabase.from('maintenance_tickets').update({
       inspection_status: 'pending',
       inspector_id: inspectorId,
+      inspector_tg_id: null,
+      rating: null,
+      rated_by_tg_id: null,
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
@@ -339,6 +451,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) { toast.error('Erro: ' + error.message); return; }
+    await logMaintenanceEvent(ticket.id, 'inspection_approved_admin', 'pending', 'approved', note || 'Aprovado via PMS.');
 
     // Pede avaliação pelo Telegram apenas após aprovação da vistoria
     try {
@@ -366,10 +479,18 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       inspection_notes: note,
       inspected_at: new Date().toISOString(),
       resolved_at: null,
+      awaiting_parts: false,
+      inspector_tg_id: null,
+      inspection_requested_at: null,
       updated_at: new Date().toISOString(),
     }).eq('id', ticket.id);
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chamado reprovado na vistoria — voltou para em andamento.'); fetchTickets(); void notifyBot('manual_resend', ticket.id); }
+    else {
+      await logMaintenanceEvent(ticket.id, 'inspection_rejected_admin', 'resolved', 'in_progress', note);
+      toast.success('Chamado reprovado na vistoria — voltou para em andamento.');
+      fetchTickets();
+      void notifyBot('manual_resend', ticket.id);
+    }
   }
 
   async function toggleNotifLogs(ticketId: string) {
@@ -378,24 +499,18 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     if (notifLogs[ticketId]) return;
     const { data } = await supabase
       .from('maintenance_notification_logs')
-      .select('id,recipient_name,sent_at,event')
+      .select('id,recipient_name,channel,event_type,status,payload,created_at')
       .eq('ticket_id', ticketId)
-      .order('sent_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(20);
-    setNotifLogs(prev => ({ ...prev, [ticketId]: data ?? [] }));
+    setNotifLogs(prev => ({ ...prev, [ticketId]: (data ?? []) as TelegramLog[] }));
   }
 
   // 2A/2B/2C: notifica o bot Telegram após ações do PMS (best-effort)
   async function notifyBot(type: string, ticketId: string) {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ type, ticket_id: ticketId, actor_name: profile.name }),
-      });
+      await callBotFunction({ type, ticket_id: ticketId, actor_name: profile.name });
+      void fetchBotHealth();
     } catch { /* notificação é best-effort — não bloqueia ação do PMS */ }
   }
 
@@ -424,23 +539,107 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
       // Notifica o bot Telegram com contexto de reenvio manual
       // Se reaberto → bot direciona para alguém assumir; se em andamento → lembrete para o técnico
-      const tgRes = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          type: 'manual_resend',
-          ticket_id: ticket.id,
-          actor_name: profile.name,
-        }),
+      const tgData = await callBotFunction({
+        type: 'manual_resend',
+        ticket_id: ticket.id,
+        actor_name: profile.name,
       });
 
-      if (phoneRes.ok || tgRes.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
+      if (phoneRes.ok || tgData?.ok) toast.success('Notificacao reenviada para Telegram e equipe.');
       else toast.error('Falha ao reenviar notificacao.');
+      void fetchBotHealth();
     } catch { toast.error('Erro ao reenviar notificacao.'); }
     finally { setResendingId(null); }
   }
 
-  // Reincidência: UHs com 2+ chamados (não cancelados) nos últimos 30 dias
+  async function recreateTelegramCard(ticket: MaintTicket) {
+    if (!canDirect) return;
+    setRecreatingCardId(ticket.id);
+    try {
+      const data = await callBotFunction({ type: 'recreate_card', ticket_id: ticket.id });
+      if (data?.ok) toast.success('Card do Telegram recriado.');
+      else toast.error('Nao foi possivel recriar o card.');
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao recriar card.');
+    } finally {
+      setRecreatingCardId(null);
+    }
+  }
+
+  async function runBotMaintenance() {
+    if (!canDirect) return;
+    setBotMaintenanceLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'bot_maintenance' }) as BotMaintenanceResult;
+      setLastBotMaintenance(data);
+      toast.success(`Verificacao concluida: ${data.repaired ?? 0}/${data.checked ?? 0} cards recuperados.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao verificar o bot.');
+    } finally {
+      setBotMaintenanceLoading(false);
+    }
+  }
+
+  async function runBotSelfTest() {
+    if (!canDirect) return;
+    setBotSelfTestLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'bot_self_test' }) as BotSelfTestResult;
+      setLastBotSelfTest(data);
+      if (data.ok) toast.success('Teste do bot concluido com sucesso.');
+      else toast.error(`Teste do bot terminou com ${data.errors?.length ?? 0} alerta(s).`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao testar o bot.');
+    } finally {
+      setBotSelfTestLoading(false);
+    }
+  }
+
+  async function cleanupTestTickets() {
+    if (!canDirect) return;
+    const ok = confirm('Limpar chamados de teste das ultimas 24h e apagar cards rastreados no Telegram? Esta acao remove os registros de teste do PMS/Supabase.');
+    if (!ok) return;
+    setCleanupLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'cleanup_test_tickets', hours: 24 });
+      toast.success(`Limpeza concluida: ${data.tickets_deleted ?? 0} chamados e ${data.telegram_cards_deleted ?? 0} cards removidos.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao limpar testes.');
+    } finally {
+      setCleanupLoading(false);
+    }
+  }
+
+  async function cleanupAllTickets() {
+    if (!canDirect) return;
+    const typed = prompt('Esta acao apaga TODOS os chamados de manutencao do PMS/Supabase e os cards rastreados no Telegram. Digite LIMPAR TODOS para confirmar:');
+    if (typed !== 'LIMPAR TODOS') {
+      if (typed !== null) toast.error('Confirmacao invalida. Nada foi apagado.');
+      return;
+    }
+    setCleanupAllLoading(true);
+    try {
+      const data = await callBotFunction({ type: 'cleanup_all_tickets', confirm: 'LIMPAR TODOS' });
+      toast.success(`Limpeza total: ${data.tickets_deleted ?? 0} chamados, ${data.telegram_cards_deleted ?? 0} cards removidos.`);
+      if ((data.telegram_cards_failed ?? 0) > 0) toast.error(`${data.telegram_cards_failed} cards nao puderam ser apagados do Telegram.`);
+      await fetchTickets();
+      await fetchBotHealth();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao limpar chamados.');
+    } finally {
+      setCleanupAllLoading(false);
+    }
+  }
+
+  // Reincidencia: UHs com 2+ chamados (nao cancelados) nos ultimos 30 dias
   const reincidentUHs = useMemo(() => {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const counts: Record<string, number> = {};
@@ -489,6 +688,19 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       .filter(t => (t.status === 'resolved' && t.inspection_status !== 'pending') || t.status === 'cancelled')
       .slice(0, 15),
   [filtered]);
+  const botRecentLogs = useMemo(() => {
+    const logs = botHealth?.recent_logs ?? [];
+    if (botLogMode === 'failures') return logs.filter(log => log.status === 'failed');
+    if (botLogMode === 'pushes') return logs.filter(log => log.event_type === 'new_ticket_push');
+    if (botLogMode === 'edits') return logs.filter(log => log.event_type === 'card_edit');
+    if (botLogMode === 'skips') return logs.filter(log => log.event_type === 'card_skip_existing');
+    return logs;
+  }, [botHealth, botLogMode]);
+  const recentTicketPushLogs = useMemo(() => {
+    return (botHealth?.recent_logs ?? []).filter(log =>
+      log.event_type === 'new_ticket_push' || (log.event_type === 'ticket_card_send' && log.payload?.notify === true)
+    );
+  }, [botHealth]);
 
   // 1E: apenas admin/manager podem aprovar/reprovar vistorias
   const canInspect = () => profile.role === 'admin' || profile.role === 'manager';
@@ -497,7 +709,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Abertos</p>
           <p className="mt-1 text-3xl font-black text-amber-800">{open.length}</p>
@@ -506,14 +718,220 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Em andamento</p>
           <p className="mt-1 text-3xl font-black text-blue-800">{inProgress.length}</p>
         </div>
-        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 col-span-2 sm:col-span-1">
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">SLA estourado</p>
           <p className="mt-1 text-3xl font-black text-neutral-800">
             {open.filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60_000 > SLA_MIN[t.priority]).length}
           </p>
         </div>
+        <div className={`rounded-2xl border px-4 py-3 ${botHealth?.bot_configured ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+          <p className={`text-[10px] font-black uppercase tracking-widest ${botHealth?.bot_configured ? 'text-emerald-600' : 'text-red-600'}`}>Bot Telegram</p>
+          <p className={`mt-1 text-xl sm:text-2xl font-black ${botHealth?.bot_configured ? 'text-emerald-800' : 'text-red-800'}`}>
+            {botHealthLoading ? '...' : botHealth?.bot_configured ? 'Online' : 'Verificar'}
+          </p>
+          <p className="mt-1 text-[10px] font-bold text-neutral-500">
+            {botHealth?.last_event_at ? `Ultimo: ${new Date(botHealth.last_event_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}` : 'Sem eventos recentes'}
+          </p>
+        </div>
       </div>
 
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Saude do bot</p>
+            <p className="mt-1 text-sm font-bold text-neutral-700">
+              {botHealth
+                ? `${botHealth.failures_24h} falhas nas ultimas 24h · ${botHealth.pending_inspection_count} vistorias pendentes`
+                : 'Clique em atualizar para consultar o status da funcao Telegram.'}
+            </p>
+            {botHealth && (
+              <p className="mt-1 text-xs font-bold text-blue-700">
+                {botHealth.missing_card_count ?? 0} chamados ativos sem card · {botHealth.unowned_in_progress_count ?? 0} em andamento sem Telegram vinculado.
+              </p>
+            )}
+            {botHealth?.last_bot_maintenance_at && (
+              <p className="mt-1 text-xs font-bold text-neutral-500">
+                Blindagem automatica: {new Date(botHealth.last_bot_maintenance_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                {botHealth.last_bot_maintenance ? ` · ${botHealth.last_bot_maintenance.repaired ?? 0}/${botHealth.last_bot_maintenance.checked ?? 0} recuperados` : ''}
+              </p>
+            )}
+            {recentTicketPushLogs.length > 0 && (
+              <p className="mt-1 text-xs font-bold text-emerald-700">
+                Ultimos pushes de novos chamados: {recentTicketPushLogs.slice(0, 3).map(log => `${log.status} ${new Date(log.created_at).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}`).join(' · ')}
+              </p>
+            )}
+            {lastBotMaintenance && (
+              <p className="mt-1 text-xs font-bold text-emerald-700">
+                Ultima verificacao: {lastBotMaintenance.repaired}/{lastBotMaintenance.checked} recuperados, {lastBotMaintenance.persistent_failures} falhas persistentes.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={fetchBotHealth}
+              disabled={botHealthLoading}
+              className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black text-white transition hover:bg-neutral-700 disabled:opacity-50"
+            >
+              {botHealthLoading ? 'Atualizando...' : 'Atualizar status'}
+            </button>
+            {canDirect && (
+              <>
+                <button
+                  onClick={runBotMaintenance}
+                  disabled={botMaintenanceLoading}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white transition hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {botMaintenanceLoading ? 'Verificando...' : 'Verificar agora'}
+                </button>
+                <button
+                  onClick={runBotSelfTest}
+                  disabled={botSelfTestLoading}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {botSelfTestLoading ? 'Testando...' : 'Teste do bot'}
+                </button>
+                <button
+                  onClick={cleanupTestTickets}
+                  disabled={cleanupLoading}
+                  className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  {cleanupLoading ? 'Limpando...' : 'Limpar testes'}
+                </button>
+                <button
+                  onClick={cleanupAllTickets}
+                  disabled={cleanupAllLoading}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-black text-white transition hover:bg-red-500 disabled:opacity-50"
+                >
+                  {cleanupAllLoading ? 'Limpando tudo...' : 'Limpar todos'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {botHealth && (botHealth.failures_24h > 0 || botHealth.missing_card_count > 0) && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+            Atencao: {botHealth.failures_24h} falhas nas ultimas 24h e {botHealth.missing_card_count} chamados ativos sem card. Use Verificar agora se precisar recuperar imediatamente.
+          </div>
+        )}
+        {lastBotSelfTest && (
+          <div className={`mt-4 rounded-xl border p-4 ${lastBotSelfTest.ok ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+            <p className={`text-[10px] font-black uppercase tracking-widest ${lastBotSelfTest.ok ? 'text-emerald-700' : 'text-amber-700'}`}>Resultado do teste do bot</p>
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] font-black">
+              {([
+                ['Criou', lastBotSelfTest.created_ticket],
+                ['Enviou', lastBotSelfTest.sent_card],
+                ['Editou', lastBotSelfTest.edited_card],
+                ['Apagou', lastBotSelfTest.deleted_card],
+                ['Limpou', lastBotSelfTest.cleaned_ticket],
+              ] as Array<[string, boolean]>).map(([label, ok]) => (
+                <span key={String(label)} className={`rounded-lg px-2 py-1 text-center ${ok ? 'bg-white text-emerald-700' : 'bg-white text-red-600'}`}>{label}: {ok ? 'ok' : 'falha'}</span>
+              ))}
+            </div>
+            {lastBotSelfTest.errors?.length > 0 && (
+              <p className="mt-2 text-xs font-bold text-amber-800">{lastBotSelfTest.errors.join(' | ')}</p>
+            )}
+          </div>
+        )}
+        {botHealth?.persistent_failures?.length ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Falhas persistentes</p>
+            <div className="mt-2 space-y-2">
+              {botHealth.persistent_failures.slice(0, 4).map(failure => (
+                <div key={failure.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs">
+                  <span className="font-black text-red-800">{failure.event_type}</span>
+                  <span className="text-red-700">{failure.reason ?? 'Sem detalhe retornado pelo Telegram'}</span>
+                  <span className="font-mono text-[10px] text-red-500">{failure.ticket_id ?? '-'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {botHealth?.recent_logs?.length ? (
+          <div className="mt-4 max-w-full overflow-x-auto">
+            <div className="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Historico do bot</p>
+              <div className="inline-flex rounded-xl bg-neutral-100 p-1 text-[10px] font-black uppercase text-neutral-500">
+                {[
+                  ['failures', 'Falhas'],
+                  ['pushes', 'Push'],
+                  ['edits', 'Edicoes'],
+                  ['skips', 'Dedupe'],
+                  ['all', 'Todos'],
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setBotLogMode(mode as typeof botLogMode)}
+                    className={`rounded-lg px-3 py-1.5 transition ${botLogMode === mode ? 'bg-white text-neutral-900 shadow-sm' : 'hover:text-neutral-800'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <table className="min-w-[620px] w-full text-left text-xs">
+              <thead className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                <tr>
+                  <th className="py-2 pr-3">Quando</th>
+                  <th className="py-2 pr-3">Evento</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">Chamado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {botRecentLogs.slice(0, 5).map(log => (
+                  <tr key={log.id}>
+                    <td className="py-2 pr-3 text-neutral-500">{new Date(log.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
+                    <td className="py-2 pr-3 font-bold text-neutral-700">{log.event_type}</td>
+                    <td className={`py-2 pr-3 font-black ${log.status === 'failed' ? 'text-red-600' : 'text-emerald-700'}`}>{log.status}</td>
+                    <td className="py-2 pr-3 font-mono text-[10px] text-neutral-400">{log.ticket_id ?? '-'}</td>
+                  </tr>
+                ))}
+                {botRecentLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-center text-xs font-bold text-neutral-400">Nenhuma falha recente.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Manual rapido do fluxo</p>
+            <p className="mt-1 text-sm font-bold text-neutral-700">QR abre o chamado, Telegram opera o card e PMS audita tudo.</p>
+          </div>
+          <button
+            onClick={() => setShowBotManual(value => !value)}
+            className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700 transition hover:bg-emerald-200"
+          >
+            {showBotManual ? 'Ocultar' : 'Ver fluxo'}
+          </button>
+        </div>
+        {showBotManual && (
+          <>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">1. Abertura</p>
+                <p className="mt-1 text-neutral-500">Hospede ou equipe abre pelo QR. O bot cria um card unico no grupo.</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">2. Operacao</p>
+                <p className="mt-1 text-neutral-500">Assumir, pecas, concluir, transferir e vistoria atualizam o mesmo card.</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 ring-1 ring-neutral-200">
+                <p className="font-black text-neutral-900">3. Auditoria</p>
+                <p className="mt-1 text-neutral-500">PMS guarda status, notificacoes e falhas para conferencia da gerencia.</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] font-bold text-neutral-500">
+              Mensagens no grupo ficam reservadas para eventos operacionais: assumiu, concluiu, pecas, transferencia e vistoria. Erros simples aparecem como alerta no proprio botao.
+            </p>
+          </>
+        )}
+      </div>
       {/* 3E: Banner de paginação — avisa quando o limite de 100 foi atingido */}
       {tickets.length >= 100 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">
@@ -580,6 +998,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                        {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                         {breached && <span className="flex items-center gap-1 text-[10px] font-bold text-orange-600"><AlertCircle className="w-3 h-3" />SLA</span>}
                         {ticket.room_number && reincidentUHs.has(ticket.room_number) && (
                           <span className="rounded-full bg-red-600 text-white px-2 py-0.5 text-[10px] font-black uppercase">🔁 Reincidente</span>
@@ -612,6 +1031,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       >
                         {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                       </button>
+                      {canDirect && (
+                        <button
+                          onClick={() => recreateTelegramCard(ticket)}
+                          disabled={recreatingCardId === ticket.id}
+                          className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                        >
+                          {recreatingCardId === ticket.id ? '...' : 'Card'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -654,6 +1082,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
                       {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                      {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                     </div>
                     <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                     {ticket.awaiting_parts && (
@@ -681,6 +1110,15 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                     >
                       {resendingId === ticket.id ? '...' : '📲 Reenviar'}
                     </button>
+                    {canDirect && (
+                      <button
+                        onClick={() => recreateTelegramCard(ticket)}
+                        disabled={recreatingCardId === ticket.id}
+                        className="flex-1 rounded-xl bg-white px-4 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                      >
+                        {recreatingCardId === ticket.id ? '...' : 'Card'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -755,6 +1193,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 text-[10px] font-black uppercase">VISTORIA</span>
                         {ticket.room_number && <span className="rounded bg-neutral-900 text-white px-2 py-0.5 text-xs font-black">UH {ticket.room_number}</span>}
+                        {!ticket.telegram_message_id && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">Sem card</span>}
                       </div>
                       <p className="mt-2 font-black text-neutral-950">{ticket.title}</p>
                       {ticket.status_reason && <p className="mt-1 text-xs text-neutral-500">👷 Resolvido por: {ticket.status_reason}</p>}
@@ -768,6 +1207,13 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                         </button>
                         <button onClick={() => rejectInspection(ticket)} className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white hover:bg-red-400 transition">
                           ❌ Reprovar
+                        </button>
+                        <button
+                          onClick={() => recreateTelegramCard(ticket)}
+                          disabled={recreatingCardId === ticket.id}
+                          className="flex-1 rounded-xl bg-white px-3 py-2 text-xs font-black text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50 transition disabled:opacity-50"
+                        >
+                          {recreatingCardId === ticket.id ? '...' : 'Card'}
                         </button>
                       </div>
                     )}
@@ -830,9 +1276,9 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
                         <div className="space-y-1">
                           {notifLogs[ticket.id].map(log => (
                             <div key={log.id} className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-bold text-neutral-700">{log.recipient_name}</span>
-                              <span className="text-neutral-400">{log.event}</span>
-                              <span className="text-neutral-400 shrink-0">{new Date(log.sent_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                              <span className="font-bold text-neutral-700">{log.recipient_name ?? log.channel}</span>
+                              <span className={log.status === 'failed' ? 'text-red-600' : 'text-neutral-400'}>{log.event_type} · {log.status}</span>
+                              <span className="text-neutral-400 shrink-0">{new Date(log.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
                             </div>
                           ))}
                         </div>

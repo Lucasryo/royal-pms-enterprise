@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { ReactElement, useState, useEffect, useRef, useMemo } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
 import QRCodeLib from 'qrcode';
-import { supabase } from '../supabase';
+import { supabase, SUPABASE_URL } from '../supabase';
 import { UserProfile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -15,10 +15,9 @@ import {
   ShieldCheck, TrendingDown, ChevronDown, ChevronRight, Eye, ArrowRight,
   Megaphone, Bot, Activity, Heart, Award, Settings, Layers, Inbox,
   QrCode, CreditCard, Banknote, Link2, ExternalLink, RefreshCcw, Database, Cloud,
-  CheckCircle, XCircle, Wifi, Key,
+  CheckCircle, XCircle, Wifi, Key, Paperclip, File as FileIcon, Image as ImageIcon, CheckCheck, Check,
 } from 'lucide-react';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 interface MarketingModuleDashboardProps {
   profile: UserProfile;
@@ -45,6 +44,7 @@ interface Lead {
 interface Message {
   id?: string;
   text: string;
+  html?: string | null;
   type: 'in' | 'out';
   time: string;
   subject?: string | null;
@@ -52,6 +52,16 @@ interface Message {
   emailMessageId?: string | null;
   emailReferences?: string | null;
   folder?: 'inbox' | 'spam' | 'trash';
+  attachments?: Attachment[];
+  read?: boolean;
+}
+
+interface Attachment {
+  path: string;          // path no bucket inbox_attachments
+  name: string;
+  size: number;
+  mime: string;
+  url?: string;          // signed URL gerada on demand
 }
 
 type EmailFolder = 'inbox' | 'spam' | 'trash';
@@ -87,14 +97,16 @@ interface BotConfig {
   policies: string;
   rooms: string;
   faq: string;
-  pricingTable: string;
   botMood: string;
-  upsellActive: boolean;
-  npsActive: boolean;
-  widgetBotName: string;
-  widgetWelcomeMessage: string;
-  googleReviewLink: string;
-  npsSendAfterHours: number;
+  // Automation engine
+  enabled: boolean;
+  provider: 'claude' | 'openai' | 'gemini' | 'groq' | 'rule';
+  model: string;
+  apiKey: string;
+  systemPromptTemplate: string;
+  escalationKeywords: string[];
+  maxConsecutiveBotMsgs: number;
+  historyWindow: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -113,29 +125,6 @@ const CHANNELS = [
 const TEMPLATE_CATEGORIES = ['Saudação', 'Preços', 'Confirmação', 'Follow-up', 'Wi-Fi/PIX', 'Check-out', 'Personalizado'];
 const TEMPLATE_CHANNELS = ['WhatsApp', 'Instagram', 'Facebook', 'Todos'];
 
-const SEED_LEADS: Lead[] = [
-  { id: '1', guestName: 'Ana Beatriz Costa', channel: 'whatsapp', lastMessage: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', lastMessageAt: new Date(Date.now() - 5 * 60000).toISOString(), status: 'new', sentiment: 'happy', unreadCount: 3 },
-  { id: '2', guestName: 'Carlos Eduardo Lima', channel: 'instagram', lastMessage: 'Quanto custa a diária? Vi pelo stories.', lastMessageAt: new Date(Date.now() - 22 * 60000).toISOString(), status: 'needs_human', sentiment: 'neutral', unreadCount: 1 },
-  { id: '3', guestName: 'Marina Souza', channel: 'whatsapp', lastMessage: 'Infelizmente não consegui fazer meu check-in ainda.', lastMessageAt: new Date(Date.now() - 90 * 60000).toISOString(), status: 'needs_human', sentiment: 'mixed', unreadCount: 0 },
-  { id: '4', guestName: 'Roberto Ferreira', channel: 'facebook', lastMessage: 'Muito obrigado pelo atendimento! Nota 10.', lastMessageAt: new Date(Date.now() - 3 * 3600000).toISOString(), status: 'resolved', sentiment: 'happy', unreadCount: 0 },
-  { id: '5', guestName: 'Juliana Alves', channel: 'google', lastMessage: 'Queria saber se o café da manhã está incluso nas tarifas exibidas.', lastMessageAt: new Date(Date.now() - 5 * 3600000).toISOString(), status: 'ai_responded', sentiment: 'neutral', unreadCount: 0 },
-];
-
-const SEED_CAMPAIGNS: Campaign[] = [
-  { id: '1', name: 'Promoção Feriado Junho', status: 'active', reach: '2.847', conv: '12.3%', channel: 'WhatsApp', scheduledAt: '2026-06-01' },
-  { id: '2', name: 'Recuperação Carrinho Abandonado', status: 'active', reach: '891', conv: '8.7%', channel: 'WhatsApp' },
-  { id: '3', name: 'Reengajamento Aniversariantes', status: 'scheduled', reach: '0', conv: '0%', channel: 'Instagram', scheduledAt: '2026-05-20' },
-  { id: '4', name: 'Black Friday Antecipado', status: 'completed', reach: '5.120', conv: '18.4%', channel: 'WhatsApp' },
-];
-
-const SEED_TEMPLATES: Template[] = [
-  { id: '1', name: 'Boas-vindas Geral', category: 'Saudação', channel: 'WhatsApp', text: 'Olá [NOME]! 👋 Bem-vindo ao Royal PMS Palace Hotel. Como posso ajudar com sua reserva hoje?' },
-  { id: '2', name: 'Preços Executiva', category: 'Preços', channel: 'WhatsApp', text: 'Nossas tarifas para UH Executiva: Semana R$ 289 | Fim de semana R$ 359 | Pacotes especiais disponíveis. Café da manhã incluso.' },
-  { id: '3', name: 'Confirmação de Reserva', category: 'Confirmação', channel: 'WhatsApp', text: 'Reserva confirmada! ✅ Olá [NOME], sua estadia de [CHECKIN] a [CHECKOUT] está garantida. Check-in a partir das 14h. Até lá!' },
-  { id: '4', name: 'Follow-up 24h', category: 'Follow-up', channel: 'WhatsApp', text: 'Oi [NOME]! Vi que você mostrou interesse em nossa acomodação. Posso te ajudar a finalizar a reserva? Hoje temos disponibilidade especial 🏨' },
-  { id: '5', name: 'Wi-Fi e PIX', category: 'Wi-Fi/PIX', channel: 'WhatsApp', text: '📶 Wi-Fi: Rede Royal_Guest | Senha: BemVindo2026\n💰 PIX: contato@royalpms.com' },
-];
-
 function timeAgo(iso: string) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
   if (diff < 60) return 'agora';
@@ -152,11 +141,13 @@ type InboxMessageRow = {
   direction: 'in' | 'out';
   subject: string | null;
   body: string;
+  body_html: string | null;
   email_message_id: string | null;
   email_references: string | null;
   folder: EmailFolder | null;
   read: boolean;
   created_at: string;
+  attachments: Attachment[] | null;
 };
 
 type MarketingContactRow = {
@@ -172,6 +163,7 @@ type MarketingContactRow = {
   unread_count: number | null;
   tags: string[] | null;
   internal_notes: string | null;
+  assigned_to: string | null;
   created_at: string;
 };
 
@@ -185,9 +177,16 @@ function formatPreview(subject: string | null | undefined, body: string) {
 }
 
 function mapInboxMessage(row: InboxMessageRow): Message {
+  const rawBody = row.body ?? '';
+  const rawHtml = row.body_html ?? '';
+  // Safety net: alguns emails antigos foram salvos com o corpo ainda em base64
+  // (parser velho não pegou Content-Transfer-Encoding: base64).
+  const decodedBody = maybeBase64Decode(rawBody);
+  const decodedHtml = maybeBase64Decode(rawHtml);
   return {
     id: row.id,
-    text: row.body,
+    text: decodedBody,
+    html: decodedHtml || null,
     type: row.direction,
     time: formatMessageTime(row.created_at),
     subject: row.subject,
@@ -195,7 +194,90 @@ function mapInboxMessage(row: InboxMessageRow): Message {
     emailMessageId: row.email_message_id,
     emailReferences: row.email_references,
     folder: (row.folder ?? 'inbox') as EmailFolder,
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    read: row.read,
   };
+}
+
+// Detecta se um string é base64 (HTML/texto encodado que escapou do parser) e decodifica.
+function maybeBase64Decode(text: string): string {
+  if (!text || text.length < 40) return text;
+  if (text.includes('<') || text.includes('>')) return text; // já tem tags = não é só base64
+  const cleaned = text.replace(/\s/g, '');
+  // Base64 só tem A-Z a-z 0-9 + / =
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) return text;
+  if (cleaned.length < 40) return text;
+  try {
+    const decoded = atob(cleaned);
+    // Converte para UTF-8 corretamente
+    const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+    const result = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    // Se o decode parece texto/HTML válido (contém alguma letra ascii ou tag), usa
+    if (/[<>a-zA-Z]/.test(result) && result.length > 10) return result;
+    return text;
+  } catch {
+    return text;
+  }
+}
+
+// Limpa MIME bagunçado em emails antigos que ficaram no banco antes do fix no parser.
+// Casos reais que aparecem: boundaries quebradas em várias linhas, headers MIME vazados.
+function sanitizeEmailBody(text: string): string {
+  if (!text) return text;
+  let s = text.replace(/\r\n/g, '\n');
+
+  // Caso 1: se houver headers MIME vazados (Content-Type + Content-Transfer-Encoding),
+  // pula tudo até a primeira linha em branco depois do último header — é onde o corpo real começa.
+  const headerRegex = /^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/im;
+  while (headerRegex.test(s)) {
+    const lines = s.split('\n');
+    let lastHeaderIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(?:content-type|content-transfer-encoding|content-disposition|mime-version)\s*:/i.test(lines[i])) {
+        lastHeaderIdx = i;
+      }
+    }
+    if (lastHeaderIdx < 0) break;
+    // Achar a próxima linha em branco depois do último header
+    let bodyStart = lastHeaderIdx + 1;
+    while (bodyStart < lines.length && lines[bodyStart].trim() !== '') bodyStart++;
+    while (bodyStart < lines.length && lines[bodyStart].trim() === '') bodyStart++;
+    if (bodyStart >= lines.length) break;
+    s = lines.slice(bodyStart).join('\n');
+  }
+
+  // Caso 2: linhas que parecem fragmento de boundary
+  // (underscores+alfanum, prefixadas por -- ou começando por _xxx_)
+  s = s
+    .split('\n')
+    .filter(line => {
+      const t = line.trim();
+      if (t === '--') return false;
+      if (/^--[_A-Za-z0-9.=+-]{6,}(--)?$/.test(t)) return false;
+      if (/^_[A-Za-z0-9]{3,}_[A-Za-z0-9._=+-]{8,}$/.test(t)) return false;
+      if (/^[a-zA-Z0-9]{1,8}_$/.test(t)) return false; // fragmento órfão tipo "amp_"
+      return true;
+    })
+    .join('\n');
+
+  // Caso 3: decodifica quoted-printable resíduo (=XX e =\n)
+  if (/=[0-9A-F]{2}/i.test(s) && !/=\?[^?]+\?[BQ]\?/i.test(s)) {
+    try {
+      const compact = s.replace(/=\n/g, '');
+      const bytes: number[] = [];
+      for (let i = 0; i < compact.length; i++) {
+        if (compact[i] === '=' && /^[0-9A-F]{2}$/i.test(compact.slice(i + 1, i + 3))) {
+          bytes.push(parseInt(compact.slice(i + 1, i + 3), 16));
+          i += 2;
+        } else {
+          bytes.push(compact.charCodeAt(i));
+        }
+      }
+      s = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes));
+    } catch { /* mantém o original */ }
+  }
+
+  return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function mapContactToLead(row: MarketingContactRow): Lead {
@@ -212,6 +294,7 @@ function mapContactToLead(row: MarketingContactRow): Lead {
     unreadCount: row.unread_count || 0,
     tags: row.tags || undefined,
     internalNotes: row.internal_notes || undefined,
+    assignedTo: row.assigned_to || undefined,
   };
 }
 
@@ -228,17 +311,163 @@ function StatusBadge({ status }: { status: Lead['status'] }) {
   return <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 }
 
-function SentimentIcon({ s }: { s: Lead['sentiment'] }) {
-  if (s === 'happy') return <Smile className="w-3.5 h-3.5 text-emerald-500" />;
-  if (s === 'mixed') return <Meh className="w-3.5 h-3.5 text-amber-500" />;
-  return <Frown className="w-3.5 h-3.5 text-red-500" />;
-}
 
 // ─── LeadInbox Tab ────────────────────────────────────────────────────────────
 
-function LeadInboxTab() {
-  const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
-  const [selectedId, setSelectedId] = useState<string | null>('1');
+// Renderiza HTML de email num iframe sandboxed (sem scripts, sem same-origin).
+// Auto-ajusta altura ao conteúdo. Sanitização extra: remove <script> e on*= handlers
+// antes mesmo de mandar para o iframe (defesa em profundidade).
+const EmailHtmlFrame: React.FC<{ html: string; darkBubble: boolean }> = ({ html, darkBubble }) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(200);
+
+  // Sanitização defensiva + extração de <style> e conteúdo de <body>.
+  // O HTML do email costuma vir com seu próprio <html><head><body>; precisamos
+  // extrair só o <body> e preservar os <style> pra evitar nesting inválido.
+  const { safeBody, safeStyles } = useMemo(() => {
+    let s = html || '';
+    // Strip script/iframe/handlers/javascript: antes de qualquer outra coisa
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '');
+    s = s.replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+    s = s.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+    s = s.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
+    s = s.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
+
+    // Extrai estilos do <head> (e qualquer style inline em outras posições)
+    const styleMatches = s.match(/<style[\s\S]*?<\/style>/gi) ?? [];
+    const styles = styleMatches.join('\n');
+
+    // Extrai o conteúdo de <body>. Se não houver tag <body>, usa tudo.
+    let body = s;
+    const bodyMatch = s.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) body = bodyMatch[1];
+
+    // Remove <head> e <html> tags soltas que possam ter sobrado
+    body = body.replace(/<\/?html[^>]*>/gi, '').replace(/<head[\s\S]*?<\/head>/gi, '');
+
+    return { safeBody: body, safeStyles: styles };
+  }, [html]);
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
+    body{margin:0;padding:12px;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:${darkBubble ? '#f5f5f5' : '#171717'};background:transparent;word-wrap:break-word;overflow-wrap:anywhere}
+    img{max-width:100%;height:auto}
+    a{color:${darkBubble ? '#fbbf24' : '#b45309'}}
+    table{max-width:100%;border-collapse:collapse}
+    blockquote{border-left:3px solid #d4d4d4;margin:8px 0;padding:4px 12px;color:#666}
+    pre{white-space:pre-wrap;word-wrap:break-word}
+    html,body{height:auto !important;min-height:0 !important}
+  </style>${safeStyles}</head><body>${safeBody}<script>
+    (function(){
+      var lastSent = 0;
+      function measure(){
+        // Mede SOMENTE o body, nao o documentElement (que reflete o tamanho do iframe,
+        // criando loop). Arredonda pra evitar floating-point oscilation.
+        if (!document.body) return 0;
+        var h = document.body.scrollHeight;
+        return Math.ceil(h / 10) * 10;
+      }
+      function send(){
+        try{
+          var h = measure();
+          // Dedupe: so manda se mudou mais que 5px
+          if (Math.abs(h - lastSent) < 5) return;
+          lastSent = h;
+          parent.postMessage({type:'email-iframe-height',h:h},'*');
+        }catch(e){}
+      }
+      window.addEventListener('load', send);
+      setTimeout(send,50); setTimeout(send,300); setTimeout(send,1000); setTimeout(send,3000);
+      document.querySelectorAll('img').forEach(function(img){
+        if (img.complete) return;
+        img.addEventListener('load', send);
+        img.addEventListener('error', send);
+      });
+      // ResizeObserver no body. Como o body so depende do conteudo (nao do iframe),
+      // nao tem feedback loop quando o parent ajusta a altura do iframe.
+      if (typeof ResizeObserver !== 'undefined' && document.body) {
+        new ResizeObserver(function(){ send(); }).observe(document.body);
+      }
+    })();
+  <\/script></body></html>`;
+
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      const data = e.data as { type?: string; h?: number };
+      if (!data || data.type !== 'email-iframe-height' || typeof data.h !== 'number') return;
+      if (!ref.current) return;
+      if (e.source !== ref.current.contentWindow) return;
+      const target = Math.max(80, Math.min(50000, data.h + 24));
+      // So atualiza se mudou mais que 10px (evita loop / micro-oscilação)
+      setHeight(prev => Math.abs(prev - target) < 10 ? prev : target);
+    }
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  return (
+    <iframe
+      ref={ref}
+      // allow-scripts é NECESSÁRIO pra rodar nosso medidor de altura (postMessage).
+      // Sem allow-same-origin: o script do email ainda não consegue acessar parent/cookies/etc.
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={doc}
+      scrolling="no"
+      style={{ width: '100%', height, border: 0, display: 'block', background: 'transparent' }}
+      title="email-body"
+    />
+  );
+};
+
+type AttachmentChipProps = {
+  attachment: Attachment;
+  darkBubble: boolean;
+  onResolveUrl: (a: Attachment) => Promise<string | null>;
+};
+
+const AttachmentChip: React.FC<AttachmentChipProps> = ({ attachment, darkBubble, onResolveUrl }) => {
+  const isImage = attachment.mime.startsWith('image/');
+  const [signedUrl, setSignedUrl] = useState<string | null>(attachment.url ?? null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (signedUrl) return;
+    let alive = true;
+    setLoading(true);
+    onResolveUrl(attachment).then(url => {
+      if (alive) setSignedUrl(url);
+    }).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [attachment.path]);
+
+  if (isImage && signedUrl) {
+    return (
+      <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="block max-w-[260px] rounded-lg overflow-hidden border border-white/20">
+        <img src={signedUrl} alt={attachment.name} className="w-full h-auto object-cover" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={signedUrl ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => { if (!signedUrl) e.preventDefault(); }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg max-w-[260px] ${darkBubble ? 'bg-white/10 hover:bg-white/15' : 'bg-neutral-100 hover:bg-neutral-200'} transition-colors`}
+    >
+      {isImage ? <ImageIcon className="w-4 h-4 shrink-0" /> : <FileIcon className="w-4 h-4 shrink-0" />}
+      <div className="min-w-0 flex-1">
+        <p className={`text-xs font-medium truncate ${darkBubble ? 'text-white' : 'text-neutral-900'}`}>{attachment.name}</p>
+        <p className={`text-xs ${darkBubble ? 'text-white/60' : 'text-neutral-500'}`}>{loading ? 'carregando…' : `${(attachment.size / 1024).toFixed(0)} KB`}</p>
+      </div>
+    </a>
+  );
+};
+
+function LeadInboxTab({ profile }: { profile: UserProfile }) {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeChannel, setActiveChannel] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'new' | 'needs_human' | 'resolved'>('all');
   const [emailFolder, setEmailFolder] = useState<EmailFolder>('inbox');
@@ -251,22 +480,223 @@ function LeadInboxTab() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
   const [composeSending, setComposeSending] = useState(false);
-  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({
-    '1': [
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:32' },
-      { text: 'Olá Ana! Temos disponibilidade para o feriado de Corpus Christi (19-22 jun). UH Executiva: R$ 359/noite. Deseja reservar?', type: 'out', time: '14:33' },
-      { text: 'Boa tarde! Gostaria de saber a disponibilidade para o próximo feriado.', type: 'in', time: '14:35' },
-    ],
-    '2': [
-      { text: 'Quanto custa a diária? Vi pelo stories.', type: 'in', time: '13:15' },
-    ],
-    '3': [
-      { text: 'Infelizmente não consegui fazer meu check-in ainda.', type: 'in', time: '11:47' },
-    ],
-  });
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
-  const [loadingAI, setLoadingAI] = useState(false);
+  const [chatHistory, setChatHistory] = useState<Record<string, Message[]>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Anexos pendentes para envio na próxima mensagem
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Atribuição de conversa
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
+
+  // Seleção múltipla de conversas pra ações em lote
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  function toggleLeadSelected(id: string) {
+    setSelectedLeads(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedLeads(new Set()); }
+
+  // Resultados de busca server-side (IDs de conversas que matched)
+  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  // Reset selecao ao trocar de filtro/canal
+  useEffect(() => { clearSelection(); }, [activeChannel, activeFilter, showOnlyMine]);
+
+  // Busca server-side por palavra-chave em subject/body dos emails (debounced)
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setSearchMatchIds(null); return; }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        // Busca em inbox_messages.body e inbox_messages.subject
+        const { data: msgMatches } = await supabase
+          .from('inbox_messages')
+          .select('contact_id')
+          .or(`subject.ilike.%${term}%,body.ilike.%${term}%`)
+          .limit(500);
+        // Tambem busca em marketing_contacts.name e .email
+        const { data: contactMatches } = await supabase
+          .from('marketing_contacts')
+          .select('id')
+          .or(`name.ilike.%${term}%,email.ilike.%${term}%`)
+          .limit(500);
+        const ids = new Set<string>();
+        for (const m of (msgMatches ?? []) as Array<{ contact_id: string | null }>) if (m.contact_id) ids.add(m.contact_id);
+        for (const c of (contactMatches ?? []) as Array<{ id: string }>) ids.add(c.id);
+        setSearchMatchIds(ids);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Bulk actions
+  async function bulkAction(action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'mark_spam' | 'mark_trash') {
+    if (selectedLeads.size === 0) return;
+    const ids = Array.from(selectedLeads);
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = 1; }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'mark_spam' || action === 'mark_trash') {
+      // Move TODAS as mensagens dessas conversas pra spam/trash via Edge Function
+      const folder = action === 'mark_spam' ? 'spam' : 'trash';
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+        // Pega todos message ids dessas conversas (so emails)
+        const { data: msgs } = await supabase
+          .from('inbox_messages')
+          .select('id, channel')
+          .in('contact_id', ids)
+          .eq('channel', 'email')
+          .eq('direction', 'in');
+        if (msgs && msgs.length > 0) {
+          for (const m of msgs as Array<{ id: string }>) {
+            await fetch(`${SUPABASE_URL}/functions/v1/imap-folder-action`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messageId: m.id, action: folder }),
+            }).catch(() => null);
+          }
+        }
+        toast.success(`${ids.length} conversa(s) movidas pra ${folder === 'spam' ? 'Spam' : 'Lixeira'}`);
+        clearSelection();
+        return;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Falha em mover.');
+        return;
+      }
+    }
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from('marketing_contacts').update(updates).in('id', ids);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+    } : l));
+    toast.success(`${ids.length} conversa(s) atualizadas`);
+    clearSelection();
+  }
+
+  // Drawer mobile do painel de contexto
+  const [contextOpen, setContextOpen] = useState(false);
+
+  // Templates WhatsApp aprovados
+  type WAtpl = { name: string; language: string; category: string; bodyText: string; paramCount: number };
+  const [templates, setTemplates] = useState<WAtpl[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [selectedTpl, setSelectedTpl] = useState<WAtpl | null>(null);
+  const [tplParams, setTplParams] = useState<string[]>([]);
+  const [sendingTpl, setSendingTpl] = useState(false);
+
+  async function loadTemplates() {
+    if (loadingTemplates) return;
+    setLoadingTemplates(true); setTemplatesError(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { setTemplatesError('Sessão expirada.'); return; }
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-templates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) { setTemplatesError((result as { error?: string })?.error ?? 'Erro'); return; }
+      setTemplates((result as { templates: WAtpl[] })?.templates ?? []);
+      if ((result as { error?: string })?.error) setTemplatesError((result as { error: string }).error);
+    } catch (e) { setTemplatesError(e instanceof Error ? e.message : 'Erro'); }
+    finally { setLoadingTemplates(false); }
+  }
+
+  async function sendTemplate() {
+    if (!selectedTpl || !selectedId || !selected) return;
+    const recipient = selected.guestPhone || selected.guestEmail;
+    if (!recipient) { toast.error('Identificador do contato não encontrado.'); return; }
+    if (selectedTpl.paramCount > 0 && tplParams.filter(p => p && p.trim()).length < selectedTpl.paramCount) {
+      toast.error(`Preencha os ${selectedTpl.paramCount} parâmetros do template.`);
+      return;
+    }
+    setSendingTpl(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: 'whatsapp', recipient, contact_id: selectedId,
+          template: { name: selectedTpl.name, languageCode: selectedTpl.language, bodyParams: tplParams.slice(0, selectedTpl.paramCount) },
+        }),
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok || !result.sent) { toast.error((result as { error?: string })?.error ?? 'Falha ao enviar template.'); return; }
+      toast.success(`Template "${selectedTpl.name}" enviado.`);
+      setShowTemplatesModal(false); setSelectedTpl(null); setTplParams([]);
+    } finally { setSendingTpl(false); }
+  }
+
+  // Menu de contexto (clique direito) sobre uma mensagem
+  // Set de IDs (ou índices) de mensagens de email expandidas. A última sempre aparece expandida.
+  const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+  function toggleExpand(key: string) {
+    setExpandedMsgs(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  // Reset expansão ao trocar de conversa
+  useEffect(() => { setExpandedMsgs(new Set()); }, [selectedId]);
+
+  const [msgMenu, setMsgMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  // Menu de contexto sobre um item da lista de conversas
+  const [leadMenu, setLeadMenu] = useState<{ x: number; y: number; lead: Lead } | null>(null);
+  useEffect(() => {
+    if (!msgMenu && !leadMenu) return;
+    const close = () => { setMsgMenu(null); setLeadMenu(null); };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [msgMenu, leadMenu]);
+
+  async function leadAction(lead: Lead, action: 'mark_unread' | 'mark_resolved' | 'mark_needs_human' | 'assign_to_me' | 'unassign') {
+    const updates: Record<string, unknown> = {};
+    if (action === 'mark_unread') { updates.status = 'new'; updates.unread_count = Math.max(1, lead.unreadCount ?? 1); }
+    if (action === 'mark_resolved') { updates.status = 'resolved'; updates.unread_count = 0; }
+    if (action === 'mark_needs_human') { updates.status = 'needs_human'; }
+    if (action === 'assign_to_me') { updates.assigned_to = profile.id; }
+    if (action === 'unassign') { updates.assigned_to = null; }
+    const { error } = await supabase.from('marketing_contacts').update(updates).eq('id', lead.id);
+    if (error) { toast.error('Falha: ' + error.message); return; }
+    setLeads(prev => prev.map(l => l.id === lead.id ? {
+      ...l,
+      status: (updates.status as Lead['status']) ?? l.status,
+      unreadCount: typeof updates.unread_count === 'number' ? updates.unread_count : l.unreadCount,
+      assignedTo: 'assigned_to' in updates ? (updates.assigned_to as string | null) ?? undefined : l.assignedTo,
+    } : l));
+    toast.success('Conversa atualizada');
+  }
 
   const selected = leads.find(l => l.id === selectedId) ?? null;
   const messages = selectedId ? (chatHistory[selectedId] ?? []) : [];
@@ -329,6 +759,109 @@ function LeadInboxTab() {
     loadFolderCounts();
     return () => { alive = false; };
   }, []);
+
+  // Carrega lista de usuários atribuíveis (staff do hotel)
+  useEffect(() => {
+    let alive = true;
+    async function loadAssignables() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .in('role', ['admin', 'manager', 'reservations', 'reception', 'marketing', 'faturamento', 'finance', 'eventos'])
+        .order('name');
+      if (alive && data) setAssignableUsers(data as Array<{ id: string; name: string; role: string }>);
+    }
+    loadAssignables();
+    return () => { alive = false; };
+  }, []);
+
+  // ── Anexos ─────────────────────────────────────────────────────────────
+  async function handleFilePick(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const remaining = 5 - pendingAttachments.length;
+    if (remaining <= 0) {
+      toast.error('Máximo de 5 anexos por mensagem.');
+      return;
+    }
+    const filesToUpload = Array.from(files).slice(0, remaining);
+
+    setUploadingAttachment(true);
+    try {
+      const newAttachments: Attachment[] = [];
+      for (const file of filesToUpload) {
+        if (file.size > 20 * 1024 * 1024) {
+          toast.error(`"${file.name}" passa de 20MB. Ignorado.`);
+          continue;
+        }
+        const path = `${selectedId ?? 'compose'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+        const { error } = await supabase.storage
+          .from('inbox_attachments')
+          .upload(path, file, { contentType: file.type, upsert: false });
+        if (error) {
+          toast.error(`Falha ao enviar "${file.name}": ${error.message}`);
+          continue;
+        }
+        newAttachments.push({ path, name: file.name, size: file.size, mime: file.type });
+      }
+      if (newAttachments.length > 0) {
+        setPendingAttachments(prev => [...prev, ...newAttachments]);
+        toast.success(`${newAttachments.length} anexo(s) prontos para envio.`);
+      }
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function removePendingAttachment(idx: number) {
+    const att = pendingAttachments[idx];
+    if (!att) return;
+    setPendingAttachments(prev => prev.filter((_, i) => i !== idx));
+    // best-effort cleanup do storage
+    await supabase.storage.from('inbox_attachments').remove([att.path]).catch(() => null);
+  }
+
+  async function getAttachmentUrl(att: Attachment): Promise<string | null> {
+    if (att.url) return att.url;
+    const { data, error } = await supabase.storage
+      .from('inbox_attachments')
+      .createSignedUrl(att.path, 3600);
+    if (error || !data) return null;
+    return data.signedUrl;
+  }
+
+  // ── Atribuição ─────────────────────────────────────────────────────────
+  async function assignConversation(userId: string | null) {
+    if (!selectedId) return;
+    setAssigning(true);
+    try {
+      const { error } = await supabase
+        .from('marketing_contacts')
+        .update({ assigned_to: userId })
+        .eq('id', selectedId);
+      if (error) throw error;
+      setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, assignedTo: userId || undefined } : l));
+      toast.success(userId ? 'Conversa atribuída.' : 'Atribuição removida.');
+      setShowAssignPicker(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao atribuir.');
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function updateInternalNotes(text: string) {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ internal_notes: text })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao salvar notas.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, internalNotes: text } : l));
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -404,27 +937,19 @@ function LeadInboxTab() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedId]);
 
-  useEffect(() => {
-    if (!selected) return;
-    setLoadingAI(true);
-    const timer = setTimeout(() => {
-      const name = selected.guestName.split(' ')[0];
-      setAiSuggestions([
-        `Olá ${name}! Posso ajudar com mais detalhes sobre disponibilidade e tarifas.`,
-        `${name}, temos pacotes especiais disponíveis. Gostaria de receber uma proposta?`,
-        `Perfeito! Vou verificar nossa disponibilidade agora mesmo para você.`,
-      ]);
-      setLoadingAI(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [selectedId]);
 
   const isEmailChannel = activeChannel === 'email';
 
   const filteredLeads = leads.filter(l => {
+    if (showOnlyMine && l.assignedTo !== profile.id) return false;
     if (activeChannel !== 'all' && l.channel !== activeChannel) return false;
     if (activeFilter !== 'all' && l.status !== activeFilter) return false;
-    if (searchQuery && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery.trim().length >= 2) {
+      // Busca server-side definiu os matches; se este lead não está, esconde
+      if (searchMatchIds && !searchMatchIds.has(l.id)) return false;
+      // Enquanto a busca está em andamento, mantém visíveis pelo nome local
+      if (!searchMatchIds && !l.guestName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    }
     if (isEmailChannel && l.channel === 'email') {
       const counts = folderCounts[l.id];
       if (!counts) return emailFolder === 'inbox';
@@ -439,6 +964,49 @@ function LeadInboxTab() {
 
   const availableChannels = CHANNELS.filter(channel => leads.some(lead => lead.channel === channel.id));
   const channelOptions = [{ id: 'all', name: 'Todos', icon: <Inbox className="w-3 h-3" />, color: '#171717' }, ...availableChannels];
+
+  const [reparsing, setReparsing] = useState(false);
+  async function reparseLegacyEmails() {
+    if (reparsing) return;
+    setReparsing(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { toast.error('Sessão expirada.'); return; }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/poll-email-inbox`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'reparse', limit: 30 }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Falha ao reprocessar.');
+
+      const remaining = result.remaining ?? 0;
+      const reprocessed = result.reprocessed ?? 0;
+      const skipped = result.skipped ?? 0;
+      toast.success(`Reprocessados: ${reprocessed}${skipped ? ` (pulados: ${skipped})` : ''}. ${remaining > 0 ? `Faltam ${remaining}, clica de novo.` : 'Concluído.'}`);
+
+      // Recarrega mensagens da conversa atual se for email
+      if (selectedId && selected?.channel === 'email') {
+        const { data } = await supabase
+          .from('inbox_messages')
+          .select('*')
+          .eq('contact_id', selectedId)
+          .order('created_at', { ascending: true });
+        if (data) {
+          setChatHistory(prev => ({
+            ...prev,
+            [selectedId]: (data as InboxMessageRow[]).map(mapInboxMessage),
+          }));
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao reprocessar.');
+    } finally {
+      setReparsing(false);
+    }
+  }
 
   async function refreshEmailInbox() {
     setRefreshingInbox(true);
@@ -470,7 +1038,7 @@ function LeadInboxTab() {
   }
 
   async function sendMessage() {
-    if (!messageInput.trim() || !selectedId || sendingMessage) return;
+    if ((!messageInput.trim() && pendingAttachments.length === 0) || !selectedId || sendingMessage) return;
     const text = messageInput.trim();
     const selectedLead = leads.find(l => l.id === selectedId);
     if (!selectedLead) return;
@@ -518,14 +1086,55 @@ function LeadInboxTab() {
           throw new Error(result.error || 'Falha ao enviar e-mail.');
         }
         outgoingMessageId = typeof result.messageId === 'string' ? result.messageId : null;
+      } else if (['whatsapp', 'instagram', 'facebook'].includes(selectedLead.channel)) {
+        // Recipient identifier: usamos guestPhone (que armazena wa_id/PSID pra esses canais)
+        const recipient = selectedLead.guestPhone || selectedLead.guestEmail;
+        if (!recipient) {
+          toast.error(`Identificador do contato ${selectedLead.channel} não encontrado.`);
+          return;
+        }
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { toast.error('Sessão expirada.'); return; }
+
+        const sentAtt = pendingAttachments.slice();
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel: selectedLead.channel,
+            recipient,
+            text,
+            contact_id: selectedId,
+            attachments: sentAtt.length > 0 ? sentAtt : undefined,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.sent) {
+          throw new Error(result.error || `Falha ao enviar ${selectedLead.channel}.`);
+        }
+        const ids = (result.externalIds as string[] | undefined) ?? [];
+        outgoingMessageId = ids[0] ?? null;
+        // Edge function já gravou no DB; saímos cedo para não duplicar.
+        const now = new Date().toISOString();
+        const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, attachments: sentAtt, emailMessageId: outgoingMessageId };
+        setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
+        setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: (text || `[${sentAtt.length} anexo(s)]`).slice(0, 500), lastMessageAt: now, status: 'ai_responded' as const } : l));
+        setMessageInput('');
+        setPendingAttachments([]);
+        toast.success('Mensagem enviada');
+        return;
       }
 
     const now = new Date().toISOString();
     const emailReferences = replyReferences || lastIncomingEmail?.emailMessageId || null;
-    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences };
+    const sentAttachments = pendingAttachments.slice();
+    const previewText = text || (sentAttachments.length ? `[${sentAttachments.length} anexo(s)]` : '');
+    const msg: Message = { text, type: 'out', time: formatMessageTime(now), createdAt: now, subject: selectedLead.channel === 'email' ? subject : undefined, emailMessageId: outgoingMessageId, emailReferences, attachments: sentAttachments };
     setChatHistory(prev => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: text, lastMessageAt: now, status: 'ai_responded' as const } : l));
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, lastMessage: previewText, lastMessageAt: now, status: 'ai_responded' as const } : l));
     setMessageInput('');
+    setPendingAttachments([]);
 
     const { error } = await supabase.from('inbox_messages').insert([{
       contact_id: selectedId,
@@ -537,6 +1146,7 @@ function LeadInboxTab() {
       email_message_id: outgoingMessageId,
       email_references: selectedLead.channel === 'email' ? emailReferences : null,
       read: true,
+      attachments: sentAttachments,
     }]);
 
     if (error) {
@@ -547,7 +1157,7 @@ function LeadInboxTab() {
 
     await supabase
       .from('marketing_contacts')
-      .update({ last_message: text, last_message_at: now, status: 'ai_responded', unread_count: 0 })
+      .update({ last_message: previewText, last_message_at: now, status: 'ai_responded', unread_count: 0 })
       .eq('id', selectedId);
 
       toast.success(selectedLead.channel === 'email' ? 'E-mail enviado' : 'Mensagem enviada');
@@ -688,33 +1298,84 @@ function LeadInboxTab() {
     }
   }
 
-  function markResolved() {
+  async function markResolved() {
     if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'resolved', unread_count: 0 })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como resolvida.');
+      return;
+    }
     setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'resolved' as const, unreadCount: 0 } : l));
     toast.success('Conversa resolvida');
   }
 
+  async function markUnread() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'new', unread_count: Math.max(1, selected?.unreadCount ?? 1) })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao marcar como não lida.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'new' as const, unreadCount: Math.max(1, l.unreadCount ?? 1) } : l));
+    toast.success('Marcada como não lida');
+  }
+
+  async function markNeedsHuman() {
+    if (!selectedId) return;
+    const { error } = await supabase
+      .from('marketing_contacts')
+      .update({ status: 'needs_human' })
+      .eq('id', selectedId);
+    if (error) {
+      toast.error('Falha ao escalar.');
+      return;
+    }
+    setLeads(prev => prev.map(l => l.id === selectedId ? { ...l, status: 'needs_human' as const } : l));
+    toast.success('Marcada como precisa de humano');
+  }
+
+  const assignedUser = selected?.assignedTo ? assignableUsers.find(u => u.id === selected.assignedTo) : null;
+
   return (
-    <div className="flex h-[75vh] min-h-[500px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
-      {/* Sidebar */}
-      <div className="w-80 shrink-0 border-r border-neutral-100 flex flex-col">
-        <div className="p-4 border-b border-neutral-100 space-y-3">
+    <div className="flex h-[calc(100vh-12rem)] min-h-[600px] rounded-2xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
+      {/* ─── Coluna 1: Filtros + lista ─────────────────────────────────── */}
+      <div className="w-80 shrink-0 border-r border-neutral-200 flex flex-col bg-neutral-50/40">
+        <div className="p-4 border-b border-neutral-200 space-y-3 bg-white">
           <button
             onClick={() => setComposeOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-semibold hover:bg-neutral-800 transition-colors"
           >
-            <Edit3 className="w-3.5 h-3.5" /> Novo e-mail
+            <Edit3 className="w-4 h-4" /> Novo e-mail
           </button>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Buscar..."
-              className="w-full pl-9 pr-3 py-2 bg-neutral-50 rounded-xl text-xs font-medium border-0 focus:ring-2 focus:ring-amber-500 outline-none"
+              placeholder="Buscar em nome, email, assunto e corpo..."
+              className="w-full pl-10 pr-9 py-2.5 bg-neutral-100 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none"
             />
+            {searching && (
+              <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 animate-spin" />
+            )}
+            {!searching && searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 hover:text-neutral-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          {searchQuery.trim().length >= 2 && searchMatchIds && (
+            <p className="text-xs text-neutral-500">
+              {searchMatchIds.size} resultado(s) encontrado(s)
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
             {channelOptions.map(channel => {
               const count = channel.id === 'all' ? leads.length : leads.filter(lead => lead.channel === channel.id).length;
               return (
@@ -725,30 +1386,78 @@ function LeadInboxTab() {
                     const nextLead = leads.find(lead => (channel.id === 'all' || lead.channel === channel.id) && (activeFilter === 'all' || lead.status === activeFilter));
                     setSelectedId(nextLead?.id ?? null);
                   }}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[10px] font-semibold uppercase transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'}`}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${activeChannel === channel.id ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 border border-neutral-200 hover:bg-neutral-50'}`}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }}>{channel.icon}</span>
+                    <span style={{ color: activeChannel === channel.id ? '#fff' : channel.color }} className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
                     <span className="truncate">{channel.name}</span>
                   </span>
-                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${activeChannel === channel.id ? 'bg-white/15 text-white' : 'bg-white text-neutral-500'}`}>{count}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${activeChannel === channel.id ? 'bg-white/20 text-white' : 'bg-neutral-100 text-neutral-500'}`}>{count}</span>
                 </button>
               );
             })}
           </div>
-          <div className="flex gap-1 overflow-x-auto scrollbar-none">
-            {(['all', 'new', 'needs_human', 'resolved'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-semibold uppercase tracking-wider transition-all ${activeFilter === f ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
-              >
-                {f === 'all' ? 'Todos' : f === 'new' ? 'Novos' : f === 'needs_human' ? 'Humano' : 'Resolvidos'}
-              </button>
-            ))}
-          </div>
+          {(() => {
+            const baseLeads = activeChannel === 'all' ? leads : leads.filter(l => l.channel === activeChannel);
+            const counts = {
+              mine: baseLeads.filter(l => l.assignedTo === profile.id).length,
+              all: baseLeads.length,
+              new: baseLeads.filter(l => l.status === 'new').length,
+              needs_human: baseLeads.filter(l => l.status === 'needs_human').length,
+              resolved: baseLeads.filter(l => l.status === 'resolved').length,
+            };
+            const items: Array<{ id: 'all' | 'new' | 'needs_human' | 'resolved'; label: string; count: number }> = [
+              { id: 'all', label: 'Tudo', count: counts.all },
+              { id: 'new', label: 'Novos', count: counts.new },
+              { id: 'needs_human', label: 'Humano', count: counts.needs_human },
+              { id: 'resolved', label: 'OK', count: counts.resolved },
+            ];
+            return (
+              <>
+                {/* Segmented control — 4 segmentos com largura fixa, sem vazar */}
+                <div className="grid grid-cols-4 gap-0 bg-neutral-100 p-1 rounded-xl">
+                  {items.map(it => {
+                    const active = activeFilter === it.id;
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => setActiveFilter(it.id)}
+                        className={`flex flex-col items-center justify-center py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          active ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'
+                        }`}
+                      >
+                        <span className="text-[11px] leading-none">{it.label}</span>
+                        <span className={`text-sm leading-tight tabular-nums mt-0.5 ${active ? 'text-amber-600' : 'text-neutral-400'}`}>
+                          {it.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Toggle "Minhas" — separado, discreto */}
+                <button
+                  onClick={() => setShowOnlyMine(s => !s)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    showOnlyMine ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-transparent text-neutral-500 hover:bg-neutral-100'
+                  }`}
+                  title="Mostrar só conversas atribuídas a mim"
+                >
+                  <span className="flex items-center gap-2">
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Só as minhas
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="tabular-nums text-amber-600">{counts.mine}</span>
+                    <span className={`inline-block w-7 h-4 rounded-full transition-colors ${showOnlyMine ? 'bg-amber-500' : 'bg-neutral-300'} relative`}>
+                      <span className={`absolute top-0.5 ${showOnlyMine ? 'right-0.5' : 'left-0.5'} w-3 h-3 rounded-full bg-white transition-all`} />
+                    </span>
+                  </span>
+                </button>
+              </>
+            );
+          })()}
           {isEmailChannel && (
-            <div className="flex gap-1 border-t border-neutral-100 pt-3">
+            <div className="flex gap-1.5 border-t border-neutral-200 pt-3">
               {(['inbox', 'spam', 'trash'] as const).map(f => {
                 const total = Object.values(folderCounts).reduce<number>((sum, c) => sum + (c?.[f] || 0), 0);
                 const labels = { inbox: 'Entrada', spam: 'Spam', trash: 'Lixeira' } as const;
@@ -758,12 +1467,12 @@ function LeadInboxTab() {
                   <button
                     key={f}
                     onClick={() => setEmailFolder(f)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-white text-neutral-500 border border-neutral-200 hover:bg-neutral-50'}`}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-all ${emailFolder === f ? 'bg-amber-50 text-amber-700 border border-amber-300' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
                   >
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-3.5 h-3.5" />
                     <span>{labels[f]}</span>
                     {total > 0 && (
-                      <span className={`text-[9px] px-1 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
+                      <span className={`text-[10px] px-1.5 rounded ${emailFolder === f ? 'bg-amber-100' : 'bg-neutral-100'}`}>{total}</span>
                     )}
                   </button>
                 );
@@ -772,148 +1481,541 @@ function LeadInboxTab() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredLeads.map(lead => {
-            const ch = CHANNELS.find(c => c.id === lead.channel);
-            return (
-              <button
-                key={lead.id}
-                onClick={() => { setSelectedId(lead.id); setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l)); }}
-                className={`w-full text-left p-3 border-b border-neutral-50 transition-colors ${selectedId === lead.id ? 'bg-amber-50' : 'hover:bg-neutral-50'}`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center shrink-0 text-xs font-semibold text-neutral-600">
-                    {lead.guestName[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-neutral-900 truncate">{lead.guestName}</span>
-                      <span className="text-[9px] text-neutral-400 shrink-0 ml-1">{timeAgo(lead.lastMessageAt)}</span>
-                    </div>
-                    <p className="text-[10px] text-neutral-500 truncate leading-snug">{lead.lastMessage}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span style={{ color: ch?.color }} className="flex items-center gap-0.5 text-[9px] font-bold">{ch?.icon}{ch?.name}</span>
-                      <SentimentIcon s={lead.sentiment} />
-                      {!!lead.unreadCount && (
-                        <span className="ml-auto w-4 h-4 bg-amber-500 rounded-full text-white text-[9px] font-semibold flex items-center justify-center">{lead.unreadCount}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {/* Barra de ações em lote (visível quando há selecionadas) */}
+          {selectedLeads.size > 0 && (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 px-3 py-2 bg-amber-50 border-b border-amber-200">
+              <span className="text-xs font-semibold text-amber-900 mr-1">
+                {selectedLeads.size} selecionada{selectedLeads.size > 1 ? 's' : ''}:
+              </span>
+              <button onClick={() => bulkAction('mark_unread')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-amber-700 rounded border border-amber-200 hover:bg-amber-100">
+                <Bell className="w-3 h-3" /> Não lida
               </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Chat area */}
-      {selected ? (
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <div className="px-5 py-3 border-b border-neutral-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-neutral-200 flex items-center justify-center font-semibold text-sm text-neutral-700">{selected.guestName[0]}</div>
-              <div>
-                <p className="font-bold text-sm text-neutral-900">{selected.guestName}</p>
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const channel = CHANNELS.find(c => c.id === selected.channel);
-                    return channel ? <span style={{ color: channel.color }} className="flex items-center gap-1 text-[10px] font-bold">{channel.icon}{channel.name}</span> : null;
-                  })()}
-                  <StatusBadge status={selected.status} />
-                  <SentimentIcon s={selected.sentiment} />
-                </div>
-              </div>
+              <button onClick={() => bulkAction('mark_needs_human')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <AlertCircle className="w-3 h-3" /> Escalar
+              </button>
+              <button onClick={() => bulkAction('mark_resolved')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-emerald-700 rounded border border-emerald-200 hover:bg-emerald-50">
+                <CheckCircle2 className="w-3 h-3" /> Resolver
+              </button>
+              <button onClick={() => bulkAction('mark_spam')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-orange-700 rounded border border-orange-200 hover:bg-orange-50">
+                <AlertCircle className="w-3 h-3" /> Spam
+              </button>
+              <button onClick={() => bulkAction('mark_trash')} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-white text-red-700 rounded border border-red-200 hover:bg-red-50">
+                <Trash2 className="w-3 h-3" /> Lixeira
+              </button>
+              <button onClick={clearSelection} className="ml-auto text-xs font-semibold text-neutral-600 hover:text-neutral-900 px-2 py-1">
+                Cancelar
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              {selected.channel === 'email' && (
-                <button onClick={refreshEmailInbox} disabled={refreshingInbox} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 disabled:opacity-50 transition-colors">
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> Atualizar
-                </button>
-              )}
-              {selected.status !== 'resolved' && (
-                <button onClick={markResolved} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Resolver
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
-            {visibleMessages.map((msg, i) => {
-              const isEmail = selected?.channel === 'email';
-              const canAct = isEmail && msg.type === 'in' && !!msg.id;
-              const inSpam = (msg.folder ?? 'inbox') === 'spam';
-              const inTrash = (msg.folder ?? 'inbox') === 'trash';
-              const busy = folderActionLoading === msg.id;
+          {filteredLeads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-neutral-400 px-4 py-12">
+              <Inbox className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">{searchQuery ? 'Nenhum resultado pra essa busca' : 'Nenhuma conversa'}</p>
+              <p className="text-xs text-center mt-1">{searchQuery ? 'Tenta outras palavras-chave.' : 'As mensagens recebidas por todos os canais aparecem aqui.'}</p>
+            </div>
+          ) : (
+            filteredLeads.map(lead => {
+              const ch = CHANNELS.find(c => c.id === lead.channel);
+              const isSelected = selectedLeads.has(lead.id);
+              const anySelected = selectedLeads.size > 0;
               return (
-                <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`relative max-w-[78%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : isEmail ? 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm' : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'}`}>
-                    {isEmail && msg.subject && (
-                      <div className="mb-2 border-b border-neutral-100 pb-2">
-                        <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600">Assunto</p>
-                        <p className="text-sm font-semibold text-neutral-900">{msg.subject}</p>
+                <div
+                  key={lead.id}
+                  onContextMenu={(e) => { e.preventDefault(); setLeadMenu({ x: e.clientX, y: e.clientY, lead }); }}
+                  className={`group w-full p-4 border-b border-neutral-100 transition-colors cursor-context-menu ${selectedId === lead.id ? 'bg-amber-50' : isSelected ? 'bg-amber-50/50' : 'hover:bg-white'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Checkbox: visível sempre que houver algo selecionado, ou no hover */}
+                    <div className={`shrink-0 mt-1 ${anySelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleLeadSelected(lead.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-neutral-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (anySelected) { toggleLeadSelected(lead.id); return; }
+                        setSelectedId(lead.id);
+                        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l));
+                      }}
+                      className="flex-1 min-w-0 text-left flex items-start gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center shrink-0 text-sm font-semibold text-neutral-700">
+                        {lead.guestName[0]?.toUpperCase()}
                       </div>
-                    )}
-                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                    <p className="text-[9px] mt-2 text-neutral-400">{msg.time}</p>
-                    {canAct && (
-                      <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-0.5 bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
-                        {!inSpam && !inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'spam')} disabled={busy} title="Marcar como spam" className="p-1.5 text-neutral-500 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {!inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'trash')} disabled={busy} title="Mover para lixeira" className="p-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {(inSpam || inTrash) && (
-                          <button onClick={() => performFolderAction(msg, 'inbox')} disabled={busy} title="Restaurar" className="p-1.5 text-neutral-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50">
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {inTrash && (
-                          <button onClick={() => performFolderAction(msg, 'delete')} disabled={busy} title="Excluir permanentemente" className="p-1.5 text-neutral-500 hover:bg-red-100 hover:text-red-700 disabled:opacity-50">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-neutral-900 truncate">{lead.guestName}</span>
+                          <span className="text-xs text-neutral-400 shrink-0 ml-2">{timeAgo(lead.lastMessageAt)}</span>
+                        </div>
+                        <p className="text-xs text-neutral-500 truncate leading-relaxed">{lead.lastMessage}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span style={{ color: ch?.color }} className="flex items-center gap-1 text-xs font-semibold">
+                            <span className="[&_svg]:w-3 [&_svg]:h-3">{ch?.icon}</span>
+                            <span>{ch?.name}</span>
+                          </span>
+                          {lead.assignedTo && (
+                            <span className="text-xs text-neutral-500 truncate">
+                              · {assignableUsers.find(u => u.id === lead.assignedTo)?.name || 'atribuída'}
+                            </span>
+                          )}
+                          {!!lead.unreadCount && (
+                            <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-amber-500 rounded-full text-white text-xs font-semibold flex items-center justify-center">{lead.unreadCount}</span>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    </button>
                   </div>
                 </div>
               );
-            })}
-            {visibleMessages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-neutral-400">
-                <Inbox className="w-10 h-10 mb-2 opacity-30" />
-                <p className="text-xs">Nenhuma mensagem nesta pasta</p>
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ─── Coluna 2: Conversa ─────────────────────────────────────────── */}
+      {selected ? (
+        <div className="flex-1 flex flex-col min-w-0 bg-white">
+          {/* Header */}
+          <div className="px-5 py-3.5 border-b border-neutral-200 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center font-semibold text-base text-neutral-700 shrink-0">{selected.guestName[0]?.toUpperCase()}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-base text-neutral-900 truncate">{selected.guestName}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(() => {
+                    const channel = CHANNELS.find(c => c.id === selected.channel);
+                    return channel ? (
+                      <span style={{ color: channel.color }} className="flex items-center gap-1 text-xs font-semibold">
+                        <span className="[&_svg]:w-3.5 [&_svg]:h-3.5">{channel.icon}</span>
+                        <span>{channel.name}</span>
+                      </span>
+                    ) : null;
+                  })()}
+                  <StatusBadge status={selected.status} />
+                </div>
               </div>
-            )}
-            <div ref={bottomRef} />
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="relative">
+                <button
+                  onClick={() => setShowAssignPicker(s => !s)}
+                  disabled={assigning}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${assignedUser ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}`}
+                  title={assignedUser ? `Atribuída a ${assignedUser.name}` : 'Atribuir conversa'}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{assignedUser ? assignedUser.name : 'Atribuir'}</span>
+                </button>
+                {showAssignPicker && (
+                  <div className="absolute right-0 top-full mt-2 w-64 max-h-72 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-lg z-20">
+                    <button
+                      onClick={() => assignConversation(profile.id)}
+                      disabled={assigning}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-50 border-b border-neutral-100"
+                    >
+                      ⚡ Atribuir a mim
+                    </button>
+                    {assignedUser && (
+                      <button
+                        onClick={() => assignConversation(null)}
+                        disabled={assigning}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 border-b border-neutral-100"
+                      >
+                        Remover atribuição
+                      </button>
+                    )}
+                    {assignableUsers.map(u => (
+                      <button
+                        key={u.id}
+                        onClick={() => assignConversation(u.id)}
+                        disabled={assigning}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 ${selected.assignedTo === u.id ? 'bg-indigo-50 font-semibold text-indigo-900' : 'text-neutral-700'}`}
+                      >
+                        <div>{u.name}</div>
+                        <div className="text-xs text-neutral-500">{u.role}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setContextOpen(o => !o)}
+                className="lg:hidden p-1.5 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                title="Contexto do contato"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+              {selected.channel === 'email' && (
+                <>
+                  <button onClick={refreshEmailInbox} disabled={refreshingInbox} title="Buscar novos e-mails" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors">
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshingInbox ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Atualizar</span>
+                  </button>
+                  <button onClick={reparseLegacyEmails} disabled={reparsing} title="Reprocessar emails antigos com o parser novo (em lotes de 30)" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 disabled:opacity-50 transition-colors">
+                    <RefreshCcw className={`w-3.5 h-3.5 ${reparsing ? 'animate-spin' : ''}`} /> <span className="hidden md:inline">Reprocessar antigos</span>
+                  </button>
+                </>
+              )}
+              {selected.status !== 'new' && (
+                <button onClick={markUnread} title="Marcar conversa como não lida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 transition-colors">
+                  <Bell className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Não lida</span>
+                </button>
+              )}
+              {selected.status !== 'needs_human' && selected.status !== 'resolved' && (
+                <button onClick={markNeedsHuman} title="Marcar que precisa de atendimento humano" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors">
+                  <AlertCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Escalar</span>
+                </button>
+              )}
+              {selected.status !== 'resolved' && (
+                <button onClick={markResolved} title="Marcar conversa como resolvida" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Resolver</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* AI suggestions */}
-          <div className="px-4 py-2 border-t border-neutral-100 bg-amber-50/50">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Sugestões IA</p>
-            {loadingAI ? (
-              <div className="flex gap-2">
-                {[1,2,3].map(i => <div key={i} className="h-7 w-40 bg-amber-100 rounded-lg animate-pulse" />)}
+          {/* Messages — Email: estilo Gmail (lista vertical, ultimo expandido, anteriores colapsados).
+              Chat: bubbles tradicionais. */}
+          <div className="flex-1 overflow-y-auto bg-neutral-50/30">
+            {selected?.channel === 'email' ? (
+              <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-3">
+                {visibleMessages.length > 0 && (
+                  <h2 className="text-xl sm:text-2xl font-semibold text-neutral-900 mb-3 break-words">
+                    {visibleMessages[visibleMessages.length - 1]?.subject || 'Sem assunto'}
+                  </h2>
+                )}
+                {visibleMessages.map((msg, i) => {
+                  const key = msg.id ?? `idx-${i}`;
+                  const isLatest = i === visibleMessages.length - 1;
+                  const isExpanded = expandedMsgs.has(key) || isLatest;
+                  const inSpam = (msg.folder ?? 'inbox') === 'spam';
+                  const inTrash = (msg.folder ?? 'inbox') === 'trash';
+                  const canAct = msg.type === 'in' && !!msg.id;
+                  const busy = folderActionLoading === msg.id;
+                  const senderName = msg.type === 'out' ? 'Você' : (selected?.guestName ?? 'Contato');
+                  const senderEmail = msg.type === 'out' ? '' : (selected?.guestEmail ?? '');
+                  const preview = sanitizeEmailBody(msg.text).replace(/\s+/g, ' ').trim().slice(0, 140);
+
+                  return (
+                    <article
+                      key={key}
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className="bg-white border border-neutral-200 rounded-xl shadow-sm overflow-hidden"
+                    >
+                      {/* Header da mensagem (sempre visível, clicável pra colapsar/expandir) */}
+                      <header
+                        onClick={() => toggleExpand(key)}
+                        className={`flex items-start gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-neutral-50 transition-colors ${isExpanded ? 'border-b border-neutral-100' : ''}`}
+                      >
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold ${msg.type === 'out' ? 'bg-neutral-900 text-white' : 'bg-gradient-to-br from-amber-200 to-amber-300 text-amber-900'}`}>
+                          {senderName[0]?.toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-sm font-semibold text-neutral-900 truncate">
+                              {senderName}
+                              {senderEmail && <span className="ml-2 text-xs font-normal text-neutral-500">&lt;{senderEmail}&gt;</span>}
+                            </p>
+                            <span className="text-xs text-neutral-400 shrink-0">{msg.time}</span>
+                          </div>
+                          {!isExpanded && (
+                            <p className="text-xs text-neutral-500 truncate mt-0.5">{preview || 'Sem conteúdo de texto'}</p>
+                          )}
+                          {isExpanded && (
+                            <p className="text-xs text-neutral-500 mt-0.5">
+                              Para: {msg.type === 'out' ? (selected?.guestEmail ?? '—') : 'Você'}
+                            </p>
+                          )}
+                        </div>
+                      </header>
+
+                      {isExpanded && (
+                        <>
+                          {/* Corpo do email */}
+                          <div className="px-4 sm:px-5 py-4">
+                            {msg.html ? (
+                              <EmailHtmlFrame html={msg.html} darkBubble={false} />
+                            ) : (
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-800">{sanitizeEmailBody(msg.text)}</p>
+                            )}
+                            {!!msg.attachments?.length && (
+                              <div className="mt-3 pt-3 border-t border-neutral-100 space-y-1.5">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1">Anexos</p>
+                                {msg.attachments.map((att, ai) => (
+                                  <AttachmentChip key={ai} attachment={att} darkBubble={false} onResolveUrl={getAttachmentUrl} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Ações por mensagem (apenas email IN) */}
+                          {canAct && (
+                            <div className="flex items-center gap-1.5 px-4 sm:px-5 py-2 border-t border-neutral-100 bg-neutral-50/60">
+                              {!inSpam && !inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'spam'); }} disabled={busy} title="Marcar como spam" className="flex items-center gap-1 px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 rounded">
+                                  <AlertCircle className="w-3.5 h-3.5" /> Spam
+                                </button>
+                              )}
+                              {!inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'trash'); }} disabled={busy} title="Mover para lixeira" className="flex items-center gap-1 px-2 py-1 text-xs text-red-700 hover:bg-red-50 rounded">
+                                  <Trash2 className="w-3.5 h-3.5" /> Lixeira
+                                </button>
+                              )}
+                              {(inSpam || inTrash) && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'inbox'); }} disabled={busy} title="Restaurar" className="flex items-center gap-1 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded">
+                                  <ArrowUpRight className="w-3.5 h-3.5" /> Restaurar
+                                </button>
+                              )}
+                              {inTrash && (
+                                <button onClick={(e) => { e.stopPropagation(); performFolderAction(msg, 'delete'); }} disabled={busy} title="Excluir permanentemente" className="flex items-center gap-1 px-2 py-1 text-xs text-red-800 hover:bg-red-100 rounded">
+                                  <X className="w-3.5 h-3.5" /> Excluir
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </article>
+                  );
+                })}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem nesta pasta</p>
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
             ) : (
-              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                {aiSuggestions.map((s, i) => (
-                  <button key={i} onClick={() => setMessageInput(s)} className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-xs text-neutral-700 hover:border-amber-500 transition-colors max-w-[220px] text-left truncate">
-                    {s}
-                  </button>
+              // Chat (WhatsApp/IG/etc) — bubbles tradicionais
+              <div className="p-5 space-y-3">
+                {visibleMessages.map((msg, i) => (
+                  <div key={msg.id ?? i} className={`group flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      onContextMenu={(e) => { e.preventDefault(); setMsgMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                      className={`relative cursor-context-menu max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.type === 'out' ? 'bg-neutral-900 text-white rounded-br-sm' : 'bg-white text-neutral-800 rounded-bl-sm border border-neutral-200 shadow-sm'}`}
+                    >
+                      {msg.text && <p className="whitespace-pre-wrap break-words">{msg.text}</p>}
+                      {!!msg.attachments?.length && (
+                        <div className="mt-2 space-y-1.5">
+                          {msg.attachments.map((att, ai) => (
+                            <AttachmentChip key={ai} attachment={att} darkBubble={msg.type === 'out'} onResolveUrl={getAttachmentUrl} />
+                          ))}
+                        </div>
+                      )}
+                      <div className={`flex items-center justify-end gap-1 mt-2 text-xs ${msg.type === 'out' ? 'text-white/60' : 'text-neutral-400'}`}>
+                        <span>{msg.time}</span>
+                        {msg.type === 'out' && (selected?.channel === 'whatsapp' || selected?.channel === 'instagram' || selected?.channel === 'facebook') && (
+                          msg.read
+                            ? <CheckCheck className="w-3.5 h-3.5 text-sky-300" />
+                            : <Check className="w-3.5 h-3.5 opacity-70" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ))}
+                {visibleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-neutral-400">
+                    <Inbox className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">Nenhuma mensagem</p>
+                  </div>
+                )}
+                <div ref={bottomRef} />
               </div>
             )}
           </div>
 
+          {/* Menu de contexto (clique direito em um item da lista de conversas) */}
+          {leadMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: leadMenu.y, left: leadMenu.x }}
+              className="fixed z-50 w-60 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => { setSelectedId(leadMenu.lead.id); setLeadMenu(null); }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Inbox className="w-4 h-4 text-neutral-500" /> Abrir conversa
+              </button>
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.status !== 'new' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_unread'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                >
+                  <Bell className="w-4 h-4" /> Marcar como não lida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_resolved'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Marcar como resolvida
+                </button>
+              )}
+              {leadMenu.lead.status !== 'needs_human' && leadMenu.lead.status !== 'resolved' && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'mark_needs_human'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4" /> Escalar (precisa humano)
+                </button>
+              )}
+              <div className="border-t border-neutral-100 my-1" />
+              {leadMenu.lead.assignedTo !== profile.id && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'assign_to_me'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-indigo-50 text-indigo-700 flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" /> Atribuir a mim
+                </button>
+              )}
+              {leadMenu.lead.assignedTo && (
+                <button
+                  onClick={() => { leadAction(leadMenu.lead, 'unassign'); setLeadMenu(null); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 text-neutral-700 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" /> Remover atribuição
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Menu de contexto (clique direito sobre uma mensagem) */}
+          {msgMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ top: msgMenu.y, left: msgMenu.x }}
+              className="fixed z-50 w-56 bg-white border border-neutral-200 rounded-xl shadow-2xl py-1 overflow-hidden"
+            >
+              <button
+                onClick={() => {
+                  const q = (msgMenu.msg.text || '').split('\n').map(l => `> ${l}`).join('\n');
+                  setMessageInput(prev => (prev ? prev + '\n\n' : '') + q + '\n\n');
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <ArrowUpRight className="w-4 h-4 text-neutral-500" /> Responder citando
+              </button>
+              <button
+                onClick={() => {
+                  setComposeForm({
+                    to: '',
+                    subject: msgMenu.msg.subject ? `Fwd: ${msgMenu.msg.subject}` : 'Encaminhado',
+                    body: `\n\n--- Mensagem encaminhada ---\n${msgMenu.msg.text || ''}`,
+                  });
+                  setComposeOpen(true);
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Send className="w-4 h-4 text-neutral-500" /> Encaminhar (como e-mail)
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(msgMenu.msg.text || '').then(
+                    () => toast.success('Mensagem copiada'),
+                    () => toast.error('Falha ao copiar'),
+                  );
+                  setMsgMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4 text-neutral-500" /> Copiar texto
+              </button>
+              {selected?.channel === 'email' && msgMenu.msg.id && msgMenu.msg.type === 'in' && (
+                <>
+                  <div className="border-t border-neutral-100 my-1" />
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'spam' && (msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'spam'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2"
+                    >
+                      <AlertCircle className="w-4 h-4" /> Marcar como spam
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') !== 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'trash'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-700 flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" /> Mover para lixeira
+                    </button>
+                  )}
+                  {((msgMenu.msg.folder ?? 'inbox') === 'spam' || (msgMenu.msg.folder ?? 'inbox') === 'trash') && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'inbox'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-emerald-50 text-emerald-700 flex items-center gap-2"
+                    >
+                      <ArrowUpRight className="w-4 h-4" /> Restaurar para entrada
+                    </button>
+                  )}
+                  {(msgMenu.msg.folder ?? 'inbox') === 'trash' && (
+                    <button
+                      onClick={() => { performFolderAction(msgMenu.msg, 'delete'); setMsgMenu(null); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-red-100 text-red-800 flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" /> Excluir permanentemente
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Pending attachments preview */}
+          {pendingAttachments.length > 0 && (
+            <div className="px-4 pt-3 pb-1 border-t border-neutral-200 bg-white">
+              <div className="flex flex-wrap gap-2">
+                {pendingAttachments.map((att, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-100 text-sm border border-neutral-200">
+                    {att.mime.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-amber-600" /> : <FileIcon className="w-4 h-4 text-neutral-600" />}
+                    <span className="font-medium text-neutral-800 truncate max-w-[180px]">{att.name}</span>
+                    <span className="text-xs text-neutral-500">{(att.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removePendingAttachment(i)} className="text-neutral-400 hover:text-red-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Input */}
-          <div className="p-4 border-t border-neutral-100 flex items-end gap-3">
+          <div className="p-4 border-t border-neutral-200 flex items-end gap-2 bg-white">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={e => handleFilePick(e.target.files)}
+              accept="image/*,application/pdf,audio/*,video/*,.doc,.docx,.xls,.xlsx"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAttachment || sendingMessage}
+              className="p-2.5 rounded-2xl text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+              title="Anexar arquivo"
+            >
+              {uploadingAttachment ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+            </button>
+            {selected.channel === 'whatsapp' && (
+              <button
+                onClick={() => { setShowTemplatesModal(true); if (templates.length === 0) loadTemplates(); }}
+                disabled={sendingMessage}
+                className="p-2.5 rounded-2xl text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+                title="Templates aprovados"
+              >
+                <ClipboardList className="w-5 h-5" />
+              </button>
+            )}
             <textarea
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
@@ -921,22 +2023,161 @@ function LeadInboxTab() {
               placeholder={selected.channel === 'email' ? 'Escreva a resposta por e-mail...' : 'Escreva uma mensagem...'}
               disabled={sendingMessage}
               rows={2}
-              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-sans"
+              className="flex-1 resize-none px-4 py-2.5 bg-neutral-50 rounded-2xl text-sm border border-neutral-200 focus:border-amber-500 focus:bg-white focus:ring-0 outline-none font-sans"
             />
             <button
               onClick={sendMessage}
-              disabled={!messageInput.trim() || sendingMessage}
+              disabled={(!messageInput.trim() && pendingAttachments.length === 0) || sendingMessage}
               className="p-3 bg-neutral-900 text-white rounded-2xl hover:bg-neutral-800 disabled:opacity-40 transition-all"
             >
-              {sendingMessage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {sendingMessage ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-neutral-400">
+        <div className="flex-1 flex items-center justify-center text-neutral-400 bg-neutral-50/30">
           <div className="text-center">
-            <Inbox className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-bold">Selecione uma conversa</p>
+            <Inbox className="w-16 h-16 mx-auto mb-3 opacity-30" />
+            <p className="font-semibold text-base text-neutral-500">Selecione uma conversa</p>
+            <p className="text-sm text-neutral-400 mt-1">As mensagens dos seus canais aparecem aqui.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Coluna 3: Contexto do contato (desktop) ─────────────────── */}
+      {selected && (
+        <aside className={`${contextOpen ? 'flex absolute inset-y-0 right-0 z-20 w-80 shadow-2xl' : 'hidden'} lg:flex lg:static lg:w-72 shrink-0 border-l border-neutral-200 bg-neutral-50/40 flex-col overflow-y-auto`}>
+          <div className="lg:hidden flex items-center justify-between p-4 border-b border-neutral-200 bg-white">
+            <p className="text-sm font-semibold text-neutral-900">Contexto</p>
+            <button onClick={() => setContextOpen(false)} className="p-1 rounded-lg hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Contato</p>
+              <p className="text-sm font-semibold text-neutral-900">{selected.guestName}</p>
+              {selected.guestEmail && (
+                <a href={`mailto:${selected.guestEmail}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Mail className="w-3.5 h-3.5" /> {selected.guestEmail}
+                </a>
+              )}
+              {selected.guestPhone && (
+                <a href={`tel:${selected.guestPhone}`} className="flex items-center gap-1.5 text-xs text-amber-700 hover:underline mt-1">
+                  <Phone className="w-3.5 h-3.5" /> {selected.guestPhone}
+                </a>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Atendente</p>
+              {assignedUser ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-semibold text-indigo-700">{assignedUser.name[0]?.toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-neutral-900 truncate">{assignedUser.name}</p>
+                    <p className="text-xs text-neutral-500">{assignedUser.role}</p>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowAssignPicker(true)} className="text-sm text-amber-700 hover:underline">Sem atendente — atribuir</button>
+              )}
+            </div>
+
+            {selected.tags && selected.tags.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.tags.map(t => (
+                    <span key={t} className="px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-medium">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Notas internas</p>
+              <textarea
+                key={selected.id}
+                defaultValue={selected.internalNotes ?? ''}
+                onBlur={e => updateInternalNotes(e.target.value)}
+                rows={4}
+                placeholder="Notas visíveis só para a equipe..."
+                className="w-full resize-none px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Estado da conversa</p>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Status:</span><StatusBadge status={selected.status} /></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Canal:</span><span className="font-medium">{CHANNELS.find(c => c.id === selected.channel)?.name ?? selected.channel}</span></div>
+                <div className="flex items-center justify-between"><span className="text-neutral-500">Não lidas:</span><span className="font-medium">{selected.unreadCount ?? 0}</span></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {showTemplatesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 backdrop-blur-sm p-4" onClick={() => !sendingTpl && setShowTemplatesModal(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-2xl max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center"><ClipboardList className="w-4 h-4 text-emerald-600" /></div>
+                <h3 className="text-sm font-semibold text-neutral-900">Templates WhatsApp Aprovados</h3>
+              </div>
+              <button onClick={() => setShowTemplatesModal(false)} className="p-1.5 rounded-lg text-neutral-500 hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center py-8 text-neutral-500"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Carregando templates...</div>
+              ) : templatesError ? (
+                <div className="p-4 bg-red-50 text-red-700 text-sm rounded-lg">{templatesError}</div>
+              ) : templates.length === 0 ? (
+                <p className="text-sm text-neutral-500 text-center py-8">Nenhum template aprovado encontrado. Crie e aguarde aprovação no Meta Business Manager.</p>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map(t => (
+                    <button
+                      key={t.name + t.language}
+                      onClick={() => { setSelectedTpl(t); setTplParams(Array(t.paramCount).fill('')); }}
+                      className={`w-full text-left p-3 rounded-xl border transition-colors ${selectedTpl?.name === t.name ? 'border-amber-500 bg-amber-50' : 'border-neutral-200 hover:bg-neutral-50'}`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-neutral-900">{t.name}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t.language} · {t.category}</span>
+                      </div>
+                      <p className="text-xs text-neutral-600 whitespace-pre-wrap line-clamp-3">{t.bodyText}</p>
+                      {t.paramCount > 0 && <p className="text-xs text-amber-700 mt-1">{t.paramCount} parâmetro(s) necessário(s)</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedTpl && selectedTpl.paramCount > 0 && (
+                <div className="mt-4 pt-4 border-t border-neutral-200 space-y-2">
+                  <p className="text-xs font-semibold text-neutral-700">Parâmetros do template:</p>
+                  {Array.from({ length: selectedTpl.paramCount }).map((_, i) => (
+                    <input
+                      key={i}
+                      value={tplParams[i] ?? ''}
+                      onChange={e => { const next = [...tplParams]; next[i] = e.target.value; setTplParams(next); }}
+                      placeholder={`{{${i + 1}}}`}
+                      className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-neutral-200 bg-neutral-50">
+              <button onClick={() => setShowTemplatesModal(false)} disabled={sendingTpl} className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 rounded-lg">Cancelar</button>
+              <button
+                onClick={sendTemplate}
+                disabled={!selectedTpl || sendingTpl}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {sendingTpl ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {sendingTpl ? 'Enviando...' : 'Enviar template'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1568,222 +2809,441 @@ function TemplatesTab() {
 
 function AnalyticsTab() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
+  const [metrics, setMetrics] = useState({ total: 0, resolved: 0, needsHuman: 0, newCount: 0 });
+  const [daily, setDaily] = useState<Array<{ date: string; conversations: number }>>([]);
+  const [loading, setLoading] = useState(true);
 
-  const metrics = {
-    '7d': { total: 148, botResolved: 112, escalated: 36, avgResp: 2.4, satisfaction: 4.7, conversion: 12.3 },
-    '30d': { total: 524, botResolved: 398, escalated: 126, avgResp: 3.1, satisfaction: 4.5, conversion: 10.8 },
-    '90d': { total: 1847, botResolved: 1401, escalated: 446, avgResp: 2.9, satisfaction: 4.6, conversion: 11.2 },
-  }[period];
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    async function load() {
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const [total, resolved, needsHuman, newCount, msgs] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'resolved').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human').gte('last_message_at', since),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new').gte('last_message_at', since),
+        supabase.from('inbox_messages').select('created_at').gte('created_at', since).limit(5000),
+      ]);
+      if (!alive) return;
 
-  const dailyData = Array.from({ length: period === '7d' ? 7 : period === '30d' ? 30 : 90 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    return { date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), conversations: Math.floor(Math.random() * 30 + 10), resolved: Math.floor(Math.random() * 25 + 5) };
-  }).reverse();
+      // Group messages by day
+      const buckets: Record<string, number> = {};
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        buckets[key] = 0;
+      }
+      for (const row of (msgs.data ?? []) as Array<{ created_at: string }>) {
+        const key = row.created_at.slice(0, 10);
+        if (key in buckets) buckets[key]++;
+      }
+      const dailySeries = Object.entries(buckets).map(([key, n]) => ({
+        date: new Date(key).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        conversations: n,
+      }));
 
-  const maxVal = Math.max(...dailyData.map(d => d.conversations));
+      setMetrics({
+        total: total.count ?? 0,
+        resolved: resolved.count ?? 0,
+        needsHuman: needsHuman.count ?? 0,
+        newCount: newCount.count ?? 0,
+      });
+      setDaily(dailySeries);
+      setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [period]);
 
-  const intents = [
-    { intent: 'Consulta de preço', count: 89 },
-    { intent: 'Disponibilidade', count: 67 },
-    { intent: 'Check-in/out', count: 43 },
-    { intent: 'Serviços', count: 31 },
-    { intent: 'Cancelamento', count: 18 },
-  ];
+  const maxVal = Math.max(1, ...daily.map(d => d.conversations));
+  const hasData = metrics.total > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics do Bot</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Desempenho</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">Analytics</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Desempenho de conversas</h2>
         </div>
         <div className="flex bg-neutral-100 rounded-xl p-1">
           {(['7d', '30d', '90d'] as const).map(p => (
-            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
+            <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${period === p ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>
               {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Conversas', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Bot resolveu', value: metrics.botResolved.toString(), icon: Bot, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Escalados', value: metrics.escalated.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Resp. média', value: `${metrics.avgResp}min`, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Satisfação', value: metrics.satisfaction.toString(), icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Conversão', value: `${metrics.conversion}%`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+      {!hasData && !loading ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
+          <BarChart3 className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
+          <p className="text-base font-semibold text-neutral-700">Sem dados ainda no período</p>
+          <p className="text-sm text-neutral-500 mt-1">Os indicadores aparecem assim que houver contatos e mensagens registrados.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Conversas no período', value: metrics.total.toString(), icon: MessageSquare, color: 'text-blue-600', bg: 'bg-blue-50' },
+              { label: 'Novas', value: metrics.newCount.toString(), icon: Sparkles, color: 'text-amber-600', bg: 'bg-amber-50' },
+              { label: 'Aguardando humano', value: metrics.needsHuman.toString(), icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+              { label: 'Resolvidas', value: metrics.resolved.toString(), icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            ].map(stat => (
+              <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 sm:p-5 shadow-sm">
+                <div className={`w-9 h-9 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
+                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                </div>
+                <p className="text-xl sm:text-2xl font-semibold text-neutral-950">{stat.value}</p>
+                <p className="text-xs text-neutral-500 font-medium mt-0.5">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <h3 className="font-semibold text-sm text-neutral-900 mb-4">Mensagens por dia</h3>
+            <div className="flex items-end gap-1 h-32">
+              {daily.slice(-30).map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
+                    style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: d.conversations > 0 ? 4 : 1 }}
+                    title={`${d.date}: ${d.conversations} mensagens`}
+                  />
+                </div>
+              ))}
             </div>
-            <p className="text-xl font-semibold text-neutral-950">{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
+            <div className="flex justify-between mt-2 text-xs text-neutral-400">
+              <span>{daily.slice(-30)[0]?.date}</span>
+              <span>{daily.slice(-1)[0]?.date}</span>
+            </div>
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Bar chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Conversas por Dia</h3>
-          <div className="flex items-end gap-1 h-32">
-            {dailyData.slice(-14).map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-amber-400 hover:bg-amber-500 transition-colors cursor-default"
-                  style={{ height: `${(d.conversations / maxVal) * 100}%`, minHeight: 4 }}
-                  title={`${d.date}: ${d.conversations} conversas`}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-2 text-[9px] text-neutral-400">
-            <span>{dailyData.slice(-14)[0]?.date}</span>
-            <span>{dailyData.slice(-1)[0]?.date}</span>
-          </div>
-        </div>
-
-        {/* Top intents */}
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="font-semibold text-sm text-neutral-900 mb-4">Top Intenções</h3>
-          <div className="space-y-3">
-            {intents.map((intent, i) => (
-              <div key={i} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-medium text-neutral-700 truncate">{intent.intent}</span>
-                  <span className="font-semibold text-neutral-900 ml-2">{intent.count}</span>
-                </div>
-                <div className="w-full bg-neutral-100 rounded-full h-1.5">
-                  <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${(intent.count / intents[0].count) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
+type NpsConfig = { enabled: boolean; send_after_hours: number; message_template: string; hotel_name?: string };
+type NpsResponse = { id: string; guest_name: string | null; channel: string; score: number | null; comment: string | null; sent_at: string; responded_at: string | null };
+
+const DEFAULT_NPS_TEMPLATE = "Olá {{guest_name}}! Aqui é o {{hotel_name}}. Esperamos que tenha gostado da estadia! Numa escala de 0 a 10, qual a chance de você nos recomendar pra um amigo? Responda com a nota (e fique à vontade pra deixar um comentário).";
+
 function NPSTab() {
-  const [scores] = useState([
-    { id: '1', guest: 'Ana Beatriz', score: 9, comment: 'Excelente atendimento, muito rápido!', channel: 'WhatsApp', date: '2026-05-10' },
-    { id: '2', guest: 'Carlos Lima', score: 7, comment: 'Bom, mas poderia melhorar o check-in.', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '3', guest: 'Marina Souza', score: 10, comment: 'Perfeito em todos os aspectos!', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '4', guest: 'Roberto F.', score: 6, comment: 'Wi-fi um pouco lento.', channel: 'Instagram', date: '2026-05-08' },
-    { id: '5', guest: 'Juliana Alves', score: 8, comment: 'Gostei muito do café da manhã.', channel: 'WhatsApp', date: '2026-05-07' },
-  ]);
+  const [responses, setResponses] = useState<NpsResponse[]>([]);
+  const [config, setConfig] = useState<NpsConfig>({ enabled: false, send_after_hours: 24, message_template: DEFAULT_NPS_TEMPLATE, hotel_name: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
 
-  const promoters = scores.filter(s => s.score >= 9).length;
-  const passives = scores.filter(s => s.score >= 7 && s.score <= 8).length;
-  const detractors = scores.filter(s => s.score <= 6).length;
-  const nps = Math.round(((promoters - detractors) / scores.length) * 100);
-  const avg = (scores.reduce((a, b) => a + b.score, 0) / scores.length).toFixed(1);
-
-  function scoreColor(s: number) {
-    if (s >= 9) return 'text-emerald-600 bg-emerald-50';
-    if (s >= 7) return 'text-amber-600 bg-amber-50';
-    return 'text-red-600 bg-red-50';
+  async function load() {
+    setLoading(true);
+    const [respRes, cfgRes] = await Promise.all([
+      supabase.from('nps_responses').select('id, guest_name, channel, score, comment, sent_at, responded_at').order('sent_at', { ascending: false }).limit(200),
+      supabase.from('app_settings').select('value').eq('id', 'nps_config').maybeSingle(),
+    ]);
+    setResponses((respRes.data as NpsResponse[] | null) ?? []);
+    if (cfgRes.data?.value) {
+      try {
+        const parsed = typeof cfgRes.data.value === 'string' ? JSON.parse(cfgRes.data.value) : cfgRes.data.value;
+        setConfig(prev => ({ ...prev, ...parsed }));
+      } catch { /* ignore */ }
+    }
+    setLoading(false);
   }
+  useEffect(() => { load(); }, []);
+
+  async function saveConfig() {
+    setSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 'nps_config', value: JSON.stringify(config), updated_at: new Date().toISOString() });
+    setSaving(false);
+    if (error) toast.error('Falha: ' + error.message); else toast.success('Configuração NPS salva');
+  }
+
+  async function dispatchNow() {
+    setDispatching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-nps', { body: { force: true } });
+      if (error) throw error;
+      const d = data as { processed?: number; sent?: number };
+      toast.success(`Enviado: ${d.sent ?? 0} de ${d.processed ?? 0} elegíveis`);
+      load();
+    } catch (e) {
+      toast.error('Falha: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  const responded = responses.filter(r => r.score != null);
+  const promoters = responded.filter(r => (r.score ?? 0) >= 9).length;
+  const passives = responded.filter(r => (r.score ?? 0) >= 7 && (r.score ?? 0) <= 8).length;
+  const detractors = responded.filter(r => (r.score ?? 0) <= 6).length;
+  const nps = responded.length === 0 ? 0 : Math.round(((promoters - detractors) / responded.length) * 100);
+  const avg = responded.length === 0 ? 0 : (responded.reduce((a, b) => a + (b.score ?? 0), 0) / responded.length);
+  const histogram = Array.from({ length: 11 }, (_, i) => ({ score: i, count: responded.filter(r => r.score === i).length }));
+  const maxBar = Math.max(1, ...histogram.map(h => h.count));
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Satisfação dos Hóspedes</h2>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'NPS Score', value: `${nps}`, icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
-          { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
-        ].map(stat => (
-          <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
-            <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
-            </div>
-            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
-            <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* NPS bar */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
-        <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">NPS</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfação dos hóspedes</h2>
         </div>
-        <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
-          <span className="text-red-500">Detratores (0-6)</span>
-          <span className="text-amber-500">Neutros (7-8)</span>
-          <span className="text-emerald-500">Promotores (9-10)</span>
+        <div className="flex gap-2">
+          <button onClick={dispatchNow} disabled={dispatching} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 disabled:opacity-60">
+            {dispatching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Disparar agora
+          </button>
         </div>
       </div>
 
-      {/* Responses */}
-      <div className="space-y-3">
-        {scores.map(s => (
-          <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-sm shrink-0 ${scoreColor(s.score)}`}>
-              {s.score}
+      {loading ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-12 text-center text-sm text-neutral-400">Carregando...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'NPS Score', value: nps.toString(), sub: '(promotores - detratores) %', color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600' },
+              { label: 'Nota Média', value: avg.toFixed(1), sub: `${responded.length} respostas`, color: 'text-neutral-900' },
+              { label: 'Promotores', value: promoters.toString(), sub: 'nota 9-10', color: 'text-emerald-600' },
+              { label: 'Detratores', value: detractors.toString(), sub: 'nota 0-6', color: 'text-red-600' },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+                <p className={`text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-neutral-500 font-medium">{s.label}</p>
+                <p className="text-[10px] text-neutral-400">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Distribuição de notas</p>
+            <div className="flex items-end gap-2 h-40">
+              {histogram.map(h => (
+                <div key={h.score} className="flex-1 flex flex-col items-center justify-end gap-1">
+                  <span className="text-[10px] font-semibold text-neutral-600">{h.count > 0 ? h.count : ''}</span>
+                  <div className={`w-full rounded-t ${h.score >= 9 ? 'bg-emerald-500' : h.score >= 7 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ height: `${(h.count / maxBar) * 100}%`, minHeight: h.count > 0 ? '4px' : '0' }} />
+                  <span className="text-[10px] text-neutral-400">{h.score}</span>
+                </div>
+              ))}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm text-neutral-900">{s.guest}</p>
-              <p className="text-xs text-neutral-500 mt-0.5">{s.comment}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[9px] text-neutral-400">{s.date}</p>
-              <p className="text-[9px] font-bold text-neutral-500">{s.channel}</p>
+            <div className="flex justify-between mt-2 text-[10px] text-neutral-400">
+              <span>← Detratores (0-6)</span><span>Neutros (7-8)</span><span>Promotores (9-10) →</span>
             </div>
           </div>
-        ))}
-      </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Configuração</p>
+              <button onClick={saveConfig} disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-60">
+                {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar
+              </button>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
+              <div>
+                <p className="font-bold text-sm text-neutral-900">Envio automático pós-checkout</p>
+                <p className="text-xs text-neutral-500">Dispara via cron diário</p>
+              </div>
+              <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Horas após checkout ({config.send_after_hours}h)</label>
+                <input type="range" min={1} max={168} value={config.send_after_hours} onChange={e => setConfig(p => ({ ...p, send_after_hours: Number(e.target.value) }))} className="w-full" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do hotel (placeholder)</label>
+                <input value={config.hotel_name ?? ''} onChange={e => setConfig(p => ({ ...p, hotel_name: e.target.value }))} placeholder="Royal PMS" className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Template (placeholders <code>{'{{guest_name}}'}</code>, <code>{'{{hotel_name}}'}</code>)</label>
+              <textarea value={config.message_template} onChange={e => setConfig(p => ({ ...p, message_template: e.target.value }))} rows={4} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+            <div className="px-5 py-3 border-b border-neutral-100"><p className="text-sm font-semibold text-neutral-700">Respostas recentes</p></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead><tr className="border-b border-neutral-100">{['Hóspede', 'Canal', 'Nota', 'Comentário', 'Enviado', 'Respondido'].map(h => <th key={h} className="text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>)}</tr></thead>
+                <tbody>
+                  {responses.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Nenhuma pesquisa enviada ainda. Configure e clique em "Disparar agora" pra testar.</td></tr>}
+                  {responses.map(r => (
+                    <tr key={r.id} className="border-b border-neutral-50 hover:bg-neutral-50">
+                      <td className="px-5 py-3 text-sm font-semibold text-neutral-900">{r.guest_name || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{r.channel}</td>
+                      <td className="px-5 py-3"><span className={`text-sm font-bold ${r.score == null ? 'text-neutral-300' : r.score >= 9 ? 'text-emerald-600' : r.score >= 7 ? 'text-amber-600' : 'text-red-600'}`}>{r.score ?? '—'}</span></td>
+                      <td className="px-5 py-3 text-xs text-neutral-600 max-w-md truncate">{r.comment || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{new Date(r.sent_at).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{r.responded_at ? new Date(r.responded_at).toLocaleDateString('pt-BR') : <span className="text-neutral-300">pendente</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Bot Training Tab ─────────────────────────────────────────────────────────
 
+const DEFAULT_SYSTEM_PROMPT = `Voce eh o atendente virtual do hotel {{hotel_name}}. Use o tom: {{mood}}.
+
+INFORMACOES DO HOTEL:
+{{description}}
+
+POLITICAS:
+{{policies}}
+
+ACOMODACOES:
+{{rooms}}
+
+FAQ:
+{{faq}}
+
+Regras:
+- Responda em portugues, max 2-3 frases.
+- Nunca invente precos. Se nao souber, peca pra humano.
+- Se cliente pedir falar com humano, reclamar ou demonstrar irritacao, responda <needs_human/> sem outro texto.
+- Nunca confirme reservas — diga que vai passar pro atendente humano.`;
+
 function BotTrainingTab() {
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<'info' | 'pricing' | 'personality'>('info');
+  const [testing, setTesting] = useState(false);
+  const [testInput, setTestInput] = useState('');
+  const [testOutput, setTestOutput] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<'engine' | 'rules' | 'info' | 'pricing' | 'personality'>('engine');
+  const [keywordInput, setKeywordInput] = useState('');
   const [config, setConfig] = useState<BotConfig>({
-    name: 'Royal PMS Palace Hotel',
-    address: 'Av. Principal, 1000 - Centro',
-    phone: '(22) 99999-0000',
-    email: 'contato@royalpms.com',
-    description: 'Hotel executivo com localização privilegiada, café da manhã incluso, Wi-Fi de alta velocidade e atendimento 24h.',
-    policies: 'Check-in: 14h | Check-out: 11h | Pets não permitidos | Fumantes apenas em áreas externas',
-    rooms: 'Standard (2 pessoas): R$ 289/noite\nExecutiva (2 pessoas): R$ 359/noite\nSuíte Master (2 pessoas): R$ 520/noite',
-    faq: 'Café da manhã incluso? Sim, servido das 6h às 10h.\nTem estacionamento? Sim, gratuito.\nAceita cartão? Sim, todos os cartões.',
-    pricingTable: '',
+    name: '',
+    address: '',
+    phone: '',
+    email: '',
+    description: '',
+    policies: '',
+    rooms: '',
+    faq: '',
     botMood: 'professional',
-    upsellActive: true,
-    npsActive: true,
-    widgetBotName: 'Assistente Virtual',
-    widgetWelcomeMessage: 'Olá! Como posso ajudar com sua reserva hoje?',
-    googleReviewLink: '',
-    npsSendAfterHours: 24,
+    enabled: false,
+    provider: 'claude',
+    model: 'claude-haiku-4-5',
+    apiKey: '',
+    systemPromptTemplate: DEFAULT_SYSTEM_PROMPT,
+    escalationKeywords: ['humano', 'atendente', 'gerente', 'reclamacao', 'reclamar', 'cancelar'],
+    maxConsecutiveBotMsgs: 5,
+    historyWindow: 10,
   });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase.from('app_settings').select('value').eq('id', 'bot_config').maybeSingle();
+      if (!alive || error || !data?.value) return;
+      try {
+        const raw = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+        setConfig(prev => ({
+          ...prev,
+          name: raw.hotel_name ?? prev.name,
+          description: raw.description ?? prev.description,
+          policies: raw.policies ?? prev.policies,
+          rooms: raw.rooms ?? prev.rooms,
+          faq: raw.faq ?? prev.faq,
+          botMood: raw.mood ?? prev.botMood,
+          enabled: !!raw.enabled,
+          provider: raw.provider ?? prev.provider,
+          model: raw.model ?? prev.model,
+          apiKey: raw.api_key ?? '',
+          systemPromptTemplate: raw.system_prompt_template ?? prev.systemPromptTemplate,
+          escalationKeywords: Array.isArray(raw.escalation_keywords) ? raw.escalation_keywords : prev.escalationKeywords,
+          maxConsecutiveBotMsgs: raw.max_consecutive_bot_msgs ?? prev.maxConsecutiveBotMsgs,
+          historyWindow: raw.history_window ?? prev.historyWindow,
+        }));
+      } catch (e) {
+        console.warn('[bot_config] parse failed', e);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
+    const payload = {
+      enabled: config.enabled,
+      provider: config.provider,
+      model: config.model,
+      api_key: config.apiKey,
+      system_prompt_template: config.systemPromptTemplate,
+      hotel_name: config.name,
+      description: config.description,
+      policies: config.policies,
+      rooms: config.rooms,
+      faq: config.faq,
+      mood: config.botMood,
+      escalation_keywords: config.escalationKeywords,
+      max_consecutive_bot_msgs: config.maxConsecutiveBotMsgs,
+      history_window: config.historyWindow,
+    };
+    const { error } = await supabase.from('app_settings').upsert({
+      id: 'bot_config',
+      value: JSON.stringify(payload),
+      updated_at: new Date().toISOString(),
+    });
     setSaving(false);
-    toast.success('Configurações salvas com sucesso!');
+    if (error) { toast.error('Falha ao salvar: ' + error.message); return; }
+    toast.success('Configurações salvas!');
   }
 
+  async function handleTest() {
+    if (!testInput.trim()) { toast.error('Digite uma mensagem para testar'); return; }
+    setTesting(true);
+    setTestOutput(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-respond-meta', {
+        body: { test_only: true, test_text: testInput },
+        headers: { 'x-test-call': '1' },
+      });
+      if (error) throw error;
+      setTestOutput((data as { reply?: string; skipped?: string })?.reply ?? (data as { skipped?: string })?.skipped ?? JSON.stringify(data));
+    } catch (e) {
+      setTestOutput('Erro: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function addKeyword() {
+    const kw = keywordInput.trim().toLowerCase();
+    if (!kw || config.escalationKeywords.includes(kw)) return;
+    setConfig(p => ({ ...p, escalationKeywords: [...p.escalationKeywords, kw] }));
+    setKeywordInput('');
+  }
+  function removeKeyword(kw: string) {
+    setConfig(p => ({ ...p, escalationKeywords: p.escalationKeywords.filter(k => k !== kw) }));
+  }
+
+  const modelOptions: Record<BotConfig['provider'], string[]> = {
+    claude: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-7'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-5'],
+    gemini: ['gemini-2.0-flash', 'gemini-2.5-pro'],
+    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+    rule: ['rule-based'],
+  };
+
   const sections = [
+    { id: 'engine' as const, label: 'Engine IA', icon: Bot },
+    { id: 'rules' as const, label: 'Regras', icon: ShieldCheck },
     { id: 'info' as const, label: 'Informações', icon: Hotel },
     { id: 'pricing' as const, label: 'Tarifas e FAQ', icon: DollarSign },
     { id: 'personality' as const, label: 'Personalidade', icon: Sparkles },
@@ -1792,9 +3252,14 @@ function BotTrainingTab() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Treinamento</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Configurar Bot IA</h2>
+        <div className="flex items-center gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Treinamento</p>
+            <h2 className="text-xl font-semibold text-neutral-950">Configurar Bot IA</h2>
+          </div>
+          <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full ${config.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+            {config.enabled ? 'Ativo' : 'Inativo'}
+          </span>
         </div>
         <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60 transition-all">
           {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1812,6 +3277,93 @@ function BotTrainingTab() {
       </div>
 
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6 shadow-sm space-y-5">
+        {activeSection === 'engine' && (
+          <>
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
+              <div>
+                <p className="font-bold text-sm text-neutral-900">Responder automaticamente (WhatsApp / IG / Facebook)</p>
+                <p className="text-xs text-neutral-500">Bot responde até cliente pedir humano ou alguém clicar &quot;Atribuir a mim&quot;.</p>
+              </div>
+              <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full transition-all ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Provedor LLM</label>
+                <select value={config.provider} onChange={e => { const provider = e.target.value as BotConfig['provider']; setConfig(p => ({ ...p, provider, model: modelOptions[provider][0] })); }} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                  <option value="claude">Anthropic Claude</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq (Llama, free tier)</option>
+                  <option value="rule">Rule-based (sem custo)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Modelo</label>
+                <select value={config.model} onChange={e => setConfig(p => ({ ...p, model: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                  {modelOptions[config.provider].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">API Key</label>
+              <input type="password" value={config.apiKey} onChange={e => setConfig(p => ({ ...p, apiKey: e.target.value }))} placeholder="sk-... / sua chave do provedor" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none font-mono" />
+              <p className="text-[10px] text-neutral-400 mt-1">Armazenado em app_settings (RLS bloqueia leitura por não-admin).</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-semibold uppercase text-neutral-400">System Prompt (template)</label>
+                <button onClick={() => setConfig(p => ({ ...p, systemPromptTemplate: DEFAULT_SYSTEM_PROMPT }))} className="text-[10px] font-semibold text-amber-600 hover:text-amber-700">Restaurar padrão</button>
+              </div>
+              <textarea value={config.systemPromptTemplate} onChange={e => setConfig(p => ({ ...p, systemPromptTemplate: e.target.value }))} rows={10} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-xs border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-y font-mono" />
+              <p className="text-[10px] text-neutral-400 mt-1">Placeholders: <code>{'{{hotel_name}}'}</code>, <code>{'{{mood}}'}</code>, <code>{'{{description}}'}</code>, <code>{'{{policies}}'}</code>, <code>{'{{rooms}}'}</code>, <code>{'{{faq}}'}</code></p>
+            </div>
+            <div className="border-t pt-4 space-y-3">
+              <p className="font-bold text-sm text-neutral-900">Testar resposta</p>
+              <div className="flex gap-2">
+                <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Mensagem do cliente..." className="flex-1 px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                <button onClick={handleTest} disabled={testing} className="px-5 py-3 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 disabled:opacity-60">
+                  {testing ? '...' : 'Testar'}
+                </button>
+              </div>
+              {testOutput && (
+                <div className="p-3 rounded-xl bg-neutral-900 text-neutral-100 text-sm whitespace-pre-wrap">{testOutput}</div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeSection === 'rules' && (
+          <>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Palavras de escalação (escalam pra humano automaticamente)</label>
+              <div className="flex gap-2 mb-2">
+                <input value={keywordInput} onChange={e => setKeywordInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }} placeholder="Ex: humano, reclamar, gerente" className="flex-1 px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                <button onClick={addKeyword} className="px-4 py-3 rounded-xl bg-neutral-900 text-white text-sm font-bold">Adicionar</button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {config.escalationKeywords.map(kw => (
+                  <span key={kw} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+                    {kw}
+                    <button onClick={() => removeKeyword(kw)} className="hover:text-amber-900"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+                {config.escalationKeywords.length === 0 && <span className="text-xs text-neutral-400">Nenhuma palavra-chave configurada.</span>}
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Máx. mensagens consecutivas do bot ({config.maxConsecutiveBotMsgs})</label>
+              <input type="range" min={1} max={20} value={config.maxConsecutiveBotMsgs} onChange={e => setConfig(p => ({ ...p, maxConsecutiveBotMsgs: Number(e.target.value) }))} className="w-full" />
+              <p className="text-[10px] text-neutral-400">Após esse número, conversa escala pra humano mesmo sem palavra-chave.</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Janela de histórico enviada ao LLM ({config.historyWindow} msgs)</label>
+              <input type="range" min={1} max={20} value={config.historyWindow} onChange={e => setConfig(p => ({ ...p, historyWindow: Number(e.target.value) }))} className="w-full" />
+            </div>
+          </>
+        )}
+
         {activeSection === 'info' && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1852,46 +3404,14 @@ function BotTrainingTab() {
         )}
 
         {activeSection === 'personality' && (
-          <>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
-              <select value={config.botMood} onChange={e => setConfig(prev => ({ ...prev, botMood: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
-                {['professional', 'friendly', 'formal', 'casual'].map(m => (
-                  <option key={m} value={m}>{m === 'professional' ? 'Profissional' : m === 'friendly' ? 'Amigável' : m === 'formal' ? 'Formal' : 'Casual'}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do Assistente Virtual</label>
-              <input value={config.widgetBotName} onChange={e => setConfig(prev => ({ ...prev, widgetBotName: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Mensagem de Boas-vindas</label>
-              <textarea value={config.widgetWelcomeMessage} onChange={e => setConfig(prev => ({ ...prev, widgetWelcomeMessage: e.target.value }))} rows={3} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none resize-none" />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Link Google Reviews (para NPS)</label>
-              <input value={config.googleReviewLink} onChange={e => setConfig(prev => ({ ...prev, googleReviewLink: e.target.value }))} placeholder="https://g.page/r/..." className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
-              <div>
-                <p className="font-bold text-sm text-neutral-900">Upsell automático</p>
-                <p className="text-xs text-neutral-500">Oferecer upgrades durante conversas</p>
-              </div>
-              <button onClick={() => setConfig(prev => ({ ...prev, upsellActive: !prev.upsellActive }))} className={`w-10 h-6 rounded-full transition-all ${config.upsellActive ? 'bg-amber-500' : 'bg-neutral-300'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.upsellActive ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-neutral-50">
-              <div>
-                <p className="font-bold text-sm text-neutral-900">Pesquisa NPS automática</p>
-                <p className="text-xs text-neutral-500">Enviar NPS após o checkout</p>
-              </div>
-              <button onClick={() => setConfig(prev => ({ ...prev, npsActive: !prev.npsActive }))} className={`w-10 h-6 rounded-full transition-all ${config.npsActive ? 'bg-amber-500' : 'bg-neutral-300'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.npsActive ? 'translate-x-5' : 'translate-x-1'}`} />
-              </button>
-            </div>
-          </>
+          <div>
+            <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Personalidade do Bot</label>
+            <select value={config.botMood} onChange={e => setConfig(prev => ({ ...prev, botMood: e.target.value }))} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+              {['professional', 'friendly', 'formal', 'casual'].map(m => (
+                <option key={m} value={m}>{m === 'professional' ? 'Profissional' : m === 'friendly' ? 'Amigável' : m === 'formal' ? 'Formal' : 'Casual'}</option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
     </div>
@@ -1900,38 +3420,95 @@ function BotTrainingTab() {
 
 // ─── CRM Tab ──────────────────────────────────────────────────────────────────
 
+type CrmLead = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  channel: string;
+  score: number;
+  stage: 'hot' | 'warm' | 'cold';
+  tags: string[] | null;
+  last_message_at: string | null;
+  unread_count: number | null;
+};
+
 function CRMTab() {
-  const leads = [
-    { name: 'Ana Beatriz Costa', score: 92, stage: 'hot', channel: 'whatsapp', lastContact: '2026-05-10', totalConversations: 8, tags: ['VIP', 'Recorrente'] },
-    { name: 'Carlos Eduardo Lima', score: 65, stage: 'warm', channel: 'instagram', lastContact: '2026-05-09', totalConversations: 3, tags: ['Novo'] },
-    { name: 'Marina Souza', score: 41, stage: 'cold', channel: 'whatsapp', lastContact: '2026-05-07', totalConversations: 1, tags: ['Follow-up'] },
-    { name: 'Roberto Ferreira', score: 88, stage: 'hot', channel: 'facebook', lastContact: '2026-05-10', totalConversations: 12, tags: ['VIP', 'Fidelizado'] },
-    { name: 'Juliana Alves', score: 74, stage: 'warm', channel: 'google', lastContact: '2026-05-08', totalConversations: 5, tags: ['Empresa'] },
-  ];
+  const [leads, setLeads] = useState<CrmLead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [recalculating, setRecalculating] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('marketing_contacts')
+      .select('id, name, phone, email, channel, score, stage, tags, last_message_at, unread_count')
+      .order('score', { ascending: false })
+      .limit(100);
+    if (error) toast.error('Falha ao carregar leads: ' + error.message);
+    setLeads((data as CrmLead[] | null) ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function recalcAll() {
+    setRecalculating(true);
+    const results = await Promise.allSettled(
+      leads.map(l => supabase.rpc('recalc_contact_score', { p_contact_id: l.id }))
+    );
+    const failed = results.filter(r => r.status === 'rejected').length;
+    setRecalculating(false);
+    if (failed > 0) toast.error(`${failed} de ${leads.length} falharam`);
+    else toast.success(`${leads.length} contatos recalculados`);
+    load();
+  }
 
   function stageLabel(stage: string) {
     return { hot: { label: 'Quente', cls: 'bg-red-100 text-red-700' }, warm: { label: 'Morno', cls: 'bg-amber-100 text-amber-700' }, cold: { label: 'Frio', cls: 'bg-blue-100 text-blue-700' } }[stage] ?? { label: stage, cls: 'bg-neutral-100 text-neutral-600' };
   }
 
   function scoreColor(score: number) {
-    if (score >= 80) return 'text-emerald-600';
-    if (score >= 60) return 'text-amber-600';
+    if (score >= 75) return 'text-emerald-600';
+    if (score >= 50) return 'text-amber-600';
     return 'text-red-600';
   }
 
+  function timeAgo(iso: string | null): string {
+    if (!iso) return '—';
+    const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (d <= 0) return 'hoje';
+    if (d === 1) return 'ontem';
+    if (d < 30) return `${d}d atrás`;
+    return new Date(iso).toLocaleDateString('pt-BR');
+  }
+
+  const totals = {
+    total: leads.length,
+    hot: leads.filter(l => l.stage === 'hot').length,
+    warm: leads.filter(l => l.stage === 'warm').length,
+    avg: leads.length === 0 ? 0 : Math.round(leads.reduce((a, b) => a + (b.score ?? 0), 0) / leads.length),
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">CRM</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Leads e Scoring</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">CRM</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Leads e Scoring</h2>
+        </div>
+        <button onClick={recalcAll} disabled={recalculating || leads.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60">
+          {recalculating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+          Recalcular score
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Leads', value: leads.length.toString(), color: 'text-neutral-900' },
-          { label: 'Quentes', value: leads.filter(l => l.stage === 'hot').length.toString(), color: 'text-red-600' },
-          { label: 'Mornos', value: leads.filter(l => l.stage === 'warm').length.toString(), color: 'text-amber-600' },
-          { label: 'Score Médio', value: Math.round(leads.reduce((a, b) => a + b.score, 0) / leads.length).toString(), color: 'text-emerald-600' },
+          { label: 'Total Leads', value: totals.total.toString(), color: 'text-neutral-900' },
+          { label: 'Quentes', value: totals.hot.toString(), color: 'text-red-600' },
+          { label: 'Mornos', value: totals.warm.toString(), color: 'text-amber-600' },
+          { label: 'Score Médio', value: totals.avg.toString(), color: 'text-emerald-600' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
             <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
@@ -1951,17 +3528,20 @@ function CRMTab() {
               </tr>
             </thead>
             <tbody>
-              {leads.map((lead, i) => {
+              {loading && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Carregando...</td></tr>}
+              {!loading && leads.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Nenhum lead cadastrado ainda. Conversas no inbox aparecerão aqui.</td></tr>}
+              {!loading && leads.map(lead => {
                 const { label, cls } = stageLabel(lead.stage);
                 const ch = CHANNELS.find(c => c.id === lead.channel);
+                const tags = lead.tags ?? [];
                 return (
-                  <tr key={i} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                  <tr key={lead.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-semibold text-neutral-600">{lead.name[0]}</div>
+                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-semibold text-neutral-600">{(lead.name || '?')[0]?.toUpperCase()}</div>
                         <div>
-                          <p className="font-bold text-sm text-neutral-900">{lead.name}</p>
-                          <p className="text-[10px] text-neutral-400">{lead.totalConversations} conversas</p>
+                          <p className="font-bold text-sm text-neutral-900">{lead.name || '(sem nome)'}</p>
+                          <p className="text-[10px] text-neutral-400">{lead.phone || lead.email || '—'}</p>
                         </div>
                       </div>
                     </td>
@@ -1974,11 +3554,11 @@ function CRMTab() {
                       </div>
                     </td>
                     <td className="px-5 py-3"><span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span></td>
-                    <td className="px-5 py-3 text-xs" style={{ color: ch?.color }}>{ch?.name}</td>
-                    <td className="px-5 py-3 text-xs text-neutral-500">{lead.lastContact}</td>
+                    <td className="px-5 py-3 text-xs" style={{ color: ch?.color }}>{ch?.name ?? lead.channel}</td>
+                    <td className="px-5 py-3 text-xs text-neutral-500">{timeAgo(lead.last_message_at)}</td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {lead.tags.map(t => <span key={t} className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t}</span>)}
+                        {tags.length === 0 ? <span className="text-[9px] text-neutral-300">—</span> : tags.map(t => <span key={t} className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t}</span>)}
                       </div>
                     </td>
                   </tr>
@@ -1994,43 +3574,45 @@ function CRMTab() {
 
 // ─── WhatsApp Simulator Tab ───────────────────────────────────────────────────
 
+type SimMsg = { text: string; type: 'in' | 'out'; time: string; tools?: string[]; cost?: number };
+
 function SimulatorTab() {
-  const [messages, setMessages] = useState([
-    { text: 'Olá! Gostaria de fazer uma reserva para o próximo fim de semana.', type: 'in' as const, time: '10:31' },
-    { text: 'Olá! Seja bem-vindo ao Royal PMS Palace Hotel 🏨 Temos disponibilidade! Para 2 pessoas, nossa UH Executiva está R$ 359/noite. Inclui café da manhã, Wi-Fi e estacionamento. Deseja confirmar?', type: 'out' as const, time: '10:31' },
-    { text: 'Sim! Vou querer o pacote completo. Tem piscina?', type: 'in' as const, time: '10:32' },
-    { text: 'Sim! Temos piscina descoberta disponível das 7h às 22h 🏊 Posso confirmar a reserva agora?', type: 'out' as const, time: '10:32' },
-  ]);
+  const [messages, setMessages] = useState<SimMsg[]>([]);
   const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  function sendMessage() {
-    if (!input.trim()) return;
-    const userMsg = { text: input, type: 'in' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
+  async function sendMessage() {
+    if (!input.trim() || sending) return;
+    const text = input;
+    const userMsg: SimMsg = { text, type: 'in', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
-
-    setTimeout(() => {
-      const botReplies = [
-        'Perfeito! Vou verificar a disponibilidade para você. 😊',
-        'Nossa tarifa inclui café da manhã das 6h às 10h. Posso reservar agora?',
-        'Excelente escolha! Você prefere pagar via PIX ou cartão de crédito?',
-        'Check-in a partir das 14h e checkout até as 11h. Confirmado?',
-        'Obrigado pelo seu interesse! Vou te enviar os dados de pagamento em instantes.',
-      ];
-      const reply = botReplies[Math.floor(Math.random() * botReplies.length)];
-      setMessages(prev => [...prev, { text: reply, type: 'out' as const, time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
-    }, 1000);
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-respond-meta', {
+        body: { test_only: true, test_text: text },
+        headers: { 'x-test-call': '1' },
+      });
+      if (error) throw error;
+      const d = data as { reply?: string; tools_used?: string[]; cost_usd?: number; skipped?: string; error?: string };
+      const reply = d.reply || (d.skipped ? `(${d.skipped})` : d.error ? `Erro: ${d.error}` : '(sem resposta)');
+      setMessages(prev => [...prev, { text: reply, type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), tools: d.tools_used, cost: d.cost_usd }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { text: 'Erro: ' + (e instanceof Error ? e.message : String(e)), type: 'out', time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }]);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <div className="space-y-4">
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Simulador</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Testar WhatsApp Bot</h2>
-        <p className="text-sm text-neutral-500">Simule uma conversa real com o assistente virtual do hotel.</p>
+        <h2 className="text-xl font-semibold text-neutral-950">Testar bot ao vivo</h2>
+        <p className="text-sm text-neutral-500">Cada mensagem chama o bot real (auto-respond-meta) — usa a config salva em Treinamento IA.</p>
       </div>
 
       {/* Phone frame */}
@@ -2047,14 +3629,27 @@ function SimulatorTab() {
             </div>
             {/* Messages area */}
             <div className="h-80 overflow-y-auto p-3 space-y-2" style={{ background: '#0c1a22 url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'%3E%3C/svg%3E")' }}>
+              {messages.length === 0 && (
+                <p className="text-center text-white/40 text-[10px] py-8">Digite uma mensagem pra começar — ex: "Tem master pra 20 a 22 de jan?"</p>
+              )}
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.type === 'out' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${msg.type === 'out' ? 'bg-[#005C4B] text-white' : 'bg-[#202C33] text-white'}`}>
                     {msg.text}
-                    <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}</p>
+                    {msg.tools && msg.tools.length > 0 && (
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {msg.tools.map((t, j) => <span key={j} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200">🔧 {t}</span>)}
+                      </div>
+                    )}
+                    <p className="text-[9px] text-white/50 mt-1 text-right">{msg.time}{msg.cost != null && msg.cost > 0 && ` · $${msg.cost.toFixed(5)}`}</p>
                   </div>
                 </div>
               ))}
+              {sending && (
+                <div className="flex justify-end">
+                  <div className="bg-[#005C4B] text-white px-3 py-2 rounded-xl text-xs"><span className="opacity-60">digitando...</span></div>
+                </div>
+              )}
               <div ref={bottomRef} />
             </div>
             {/* Input */}
@@ -2352,7 +3947,7 @@ function FinanceiroTab() {
             {tokenSaved ? 'Token configurado' : 'Configurar token'}
           </button>
           <button
-            onClick={() => { setForm({ guestName: '', guestEmail: '', amount: '', description: '' }); setShowForm(true); }}
+            onClick={() => { setForm({ guestName: '', guestEmail: '', amount: '', description: '', guestCpf: '' }); setShowForm(true); }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors"
           >
             <QrCode className="w-4 h-4" /> Cobrança avulsa
@@ -2622,7 +4217,7 @@ interface SocialIntegration {
   id: string;
   name: string;
   description: string;
-  icon: JSX.Element;
+  icon: ReactElement;
   color: string;
   colorHex: string;
   docsUrl: string;
@@ -2630,7 +4225,6 @@ interface SocialIntegration {
 }
 
 const SOCIAL_INTEGRATIONS: SocialIntegration[] = [
-  { id: 'whatsapp', name: 'WhatsApp Business', description: 'Envio e recebimento de mensagens via API oficial Meta Cloud.', icon: <MessageSquare className="w-6 h-6" />, color: 'bg-emerald-500', colorHex: '#10b981', docsUrl: 'https://developers.facebook.com/docs/whatsapp/cloud-api', field: 'whatsappPhoneId' },
   { id: 'instagram', name: 'Instagram Professional', description: 'Responder DMs e comentários automaticamente com IA.', icon: <Instagram className="w-6 h-6" />, color: 'bg-pink-500', colorHex: '#ec4899', docsUrl: 'https://developers.facebook.com/docs/instagram-basic-display-api', field: 'instagramAccount' },
   { id: 'facebook', name: 'Facebook Pages', description: 'Gerenciar mensagens do Messenger e comentários em posts.', icon: <Facebook className="w-6 h-6" />, color: 'bg-blue-600', colorHex: '#2563eb', docsUrl: 'https://developers.facebook.com/docs/facebook-login/', field: 'facebookPage' },
   { id: 'email', name: 'E-mail SMTP', description: 'Enviar confirmações de reserva e notificações por e-mail.', icon: <Mail className="w-6 h-6" />, color: 'bg-amber-500', colorHex: '#f59e0b', docsUrl: '#', field: 'smtpHost' },
@@ -2654,6 +4248,510 @@ interface SmtpConfig {
   signatureLogoUrl?: string;
 }
 interface PmsWebhook { webhookUrl: string; apiKey: string; enabled: boolean; }
+
+// ─── Generic Provider (BYO WhatsApp / IG / FB via webhook terceirizado) ──
+type GenericProvider = {
+  id: string;
+  name: string;
+  channel: 'whatsapp' | 'instagram' | 'facebook';
+  enabled: boolean;
+  secret_token?: string;
+  inbound: {
+    sender_id_path?: string;
+    name_path?: string;
+    text_path?: string;
+    message_id_path?: string;
+    timestamp_path?: string;
+    media_url_path?: string;
+    media_mime_path?: string;
+  };
+  outbound: { url: string; method?: string; headers?: Record<string, string>; body_template: string };
+};
+
+const PROVIDER_PRESETS: Record<string, Partial<GenericProvider>> = {
+  zapi: {
+    name: 'Z-API', channel: 'whatsapp',
+    inbound: { sender_id_path: 'phone', name_path: 'senderName', text_path: 'text.message', message_id_path: 'messageId', timestamp_path: 'momment', media_url_path: 'image.imageUrl', media_mime_path: 'image.mimeType' },
+    outbound: { url: 'https://api.z-api.io/instances/INSTANCE/token/TOKEN/send-text', method: 'POST', headers: { 'Content-Type': 'application/json', 'Client-Token': 'YOUR_CLIENT_TOKEN' }, body_template: '{"phone":"{{recipient}}","message":"{{text}}"}' },
+  },
+  evolution: {
+    name: 'Evolution API', channel: 'whatsapp',
+    inbound: { sender_id_path: 'data.key.remoteJid', name_path: 'data.pushName', text_path: 'data.message.conversation', message_id_path: 'data.key.id', timestamp_path: 'data.messageTimestamp' },
+    outbound: { url: 'https://your-evolution-host/message/sendText/INSTANCE', method: 'POST', headers: { 'Content-Type': 'application/json', apikey: 'YOUR_API_KEY' }, body_template: '{"number":"{{recipient}}","text":"{{text}}"}' },
+  },
+  twilio: {
+    name: 'Twilio WhatsApp', channel: 'whatsapp',
+    inbound: { sender_id_path: 'From', text_path: 'Body', message_id_path: 'MessageSid' },
+    outbound: { url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxxx/Messages.json', method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic BASE64(SID:TOKEN)' }, body_template: 'To=whatsapp:{{recipient}}&From=whatsapp:%2B14155238886&Body={{text}}' },
+  },
+  wati: {
+    name: 'Wati', channel: 'whatsapp',
+    inbound: { sender_id_path: 'waId', name_path: 'senderName', text_path: 'text', message_id_path: 'id', timestamp_path: 'timestamp' },
+    outbound: { url: 'https://live-server-XXX.wati.io/api/v1/sendSessionMessage/{{recipient}}', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer YOUR_WATI_TOKEN' }, body_template: '{"messageText":"{{text}}"}' },
+  },
+};
+
+function GenericProvidersSection() {
+  const [providers, setProviders] = useState<GenericProvider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<GenericProvider | null>(null);
+  const [testPayload, setTestPayload] = useState('');
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('id', 'generic_providers').maybeSingle();
+      try {
+        const raw = data?.value ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value) : { providers: [] };
+        setProviders(raw.providers ?? []);
+      } catch { setProviders([]); }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function persist(list: GenericProvider[]) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'generic_providers', value: JSON.stringify({ providers: list }), updated_at: new Date().toISOString() });
+    if (error) { toast.error('Falha ao salvar: ' + error.message); return false; }
+    setProviders(list);
+    return true;
+  }
+
+  function newProvider(): GenericProvider {
+    const slug = `provider-${Math.random().toString(36).slice(2, 8)}`;
+    return { id: slug, name: 'Novo provider', channel: 'whatsapp', enabled: false, inbound: {}, outbound: { url: '', method: 'POST', headers: { 'Content-Type': 'application/json' }, body_template: '' } };
+  }
+
+  async function saveEditing() {
+    if (!editing) return;
+    if (!editing.id || !editing.name) { toast.error('ID e nome são obrigatórios'); return; }
+    const idx = providers.findIndex(p => p.id === editing.id);
+    const next = idx >= 0 ? providers.map((p, i) => i === idx ? editing : p) : [...providers, editing];
+    if (await persist(next)) { toast.success('Provider salvo'); setEditing(null); setTestResult(null); }
+  }
+
+  async function deleteProvider(id: string) {
+    if (!confirm('Remover este provider?')) return;
+    if (await persist(providers.filter(p => p.id !== id))) toast.success('Provider removido');
+  }
+
+  function applyPreset(key: string) {
+    if (!editing) return;
+    const preset = PROVIDER_PRESETS[key];
+    if (!preset) return;
+    setEditing({ ...editing, ...preset, id: editing.id, enabled: editing.enabled });
+    toast.success(`Preset "${preset.name}" carregado`);
+  }
+
+  function runTest() {
+    if (!editing) return;
+    try {
+      const payload = JSON.parse(testPayload);
+      const getPath = (obj: unknown, path?: string): unknown => {
+        if (!path) return undefined;
+        return path.split(/\.|\[|\]/).filter(Boolean).reduce((o: unknown, k: string) => (o == null ? undefined : (o as Record<string, unknown>)[k]), obj);
+      };
+      const m = editing.inbound;
+      const out = {
+        sender_id: getPath(payload, m.sender_id_path),
+        name: getPath(payload, m.name_path),
+        text: getPath(payload, m.text_path),
+        message_id: getPath(payload, m.message_id_path),
+        timestamp: getPath(payload, m.timestamp_path),
+        media_url: m.media_url_path ? getPath(payload, m.media_url_path) : undefined,
+        media_mime: m.media_mime_path ? getPath(payload, m.media_mime_path) : undefined,
+      };
+      setTestResult(JSON.stringify(out, null, 2));
+    } catch (e) {
+      setTestResult('JSON inválido: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  function webhookUrl(id: string) {
+    const base = SUPABASE_URL || '<SUPABASE_URL>';
+    return `${base}/functions/v1/webhook-generic?provider=${id}`;
+  }
+
+  if (loading) return null;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Providers WhatsApp genéricos (BYO webhook)</h3>
+          <p className="text-xs text-neutral-500 mt-0.5">Conecte qualquer provider terceiro (Z-API, Evolution, Twilio, Wati, etc.) via mapeamento de campos.</p>
+        </div>
+        <button onClick={() => { setEditing(newProvider()); setTestResult(null); setTestPayload(''); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800">
+          <Plus className="w-4 h-4" /> Adicionar provider
+        </button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-500">
+          Nenhum provider cadastrado. Clique em "Adicionar provider" e use um dos presets pra começar.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {providers.map(p => (
+            <article key={p.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between mb-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm text-neutral-900 truncate">{p.name}</p>
+                  <p className="text-[10px] text-neutral-400 font-mono">{p.id}</p>
+                </div>
+                <span className={`text-[9px] font-bold uppercase px-2 py-1 rounded-full shrink-0 ${p.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                  {p.enabled ? 'Ativo' : 'Inativo'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{p.channel}</span>
+                <span className="text-[10px] text-neutral-400 truncate flex-1">{p.outbound.url || 'sem outbound'}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setEditing(p); setTestResult(null); setTestPayload(''); }} className="flex-1 py-2 rounded-lg bg-neutral-100 text-neutral-700 text-xs font-bold hover:bg-neutral-200">Editar</button>
+                <button onClick={() => deleteProvider(p.id)} className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-bold hover:bg-red-100"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div onClick={() => { setEditing(null); setTestResult(null); }} className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" />
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl p-6 sm:p-8 shadow-2xl space-y-5">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-neutral-950">Configurar provider</h3>
+              <button onClick={() => { setEditing(null); setTestResult(null); }} className="p-2 rounded-xl bg-neutral-100 text-neutral-500"><X className="w-4 h-4" /></button>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Preset</label>
+              <select onChange={e => { if (e.target.value) applyPreset(e.target.value); e.target.value = ''; }} defaultValue="" className="w-full px-4 py-3 bg-amber-50 rounded-xl text-sm border-0 outline-none">
+                <option value="">— Carregar template de... —</option>
+                {Object.entries(PROVIDER_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome</label>
+                <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">ID (slug)</label>
+                <input value={editing.id} onChange={e => setEditing({ ...editing, id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Canal</label>
+                <select value={editing.channel} onChange={e => setEditing({ ...editing, channel: e.target.value as GenericProvider['channel'] })} className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 outline-none">
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button onClick={() => setEditing({ ...editing, enabled: !editing.enabled })} className={`w-full py-3 rounded-xl text-sm font-bold ${editing.enabled ? 'bg-emerald-500 text-white' : 'bg-neutral-200 text-neutral-600'}`}>
+                  {editing.enabled ? '✓ Ativo' : 'Inativo'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">URL do webhook (cole no painel do provider)</label>
+              <div className="flex gap-2">
+                <input readOnly value={webhookUrl(editing.id)} className="flex-1 px-4 py-3 bg-neutral-100 rounded-xl text-xs border-0 outline-none font-mono" />
+                <button onClick={() => { navigator.clipboard.writeText(webhookUrl(editing.id)); toast.success('URL copiada'); }} className="px-4 py-3 rounded-xl bg-neutral-900 text-white text-xs font-bold"><Copy className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-3">Mapeamento Inbound (dot-paths)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  ['sender_id_path', 'sender_id (obrigatório)', 'phone'],
+                  ['name_path', 'name', 'senderName'],
+                  ['text_path', 'text', 'text.message'],
+                  ['message_id_path', 'message_id', 'messageId'],
+                  ['timestamp_path', 'timestamp', 'momment'],
+                  ['media_url_path', 'media_url (opc)', 'image.imageUrl'],
+                  ['media_mime_path', 'media_mime (opc)', 'image.mimeType'],
+                ] as const).map(([key, label, ph]) => (
+                  <div key={key}>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{label}</label>
+                    <input value={editing.inbound[key] ?? ''} onChange={e => setEditing({ ...editing, inbound: { ...editing.inbound, [key]: e.target.value } })} placeholder={ph} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-3">Outbound (envio de mensagens)</p>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr,100px] gap-3">
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">URL</label>
+                    <input value={editing.outbound.url} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, url: e.target.value } })} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Método</label>
+                    <select value={editing.outbound.method ?? 'POST'} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, method: e.target.value } })} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none">
+                      <option>POST</option><option>PUT</option><option>GET</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Headers (JSON)</label>
+                  <textarea value={JSON.stringify(editing.outbound.headers ?? {}, null, 2)} onChange={e => { try { setEditing({ ...editing, outbound: { ...editing.outbound, headers: JSON.parse(e.target.value) } }); } catch { /* invalid yet */ } }} rows={3} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Body template (placeholders: <code>{'{{recipient}}'}</code>, <code>{'{{text}}'}</code>, <code>{'{{contact_id}}'}</code>)</label>
+                  <textarea value={editing.outbound.body_template} onChange={e => setEditing({ ...editing, outbound: { ...editing.outbound, body_template: e.target.value } })} rows={4} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-xs font-bold uppercase text-neutral-700 mb-2">Testar extração</p>
+              <textarea value={testPayload} onChange={e => setTestPayload(e.target.value)} rows={5} placeholder="Cole aqui um JSON de exemplo do payload do provider..." className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono mb-2" />
+              <button onClick={runTest} className="px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600">Extrair campos</button>
+              {testResult && <pre className="mt-3 p-3 rounded-lg bg-neutral-900 text-neutral-100 text-[10px] overflow-x-auto whitespace-pre-wrap">{testResult}</pre>}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setEditing(null); setTestResult(null); }} className="flex-1 py-3 bg-neutral-100 rounded-xl text-sm font-bold text-neutral-700 hover:bg-neutral-200">Cancelar</button>
+              <button onClick={saveEditing} className="flex-1 py-3 bg-neutral-900 text-white rounded-xl text-sm font-bold hover:bg-neutral-800">Salvar provider</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type EmailParserConfig = {
+  enabled: boolean;
+  always_classify: boolean;
+  sender_whitelist: string[];
+  subject_keywords: string[];
+  min_confidence: 'high' | 'medium' | 'low';
+  default_category: string;
+  voucher_url_domains: string[];
+  auto_confirm_enabled: boolean;
+  auto_confirm_sender_whitelist: string[];
+};
+
+const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
+  enabled: false,
+  always_classify: false,
+  sender_whitelist: ['booking.com', 'airbnb.com', 'expedia.com'],
+  subject_keywords: ['reserva', 'booking', 'reservation', 'confirmation'],
+  min_confidence: 'medium',
+  default_category: 'executivo',
+  voucher_url_domains: ['b2breservas.com.br'],
+  auto_confirm_enabled: false,
+  auto_confirm_sender_whitelist: [],
+};
+
+function EmailParserSection() {
+  const [config, setConfig] = useState<EmailParserConfig>(DEFAULT_PARSER_CONFIG);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [senderInput, setSenderInput] = useState('');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [voucherInput, setVoucherInput] = useState('');
+  const [reprocessing, setReprocessing] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('id', 'email_parser_config').maybeSingle();
+      if (data?.value) {
+        try {
+          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          setConfig(prev => ({ ...prev, ...parsed }));
+        } catch { /* ignore */ }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 'email_parser_config', value: JSON.stringify(config), updated_at: new Date().toISOString() });
+    setSaving(false);
+    if (error) toast.error('Falha: ' + error.message); else toast.success('Parser de email salvo');
+  }
+
+  async function reprocessLast() {
+    setReprocessing(true);
+    try {
+      const { data: msgs } = await supabase.from('inbox_messages').select('id').eq('channel', 'email').eq('direction', 'in').order('created_at', { ascending: false }).limit(10);
+      const list = (msgs as Array<{ id: string }> | null) ?? [];
+      let created = 0;
+      let skipped = 0;
+      for (const m of list) {
+        const { data, error } = await supabase.functions.invoke('parse-reservation-email', { body: { inbox_message_id: m.id }, headers: { 'x-test-call': '1' } });
+        if (error) { skipped++; continue; }
+        if ((data as { created?: boolean })?.created) created++; else skipped++;
+      }
+      toast.success(`Reprocessado: ${created} criadas, ${skipped} puladas (de ${list.length})`);
+    } catch (e) {
+      toast.error('Falha: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
+  function addSender() {
+    const s = senderInput.trim().toLowerCase();
+    if (!s || config.sender_whitelist.includes(s)) return;
+    setConfig(p => ({ ...p, sender_whitelist: [...p.sender_whitelist, s] }));
+    setSenderInput('');
+  }
+  function addKeyword() {
+    const s = keywordInput.trim().toLowerCase();
+    if (!s || config.subject_keywords.includes(s)) return;
+    setConfig(p => ({ ...p, subject_keywords: [...p.subject_keywords, s] }));
+    setKeywordInput('');
+  }
+  function addVoucherDomain() {
+    const s = voucherInput.trim().toLowerCase();
+    if (!s || (config.voucher_url_domains ?? []).includes(s)) return;
+    setConfig(p => ({ ...p, voucher_url_domains: [...(p.voucher_url_domains ?? []), s] }));
+    setVoucherInput('');
+  }
+
+  if (loading) return null;
+
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-700">Parser de reservas por email</h3>
+            <p className="text-xs text-neutral-500">Bot lê emails recebidos, extrai dados de reserva via IA e cria pedidos pendentes em Reservas → Aprovação.</p>
+          </div>
+        </div>
+        <span className={`text-[9px] font-bold uppercase px-2 py-1 rounded-full shrink-0 ${config.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+          {config.enabled ? 'Ligado' : 'Desligado'}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-50">
+        <div className="min-w-0">
+          <p className="font-bold text-sm text-neutral-900">Ativar parser</p>
+          <p className="text-xs text-neutral-500">Usa a API key do bot (Claude). Custo ~$0.0005 por email classificado.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full shrink-0 ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-50">
+        <div className="min-w-0">
+          <p className="font-bold text-sm text-neutral-900">Sempre classificar</p>
+          <p className="text-xs text-neutral-500">Se ligado, manda TODO email pro LLM (mais caro). Se desligado, só os que batem whitelist ou keyword.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, always_classify: !p.always_classify }))} className={`w-10 h-6 rounded-full shrink-0 ${config.always_classify ? 'bg-violet-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.always_classify ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+        <div className="min-w-0">
+          <p className="font-bold text-sm text-amber-950">Auto-confirmar reservas confiaveis</p>
+          <p className="text-xs text-amber-800">Desligado por padrao. Quando ligado, so confirma com remetente confiavel, codigo externo, alta confianca e disponibilidade.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, auto_confirm_enabled: !p.auto_confirm_enabled }))} className={`w-10 h-6 rounded-full shrink-0 ${config.auto_confirm_enabled ? 'bg-amber-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.auto_confirm_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Senders confiáveis (substring no email do remetente)</label>
+        <div className="flex gap-2 mb-2">
+          <input value={senderInput} onChange={e => setSenderInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSender(); } }} placeholder="booking.com" className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addSender} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {config.sender_whitelist.map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 text-violet-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, sender_whitelist: p.sender_whitelist.filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Palavras-chave no assunto</label>
+        <div className="flex gap-2 mb-2">
+          <input value={keywordInput} onChange={e => setKeywordInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }} placeholder="reserva, booking, confirmation..." className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addKeyword} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {config.subject_keywords.map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, subject_keywords: p.subject_keywords.filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Domínios de voucher (links no corpo do email)</label>
+        <div className="flex gap-2 mb-2">
+          <input value={voucherInput} onChange={e => setVoucherInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addVoucherDomain(); } }} placeholder="b2breservas.com.br" className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addVoucherDomain} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(config.voucher_url_domains ?? []).map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, voucher_url_domains: (p.voucher_url_domains ?? []).filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+        <p className="text-[10px] text-neutral-400 mt-1">Quando email contém link com algum desses domínios, o bot baixa o HTML do voucher e lê os dados de reserva. Útil pra B2B Reservas, Decolar e outras agências que mandam só o link.</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Confiança mínima</label>
+          <div className="flex gap-1">
+            {(['high', 'medium', 'low'] as const).map(c => (
+              <button key={c} onClick={() => setConfig(p => ({ ...p, min_confidence: c }))} className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold capitalize ${config.min_confidence === c ? 'bg-violet-500 text-white' : 'bg-neutral-100 text-neutral-600'}`}>
+                {c === 'high' ? 'Alta' : c === 'medium' ? 'Média' : 'Baixa'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Categoria padrão (se email não disser)</label>
+          <select value={config.default_category} onChange={e => setConfig(p => ({ ...p, default_category: e.target.value }))} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none">
+            <option value="executivo">Executivo</option>
+            <option value="master">Master</option>
+            <option value="suite presidencial">Suite Presidencial</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-neutral-100">
+        <button onClick={reprocessLast} disabled={reprocessing || !config.enabled} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 text-xs font-bold hover:bg-neutral-200 disabled:opacity-60">
+          {reprocessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
+          Reprocessar últimos 10 emails
+        </button>
+        <button onClick={save} disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-60 ml-auto">
+          {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Salvar
+        </button>
+      </div>
+    </section>
+  );
+}
 
 function IntegracoesTab() {
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
@@ -2812,6 +4910,8 @@ function IntegracoesTab() {
         </div>
       </section>
 
+      <GenericProvidersSection />
+
       {/* Webhooks PMS */}
       <section className="space-y-4">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Integração PMS Externo</h3>
@@ -2852,26 +4952,7 @@ function IntegracoesTab() {
         </div>
       </section>
 
-      {/* Webhooks URLs do sistema */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Endpoints Webhook Inbound</h3>
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-          <p className="text-xs text-neutral-500">Configure essas URLs no Meta Developer Portal para receber mensagens em tempo real.</p>
-          {['whatsapp', 'instagram', 'facebook'].map(ch => (
-            <div key={ch} className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">{ch.charAt(0).toUpperCase() + ch.slice(1)} Webhook</label>
-                <div className="flex items-center gap-2 px-4 py-3 bg-neutral-50 rounded-xl">
-                  <p className="text-xs font-mono text-neutral-600 flex-1 truncate">{`${window.location.origin}/api/webhooks/${ch}`}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/${ch}`); toast.success('URL copiada!'); }} className="shrink-0 p-1.5 rounded-lg bg-white border border-neutral-200 text-neutral-500 hover:bg-neutral-100">
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <EmailParserSection />
 
       {/* E-mail de confirmação */}
       <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
@@ -3075,7 +5156,7 @@ function ContatosShell() {
   const [sub, setSub] = useState<'list' | 'nps'>('list');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'list' | 'nps'>
         items={[
           { id: 'list', label: 'Contatos & CRM', icon: Users },
           { id: 'nps', label: 'NPS', icon: Heart },
@@ -3093,7 +5174,7 @@ function CampanhasShell() {
   const [sub, setSub] = useState<'campaigns' | 'broadcasts' | 'templates'>('campaigns');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'campaigns' | 'broadcasts' | 'templates'>
         items={[
           { id: 'campaigns', label: 'Campanhas', icon: Megaphone },
           { id: 'broadcasts', label: 'Disparos', icon: Send },
@@ -3110,14 +5191,15 @@ function CampanhasShell() {
 }
 
 function AutomacoesShell() {
-  const [sub, setSub] = useState<'flows' | 'simulator' | 'training'>('flows');
+  const [sub, setSub] = useState<'flows' | 'simulator' | 'training' | 'insights'>('flows');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'flows' | 'simulator' | 'training' | 'insights'>
         items={[
           { id: 'flows', label: 'Fluxos', icon: Zap },
           { id: 'simulator', label: 'Simulador', icon: Smartphone },
           { id: 'training', label: 'Treinamento IA', icon: Bot },
+          { id: 'insights', label: 'Insights Bot', icon: Activity },
         ]}
         active={sub}
         onChange={setSub}
@@ -3125,6 +5207,213 @@ function AutomacoesShell() {
       {sub === 'flows' && <FlowBuilderTab />}
       {sub === 'simulator' && <SimulatorTab />}
       {sub === 'training' && <BotTrainingTab />}
+      {sub === 'insights' && <BotInsightsTab />}
+    </div>
+  );
+}
+
+type BotInvocation = {
+  id: string;
+  contact_id: string | null;
+  channel: string;
+  incoming_text: string | null;
+  reply_text: string | null;
+  decision: 'replied' | 'escalated' | 'skipped' | 'error';
+  reason: string | null;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  tools_used: string[] | null;
+  created_at: string;
+};
+
+function BotInsightsTab() {
+  const [invs, setInvs] = useState<BotInvocation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+
+  async function load() {
+    setLoading(true);
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const { data, error } = await supabase
+      .from('bot_invocations')
+      .select('id, contact_id, channel, incoming_text, reply_text, decision, reason, provider, model, input_tokens, output_tokens, cost_usd, duration_ms, tools_used, created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (error) toast.error('Falha: ' + error.message);
+    setInvs((data as BotInvocation[] | null) ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [days]);
+
+  const total = invs.length;
+  const counts = {
+    replied: invs.filter(i => i.decision === 'replied').length,
+    escalated: invs.filter(i => i.decision === 'escalated').length,
+    skipped: invs.filter(i => i.decision === 'skipped').length,
+    error: invs.filter(i => i.decision === 'error').length,
+  };
+  const resolutionRate = total === 0 ? 0 : Math.round((counts.replied / total) * 100);
+  const avgDuration = (() => {
+    const withDur = invs.filter(i => i.duration_ms != null);
+    return withDur.length === 0 ? 0 : Math.round(withDur.reduce((a, b) => a + (b.duration_ms ?? 0), 0) / withDur.length);
+  })();
+  const totalCost = invs.reduce((a, b) => a + (Number(b.cost_usd) || 0), 0);
+
+  // Por dia (linha)
+  const byDay: Record<string, number> = {};
+  for (const i of invs) {
+    const d = i.created_at.slice(0, 10);
+    byDay[d] = (byDay[d] ?? 0) + 1;
+  }
+  const dayKeys = Object.keys(byDay).sort();
+  const maxDay = Math.max(1, ...Object.values(byDay));
+
+  // Por provider (custo)
+  const byProvider: Record<string, number> = {};
+  for (const i of invs) {
+    const p = i.provider ?? '—';
+    byProvider[p] = (byProvider[p] ?? 0) + (Number(i.cost_usd) || 0);
+  }
+
+  // Top tools
+  const toolCounts: Record<string, number> = {};
+  for (const i of invs) {
+    for (const t of i.tools_used ?? []) toolCounts[t] = (toolCounts[t] ?? 0) + 1;
+  }
+  const topTools = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">Insights</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Métricas do bot</h2>
+        </div>
+        <div className="flex gap-2">
+          {[7, 30, 90].map(d => (
+            <button key={d} onClick={() => setDays(d)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${days === d ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>{d}d</button>
+          ))}
+          <button onClick={load} className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-neutral-200"><RefreshCcw className="w-3.5 h-3.5" /></button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-12 text-center text-sm text-neutral-400">Carregando...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Mensagens', value: total.toString(), sub: `últimos ${days}d`, color: 'text-neutral-900' },
+              { label: 'Taxa Resolução', value: `${resolutionRate}%`, sub: `${counts.replied} respondidas`, color: resolutionRate >= 60 ? 'text-emerald-600' : 'text-amber-600' },
+              { label: 'Tempo Médio', value: avgDuration < 1000 ? `${avgDuration}ms` : `${(avgDuration / 1000).toFixed(1)}s`, sub: 'por resposta', color: 'text-neutral-900' },
+              { label: 'Custo Total', value: `$${totalCost.toFixed(4)}`, sub: 'LLM acumulado', color: 'text-emerald-600' },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+                <p className={`text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-neutral-500 font-medium">{s.label}</p>
+                <p className="text-[10px] text-neutral-400">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Decisões do bot</p>
+              <div className="space-y-2">
+                {[
+                  { k: 'replied', label: 'Respondidas', color: 'bg-emerald-500', count: counts.replied },
+                  { k: 'escalated', label: 'Escaladas (humano)', color: 'bg-amber-500', count: counts.escalated },
+                  { k: 'skipped', label: 'Puladas', color: 'bg-neutral-400', count: counts.skipped },
+                  { k: 'error', label: 'Erros', color: 'bg-red-500', count: counts.error },
+                ].map(r => (
+                  <div key={r.k} className="flex items-center gap-3">
+                    <span className="text-xs text-neutral-600 w-32">{r.label}</span>
+                    <div className="flex-1 bg-neutral-100 rounded-full h-3">
+                      <div className={`${r.color} h-3 rounded-full transition-all`} style={{ width: `${total === 0 ? 0 : (r.count / total) * 100}%` }} />
+                    </div>
+                    <span className="text-xs font-bold text-neutral-700 w-12 text-right">{r.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Custo por provider</p>
+              {Object.keys(byProvider).length === 0 ? (
+                <p className="text-xs text-neutral-400 text-center py-8">Nenhum dado ainda.</p>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(byProvider).sort((a, b) => b[1] - a[1]).map(([p, cost]) => (
+                    <div key={p} className="flex items-center gap-3">
+                      <span className="text-xs text-neutral-600 w-24 capitalize">{p}</span>
+                      <div className="flex-1 bg-neutral-100 rounded-full h-3">
+                        <div className="bg-amber-500 h-3 rounded-full" style={{ width: `${(cost / Math.max(...Object.values(byProvider))) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-bold text-neutral-700 w-20 text-right">${cost.toFixed(4)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Mensagens por dia</p>
+            {dayKeys.length === 0 ? (
+              <p className="text-xs text-neutral-400 text-center py-8">Nenhuma invocação no período.</p>
+            ) : (
+              <div className="flex items-end gap-1 h-32">
+                {dayKeys.map(d => (
+                  <div key={d} className="flex-1 flex flex-col items-center gap-1" title={`${d}: ${byDay[d]}`}>
+                    <div className="bg-amber-500 w-full rounded-t" style={{ height: `${(byDay[d] / maxDay) * 100}%`, minHeight: '2px' }} />
+                    {dayKeys.length <= 30 && <span className="text-[8px] text-neutral-400 -rotate-45 origin-top-left">{d.slice(5)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {topTools.length > 0 && (
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">Top ferramentas usadas</p>
+              <div className="flex flex-wrap gap-2">
+                {topTools.map(([name, count]) => (
+                  <span key={name} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+                    🔧 {name} <span className="font-bold">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+            <div className="px-5 py-3 border-b border-neutral-100"><p className="text-sm font-semibold text-neutral-700">Últimas 20 invocações</p></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead><tr className="border-b border-neutral-100">{['Quando', 'Canal', 'Decisão', 'Provider', 'Tools', 'Custo', 'Dur'].map(h => <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>)}</tr></thead>
+                <tbody>
+                  {invs.slice(0, 20).map(i => (
+                    <tr key={i.id} className="border-b border-neutral-50 hover:bg-neutral-50">
+                      <td className="px-4 py-2 text-xs text-neutral-500">{new Date(i.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className="px-4 py-2 text-xs">{i.channel}</td>
+                      <td className="px-4 py-2"><span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${i.decision === 'replied' ? 'bg-emerald-100 text-emerald-700' : i.decision === 'escalated' ? 'bg-amber-100 text-amber-700' : i.decision === 'error' ? 'bg-red-100 text-red-700' : 'bg-neutral-100 text-neutral-600'}`}>{i.decision}</span> {i.reason && <span className="text-[9px] text-neutral-400 ml-1">{i.reason}</span>}</td>
+                      <td className="px-4 py-2 text-xs text-neutral-500">{i.provider ?? '—'}</td>
+                      <td className="px-4 py-2 text-[10px] text-neutral-500">{(i.tools_used ?? []).join(', ') || '—'}</td>
+                      <td className="px-4 py-2 text-xs text-emerald-700 font-mono">${(Number(i.cost_usd) || 0).toFixed(5)}</td>
+                      <td className="px-4 py-2 text-xs text-neutral-500">{i.duration_ms ?? '—'}ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -3133,7 +5422,7 @@ function ConfigsShell() {
   const [sub, setSub] = useState<'integracoes' | 'financeiro'>('integracoes');
   return (
     <div>
-      <SubTabStrip
+      <SubTabStrip<'integracoes' | 'financeiro'>
         items={[
           { id: 'integracoes', label: 'Integrações', icon: Link2 },
           { id: 'financeiro', label: 'Financeiro', icon: QrCode },
@@ -3175,125 +5464,91 @@ type TabId = typeof NAV_SECTIONS[number]['items'][number]['id'];
 
 export default function MarketingModuleDashboard({ profile }: MarketingModuleDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('inbox');
-  const [navOpen, setNavOpen] = useState(false);
+  const [kpis, setKpis] = useState<{ total: number; new: number; needsHuman: number }>({ total: 0, new: 0, needsHuman: 0 });
 
-  const totalLeads = SEED_LEADS.length;
-  const newLeads = SEED_LEADS.filter(l => l.status === 'new').length;
-  const needsHuman = SEED_LEADS.filter(l => l.status === 'needs_human').length;
+  useEffect(() => {
+    let alive = true;
+    async function loadKpis() {
+      const [total, neu, human] = await Promise.all([
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'new'),
+        supabase.from('marketing_contacts').select('id', { count: 'exact', head: true }).eq('status', 'needs_human'),
+      ]);
+      if (!alive) return;
+      setKpis({
+        total: total.count ?? 0,
+        new: neu.count ?? 0,
+        needsHuman: human.count ?? 0,
+      });
+    }
+    loadKpis();
+    const ch = supabase
+      .channel('marketing_kpis')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_contacts' }, () => loadKpis())
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, []);
+
+  const totalLeads = kpis.total;
+  const newLeads = kpis.new;
+  const needsHuman = kpis.needsHuman;
 
   const activeItem = TABS.find(t => t.id === activeTab)!;
   const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === activeTab))!;
 
   return (
     <div className="overflow-x-clip">
-      <div className="flex min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex flex-col min-h-[calc(100vh-8rem)] rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
 
-        {/* ── Sidebar (desktop) ─────────────────────────────────────────── */}
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50/60">
-          <div className="px-5 py-5 border-b border-neutral-200">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">Royal PMS</p>
-            <h2 className="mt-0.5 text-base font-semibold text-neutral-900">Marketing & CRM</h2>
+        {/* Top bar (header + KPIs) */}
+        <header className="border-b border-neutral-200 bg-white">
+          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-neutral-400 truncate">
+                {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
+              </p>
+              <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
+                <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
+                {activeItem.label}
+              </h1>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              <KpiChip label="Novos" value={newLeads} tone="amber" />
+              <KpiChip label="Humano" value={needsHuman} tone="red" />
+              <KpiChip label="Total" value={totalLeads} tone="neutral" />
+            </div>
           </div>
-          <nav className="flex-1 overflow-y-auto py-3">
-            {NAV_SECTIONS.map(section => (
-              <div key={section.label} className="px-3 mb-4">
-                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                <div className="space-y-0.5">
-                  {section.items.map(item => {
-                    const active = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                          active
-                            ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200'
-                            : 'text-neutral-600 hover:bg-white/70 hover:text-neutral-900'
-                        }`}
-                      >
-                        <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                        <span className="truncate">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-        </aside>
+        </header>
 
-        {/* ── Main column ───────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* Top menu — sempre visível em todas as telas, sem sidebar */}
+        <nav className="border-b border-neutral-200 bg-white px-3 sm:px-4 py-2 flex gap-1 overflow-x-auto scrollbar-none">
+          {TABS.map(item => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id as TabId)}
+                title={item.description}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  active ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                }`}
+              >
+                <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-          {/* Top bar */}
-          <header className="border-b border-neutral-200 bg-white">
-            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Mobile menu toggle */}
-                <button
-                  onClick={() => setNavOpen(v => !v)}
-                  className="lg:hidden p-2 -ml-1 rounded-lg text-neutral-600 hover:bg-neutral-100"
-                  aria-label="Abrir menu"
-                >
-                  <LayoutGrid className="w-5 h-5" />
-                </button>
-                <div className="min-w-0">
-                  <p className="text-[11px] text-neutral-400 truncate">
-                    {activeSection.label} <span className="mx-1 text-neutral-300">/</span> {activeItem.label}
-                  </p>
-                  <h1 className="text-base sm:text-lg font-semibold text-neutral-900 truncate flex items-center gap-2">
-                    <activeItem.icon className="w-4 h-4 text-amber-600 hidden sm:inline" />
-                    {activeItem.label}
-                  </h1>
-                </div>
-              </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <KpiChip label="Novos" value={newLeads} tone="amber" />
-                <KpiChip label="Humano" value={needsHuman} tone="red" />
-                <KpiChip label="Total" value={totalLeads} tone="neutral" />
-              </div>
-            </div>
-            <p className="px-4 sm:px-6 pb-3 -mt-1 text-xs text-neutral-500 truncate">{activeItem.description}</p>
-          </header>
-
-          {/* Mobile nav drawer (inline collapsible) */}
-          {navOpen && (
-            <div className="lg:hidden border-b border-neutral-200 bg-neutral-50/60 px-3 py-3 max-h-[60vh] overflow-y-auto">
-              {NAV_SECTIONS.map(section => (
-                <div key={section.label} className="mb-3">
-                  <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">{section.label}</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {section.items.map(item => {
-                      const active = activeTab === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => { setActiveTab(item.id); setNavOpen(false); }}
-                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-                            active ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200' : 'bg-white/60 text-neutral-600 border border-transparent'
-                          }`}
-                        >
-                          <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-amber-600' : 'text-neutral-400'}`} />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Content area */}
-          <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-4 sm:p-6">
-            {activeTab === 'inbox' && <LeadInboxTab />}
-            {activeTab === 'contatos' && <ContatosShell />}
-            {activeTab === 'campanhas' && <CampanhasShell />}
-            {activeTab === 'automacoes' && <AutomacoesShell />}
-            {activeTab === 'analytics' && <AnalyticsTab />}
-            {activeTab === 'configs' && <ConfigsShell />}
-          </main>
-        </div>
+        {/* Content area — agora ocupa toda a largura */}
+        <main className="flex-1 min-w-0 overflow-x-auto bg-neutral-50/40 p-3 sm:p-5">
+          {activeTab === 'inbox' && <LeadInboxTab profile={profile} />}
+          {activeTab === 'contatos' && <ContatosShell />}
+          {activeTab === 'campanhas' && <CampanhasShell />}
+          {activeTab === 'automacoes' && <AutomacoesShell />}
+          {activeTab === 'analytics' && <AnalyticsTab />}
+          {activeTab === 'configs' && <ConfigsShell />}
+        </main>
       </div>
     </div>
   );

@@ -136,7 +136,12 @@ export default function InvoiceTracker({ profile }: InvoiceTrackerProps) {
     }
   };
 
-  const handleUpdateTracking = async (id: string, stage: string, status: string, notes: string) => {
+  const handleUpdateTracking = async (
+    id: string,
+    stage: NonNullable<FiscalFile['tracking_stage']>,
+    status: NonNullable<FiscalFile['tracking_status']>,
+    notes: string,
+  ) => {
     setUpdatingId(id);
     try {
       const updateData = {
@@ -412,7 +417,7 @@ export default function InvoiceTracker({ profile }: InvoiceTrackerProps) {
                     <div className="flex-1 lg:flex-none">
                       <select
                         value={inv.tracking_status || 'pending'}
-                        onChange={(e) => handleUpdateTracking(inv.id, inv.tracking_stage || 'reception', e.target.value, inv.tracking_notes || '')}
+                        onChange={(e) => handleUpdateTracking(inv.id, inv.tracking_stage || 'reception', e.target.value as NonNullable<FiscalFile['tracking_status']>, inv.tracking_notes || '')}
                         className={`w-full lg:w-32 px-3 py-2 rounded-xl text-xs font-bold border outline-none transition-all ${
                           inv.tracking_status === 'ok' ? 'bg-green-50 border-green-200 text-green-700' :
                           inv.tracking_status === 'blocked' ? 'bg-red-50 border-red-200 text-red-700' :
@@ -429,7 +434,7 @@ export default function InvoiceTracker({ profile }: InvoiceTrackerProps) {
                       disabled={updatingId === inv.id || inv.tracking_stage === 'completed'}
                       onClick={() => {
                         const currentIdx = STAGES.findIndex(s => s.id === (inv.tracking_stage || 'reception'));
-                        const nextStage = STAGES[currentIdx + 1]?.id;
+                        const nextStage = STAGES[currentIdx + 1]?.id as NonNullable<FiscalFile['tracking_stage']> | undefined;
                         if (nextStage) {
                           handleUpdateTracking(inv.id, nextStage, 'pending', inv.tracking_notes || '');
                         }

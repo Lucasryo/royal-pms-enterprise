@@ -119,7 +119,7 @@ export interface Company {
   email?: string;
   phone?: string;
   address?: string;
-  status?: 'active' | 'inactive';
+  status?: 'active' | 'inactive' | 'ACTIVE' | 'INACTIVE';
 }
 
 export interface UserPermissions {
@@ -299,6 +299,8 @@ export interface Reservation {
   fiscal_data?: string;
   billing_info?: string;
   requested_by?: string;
+  source_message_id?: string;
+  external_reservation_code?: string;
 }
 
 export interface ReservationRequest extends Omit<Reservation, 'id' | 'status'> {
@@ -344,6 +346,7 @@ export interface MaintenanceTicket {
   status: 'open' | 'in_progress' | 'resolved' | 'cancelled';
   assigned_to?: string;
   reported_by?: string;
+  housekeeping_reported_by?: string;
   due_at?: string;
   resolved_at?: string;
   started_at?: string;
