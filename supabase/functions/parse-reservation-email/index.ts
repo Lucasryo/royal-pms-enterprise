@@ -219,25 +219,36 @@ async function extractViaGroq(
   userText: string,
   tool: ToolSchema,
 ): Promise<Extracted> {
-  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${botCfg.api_key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: botCfg.model,
-      max_tokens: 2048,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userText },
-      ],
-      tools: [{ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }],
-      tool_choice: { type: "function", function: { name: tool.name } },
-    }),
+  const payload = JSON.stringify({
+    model: botCfg.model,
+    max_tokens: 2048,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userText },
+    ],
+    tools: [{ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }],
+    tool_choice: { type: "function", function: { name: tool.name } },
   });
-  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = await r.json() as { choices?: Array<{ message?: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }> };
-  const call = j.choices?.[0]?.message?.tool_calls?.find(c => c.function.name === tool.name);
-  if (!call) return { is_reservation: false, confidence: "low" };
-  try { return JSON.parse(call.function.arguments) as Extracted; } catch { return { is_reservation: false, confidence: "low" }; }
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${botCfg.api_key}`, "Content-Type": "application/json" },
+      body: payload,
+    });
+    if (r.ok) {
+      const j = await r.json() as { choices?: Array<{ message?: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }> };
+      const call = j.choices?.[0]?.message?.tool_calls?.find(c => c.function.name === tool.name);
+      if (!call) return { is_reservation: false, confidence: "low" };
+      try { return JSON.parse(call.function.arguments) as Extracted; } catch { return { is_reservation: false, confidence: "low" }; }
+    }
+    lastErr = `${r.status}: ${(await r.text()).slice(0, 200)}`;
+    if (r.status !== 429 && r.status < 500) throw new Error(`Groq ${lastErr}`);
+    const retryAfter = Number(r.headers.get("retry-after")) || 0;
+    const waitMs = retryAfter > 0 ? Math.min(retryAfter * 1000, 30_000) : 1000 * Math.pow(2, attempt);
+    await new Promise(res => setTimeout(res, waitMs));
+  }
+  throw new Error(`Groq ${lastErr} (after retries)`);
 }
 
 async function extractReservation(
