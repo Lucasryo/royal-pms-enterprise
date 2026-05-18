@@ -49,6 +49,7 @@ type Extracted = {
   billing_info?: string;
   requested_by?: string;
   extras?: string;
+  company_name?: string;
 };
 
 async function loadConfig(): Promise<ParserConfig> {
@@ -75,15 +76,42 @@ async function loadBotConfig(): Promise<BotConfig | null> {
   } catch { return null; }
 }
 
-async function lookupCompany(senderEmail: string): Promise<{ id: string; name: string } | null> {
-  const domain = senderEmail.split("@")[1]?.toLowerCase();
-  if (!domain) return null;
+type CompanyRow = { id: string; name: string; email_domain: string | null; parser_aliases: string[] | null };
+
+async function loadActiveCompanies(): Promise<CompanyRow[]> {
   const { data } = await admin.from("companies")
-    .select("id, name")
-    .ilike("email_domain", domain)
-    .eq("status", "active")
-    .maybeSingle();
-  return data as { id: string; name: string } | null;
+    .select("id, name, email_domain, parser_aliases")
+    .ilike("status", "active");
+  return (data ?? []) as CompanyRow[];
+}
+
+function matchCompanyHeuristic(companies: CompanyRow[], senderEmail: string, subject: string, body: string): CompanyRow | null {
+  const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
+  const haystack = `${senderEmail}\n${subject}\n${body}`.toLowerCase();
+  // 1) dominio bate exato
+  const byDomain = companies.find(c => c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain);
+  if (byDomain) return byDomain;
+  // 2) algum alias aparece no remetente/assunto/corpo
+  for (const c of companies) {
+    for (const alias of c.parser_aliases ?? []) {
+      const a = alias.trim().toLowerCase();
+      if (a.length >= 3 && haystack.includes(a)) return c;
+    }
+  }
+  // 3) nome da empresa aparece no corpo
+  for (const c of companies) {
+    if (c.name && haystack.includes(c.name.toLowerCase())) return c;
+  }
+  return null;
+}
+
+function matchCompanyByName(companies: CompanyRow[], name: string): CompanyRow | null {
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  return companies.find(c =>
+    c.name.toLowerCase() === n ||
+    (c.parser_aliases ?? []).some(a => a.trim().toLowerCase() === n),
+  ) ?? null;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -148,15 +176,22 @@ function buildExtractionTool(): ToolSchema {
         billing_info: { type: "string", description: "Instrucoes: 'faturar diarias separado de extras', 'incluir estacionamento na NF', etc" },
         requested_by: { type: "string", description: "Nome do solicitante na empresa (quem aprovou/pediu)" },
         extras: { type: "string", description: "Servicos extras (estacionamento, lavanderia, frigobar, etc) separado por virgula" },
+        company_name: { type: "string", description: "Nome EXATO da empresa cliente conforme aparece na lista de empresas cadastradas (ou um dos aliases). Se nao bater com nenhuma empresa da lista, deixe vazio." },
       },
       required: ["is_reservation", "confidence"],
     },
   };
 }
 
-function buildSystemPrompt(companyHint: { id: string; name: string } | null): string {
+function buildSystemPrompt(companyHint: { id: string; name: string } | null, companies: CompanyRow[]): string {
   const today = new Date().toISOString().slice(0, 10);
-  const companyContext = companyHint ? `\n\nCONTEXTO: O remetente eh de "${companyHint.name}" (empresa cadastrada). Assuma is_corporate=true e payment_method=BILLED.` : "";
+  const companyContext = companyHint ? `\n\nCONTEXTO: O remetente/conteudo aponta pra "${companyHint.name}" (empresa cadastrada). Assuma is_corporate=true e payment_method=BILLED. Use company_name="${companyHint.name}".` : "";
+  const companyList = companies.length > 0
+    ? `\n\nEMPRESAS CADASTRADAS (use o campo company_name pra escolher uma destas — nome canonico ou alias):\n${companies.map(c => {
+        const aliases = (c.parser_aliases ?? []).filter(Boolean).join(", ");
+        return `- ${c.name}${aliases ? ` (aliases: ${aliases})` : ""}`;
+      }).join("\n")}\n\nIMPORTANTE: O remetente do email muitas vezes eh AGENCIA (Star/Accenture, Voetur, Kontik, etc) — a empresa REAL eh a mencionada no corpo. Use os aliases pra resolver. Se o email eh de agencia mista (Copastur, etc) sem empresa clara, deixe company_name vazio.`
+    : "";
   return `Voce eh um parser de emails de reserva de hotel. Hoje eh ${today}.
 
 Tipos de email que voce processa:
@@ -173,7 +208,7 @@ Regras corporativas:
 
 Datas SEMPRE YYYY-MM-DD (converta de "20/01/2026" ou "20 de janeiro de 2026"). Se incerto sobre algum campo, OMITA (nao invente).
 confidence="high" se tem nome+datas+valor. "medium" se faltam alguns. "low" se esta adivinhando.
-Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyContext}`;
+Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyList}${companyContext}`;
 }
 
 function buildUserText(subject: string, body: string, bodyHtml: string): string {
@@ -258,9 +293,10 @@ async function extractReservation(
   bodyHtml: string,
   attachments: Array<{ name: string; mime: string; base64: string }>,
   companyHint: { id: string; name: string } | null,
+  companies: CompanyRow[],
 ): Promise<Extracted> {
   const tool = buildExtractionTool();
-  const systemPrompt = buildSystemPrompt(companyHint);
+  const systemPrompt = buildSystemPrompt(companyHint, companies);
   const userText = buildUserText(subject, body, bodyHtml);
   if (botCfg.provider === "groq") return extractViaGroq(botCfg, systemPrompt, userText, tool);
   return extractViaAnthropic(botCfg, systemPrompt, userText, attachments, tool);
@@ -292,8 +328,10 @@ serve(async (req) => {
   const { data: existing } = await admin.from("reservation_requests").select("id").eq("source_message_id", sourceKey).maybeSingle();
   if (existing) return json({ skipped: "already_processed", reservation_request_id: (existing as { id: string }).id });
 
-  // Lookup empresa por dominio do sender (decide ANTES da heuristica — empresa cadastrada sempre classifica)
-  const company = await lookupCompany(msg.contact_identifier ?? "");
+  // Carrega empresas ativas pra identificar (LLM + heuristica)
+  const allCompanies = await loadActiveCompanies();
+  // Hint pre-LLM: tenta match por dominio + alias + nome no corpo
+  let company = matchCompanyHeuristic(allCompanies, msg.contact_identifier ?? "", msg.subject ?? "", msg.body ?? msg.body_html ?? "");
 
   if (!cfg.always_classify && !company) {
     const senderLow = (msg.contact_identifier ?? "").toLowerCase();
@@ -312,9 +350,15 @@ serve(async (req) => {
 
   let extracted: Extracted;
   try {
-    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company);
+    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies);
   } catch (err) {
     return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
+  }
+
+  // LLM pode ter identificado a empresa pelo conteudo (ex: Star/Accenture -> Petrorio)
+  if (extracted.company_name) {
+    const llmMatched = matchCompanyByName(allCompanies, extracted.company_name);
+    if (llmMatched) company = llmMatched;
   }
 
   if (!extracted.is_reservation) return json({ skipped: "not_reservation", confidence: extracted.confidence });
