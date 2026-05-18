@@ -102,7 +102,7 @@ serve(async (req) => {
         }
 
         const contact = await upsertContact(parsed);
-        const { error } = await adminClient
+        const { data: insertedRow, error } = await adminClient
           .from("inbox_messages")
           .insert([{
             contact_id: contact.id,
@@ -116,7 +116,9 @@ serve(async (req) => {
             email_message_id: parsed.messageId,
             email_references: parsed.references,
             read: false,
-          }]);
+          }])
+          .select("id")
+          .single();
 
         if (!error) {
           await adminClient
@@ -130,6 +132,20 @@ serve(async (req) => {
             })
             .eq("id", contact.id);
           processed += 1;
+
+          // Fire-and-forget: bot parser de email pra detectar/criar reservation_requests
+          const insertedId = (insertedRow as { id?: string } | null)?.id;
+          if (insertedId) {
+            const supaUrl = Deno.env.get("SUPABASE_URL") ?? "";
+            const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            if (supaUrl && srk) {
+              fetch(`${supaUrl}/functions/v1/parse-reservation-email`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${srk}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ inbox_message_id: insertedId }),
+              }).catch(err => console.warn("[parser trigger]", err));
+            }
+          }
         } else if (error.code !== "23505") {
           console.warn(`Failed to insert inbox message ${uid}: ${error.message}`);
         }

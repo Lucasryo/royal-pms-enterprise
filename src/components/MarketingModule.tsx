@@ -4526,6 +4526,191 @@ function GenericProvidersSection() {
   );
 }
 
+type EmailParserConfig = {
+  enabled: boolean;
+  always_classify: boolean;
+  sender_whitelist: string[];
+  subject_keywords: string[];
+  min_confidence: 'high' | 'medium' | 'low';
+  default_category: string;
+};
+
+const DEFAULT_PARSER_CONFIG: EmailParserConfig = {
+  enabled: false,
+  always_classify: false,
+  sender_whitelist: ['booking.com', 'airbnb.com', 'expedia.com'],
+  subject_keywords: ['reserva', 'booking', 'reservation', 'confirmation'],
+  min_confidence: 'medium',
+  default_category: 'executivo',
+};
+
+function EmailParserSection() {
+  const [config, setConfig] = useState<EmailParserConfig>(DEFAULT_PARSER_CONFIG);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [senderInput, setSenderInput] = useState('');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [reprocessing, setReprocessing] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('id', 'email_parser_config').maybeSingle();
+      if (data?.value) {
+        try {
+          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          setConfig(prev => ({ ...prev, ...parsed }));
+        } catch { /* ignore */ }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 'email_parser_config', value: JSON.stringify(config), updated_at: new Date().toISOString() });
+    setSaving(false);
+    if (error) toast.error('Falha: ' + error.message); else toast.success('Parser de email salvo');
+  }
+
+  async function reprocessLast() {
+    setReprocessing(true);
+    try {
+      const { data: msgs } = await supabase.from('inbox_messages').select('id').eq('channel', 'email').eq('direction', 'in').order('created_at', { ascending: false }).limit(10);
+      const list = (msgs as Array<{ id: string }> | null) ?? [];
+      let created = 0;
+      let skipped = 0;
+      for (const m of list) {
+        const { data, error } = await supabase.functions.invoke('parse-reservation-email', { body: { inbox_message_id: m.id } });
+        if (error) { skipped++; continue; }
+        if ((data as { created?: boolean })?.created) created++; else skipped++;
+      }
+      toast.success(`Reprocessado: ${created} criadas, ${skipped} puladas (de ${list.length})`);
+    } catch (e) {
+      toast.error('Falha: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
+  function addSender() {
+    const s = senderInput.trim().toLowerCase();
+    if (!s || config.sender_whitelist.includes(s)) return;
+    setConfig(p => ({ ...p, sender_whitelist: [...p.sender_whitelist, s] }));
+    setSenderInput('');
+  }
+  function addKeyword() {
+    const s = keywordInput.trim().toLowerCase();
+    if (!s || config.subject_keywords.includes(s)) return;
+    setConfig(p => ({ ...p, subject_keywords: [...p.subject_keywords, s] }));
+    setKeywordInput('');
+  }
+
+  if (loading) return null;
+
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-700">Parser de reservas por email</h3>
+            <p className="text-xs text-neutral-500">Bot lê emails recebidos, extrai dados de reserva via IA e cria pedidos pendentes em Reservas → Aprovação.</p>
+          </div>
+        </div>
+        <span className={`text-[9px] font-bold uppercase px-2 py-1 rounded-full shrink-0 ${config.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+          {config.enabled ? 'Ligado' : 'Desligado'}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
+        <div>
+          <p className="font-bold text-sm text-neutral-900">Ativar parser</p>
+          <p className="text-xs text-neutral-500">Usa a API key do bot (Claude). Custo ~$0.0005 por email classificado.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
+        <div>
+          <p className="font-bold text-sm text-neutral-900">Sempre classificar</p>
+          <p className="text-xs text-neutral-500">Se ligado, manda TODO email pro LLM (mais caro). Se desligado, só os que batem whitelist ou keyword.</p>
+        </div>
+        <button onClick={() => setConfig(p => ({ ...p, always_classify: !p.always_classify }))} className={`w-10 h-6 rounded-full ${config.always_classify ? 'bg-violet-500' : 'bg-neutral-300'}`}>
+          <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.always_classify ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Senders confiáveis (substring no email do remetente)</label>
+        <div className="flex gap-2 mb-2">
+          <input value={senderInput} onChange={e => setSenderInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSender(); } }} placeholder="booking.com" className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addSender} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {config.sender_whitelist.map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 text-violet-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, sender_whitelist: p.sender_whitelist.filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Palavras-chave no assunto</label>
+        <div className="flex gap-2 mb-2">
+          <input value={keywordInput} onChange={e => setKeywordInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }} placeholder="reserva, booking, confirmation..." className="flex-1 px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+          <button onClick={addKeyword} className="px-3 py-2 rounded-lg bg-neutral-900 text-white text-xs font-bold">+</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {config.subject_keywords.map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+              {s}
+              <button onClick={() => setConfig(p => ({ ...p, subject_keywords: p.subject_keywords.filter(x => x !== s) }))}><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Confiança mínima</label>
+          <div className="flex gap-1">
+            {(['high', 'medium', 'low'] as const).map(c => (
+              <button key={c} onClick={() => setConfig(p => ({ ...p, min_confidence: c }))} className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold capitalize ${config.min_confidence === c ? 'bg-violet-500 text-white' : 'bg-neutral-100 text-neutral-600'}`}>
+                {c === 'high' ? 'Alta' : c === 'medium' ? 'Média' : 'Baixa'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Categoria padrão (se email não disser)</label>
+          <select value={config.default_category} onChange={e => setConfig(p => ({ ...p, default_category: e.target.value }))} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none">
+            <option value="executivo">Executivo</option>
+            <option value="master">Master</option>
+            <option value="suite presidencial">Suite Presidencial</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-neutral-100">
+        <button onClick={reprocessLast} disabled={reprocessing || !config.enabled} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 text-xs font-bold hover:bg-neutral-200 disabled:opacity-60">
+          {reprocessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
+          Reprocessar últimos 10 emails
+        </button>
+        <button onClick={save} disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-60 ml-auto">
+          {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Salvar
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function IntegracoesTab() {
   const [statuses, setStatuses] = useState<Record<string, 'connected' | 'disconnected'>>(
     Object.fromEntries(SOCIAL_INTEGRATIONS.map(i => [i.id, 'disconnected']))
@@ -4724,6 +4909,8 @@ function IntegracoesTab() {
           })}
         </div>
       </section>
+
+      <EmailParserSection />
 
       {/* E-mail de confirmação */}
       <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
