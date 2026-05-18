@@ -112,15 +112,14 @@ async function loadAttachments(refs: AttachmentRef[]): Promise<Array<{ name: str
   return out;
 }
 
-async function extractReservation(
-  botCfg: BotConfig,
-  subject: string,
-  body: string,
-  bodyHtml: string,
-  attachments: Array<{ name: string; mime: string; base64: string }>,
-  companyHint: { id: string; name: string } | null,
-): Promise<Extracted> {
-  const tools = [{
+type ToolSchema = {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+};
+
+function buildExtractionTool(): ToolSchema {
+  return {
     name: "submit_reservation_data",
     description: "Submita os dados extraidos do email. is_reservation=false se NAO for email de reserva.",
     input_schema: {
@@ -152,12 +151,13 @@ async function extractReservation(
       },
       required: ["is_reservation", "confidence"],
     },
-  }];
+  };
+}
 
+function buildSystemPrompt(companyHint: { id: string; name: string } | null): string {
   const today = new Date().toISOString().slice(0, 10);
   const companyContext = companyHint ? `\n\nCONTEXTO: O remetente eh de "${companyHint.name}" (empresa cadastrada). Assuma is_corporate=true e payment_method=BILLED.` : "";
-
-  const systemPrompt = `Voce eh um parser de emails de reserva de hotel. Hoje eh ${today}.
+  return `Voce eh um parser de emails de reserva de hotel. Hoje eh ${today}.
 
 Tipos de email que voce processa:
 1. OTA (Booking.com, Airbnb, Expedia) - preencha campos basicos
@@ -174,24 +174,27 @@ Regras corporativas:
 Datas SEMPRE YYYY-MM-DD (converta de "20/01/2026" ou "20 de janeiro de 2026"). Se incerto sobre algum campo, OMITA (nao invente).
 confidence="high" se tem nome+datas+valor. "medium" se faltam alguns. "low" se esta adivinhando.
 Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyContext}`;
+}
 
-  const contentBlocks: Array<Record<string, unknown>> = [
-    { type: "text", text: `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}` },
-  ];
+function buildUserText(subject: string, body: string, bodyHtml: string): string {
+  return `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}`;
+}
+
+async function extractViaAnthropic(
+  botCfg: BotConfig,
+  systemPrompt: string,
+  userText: string,
+  attachments: Array<{ name: string; mime: string; base64: string }>,
+  tool: ToolSchema,
+): Promise<Extracted> {
+  const contentBlocks: Array<Record<string, unknown>> = [{ type: "text", text: userText }];
   for (const att of attachments) {
     if (att.mime.startsWith("image/")) {
-      contentBlocks.push({
-        type: "image",
-        source: { type: "base64", media_type: att.mime, data: att.base64 },
-      });
+      contentBlocks.push({ type: "image", source: { type: "base64", media_type: att.mime, data: att.base64 } });
     } else if (att.mime === "application/pdf") {
-      contentBlocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: att.base64 },
-      });
+      contentBlocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: att.base64 } });
     }
   }
-
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": botCfg.api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
@@ -200,14 +203,56 @@ Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false c
       max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: "user", content: contentBlocks }],
-      tools,
-      tool_choice: { type: "tool", name: "submit_reservation_data" },
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
     }),
   });
   if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json() as { content?: Array<{ type: string; name?: string; input?: Extracted }> };
-  const block = (j.content ?? []).find(b => b.type === "tool_use" && b.name === "submit_reservation_data");
+  const block = (j.content ?? []).find(b => b.type === "tool_use" && b.name === tool.name);
   return block?.input ?? { is_reservation: false, confidence: "low" };
+}
+
+async function extractViaGroq(
+  botCfg: BotConfig,
+  systemPrompt: string,
+  userText: string,
+  tool: ToolSchema,
+): Promise<Extracted> {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${botCfg.api_key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: botCfg.model,
+      max_tokens: 2048,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userText },
+      ],
+      tools: [{ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }],
+      tool_choice: { type: "function", function: { name: tool.name } },
+    }),
+  });
+  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json() as { choices?: Array<{ message?: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }> };
+  const call = j.choices?.[0]?.message?.tool_calls?.find(c => c.function.name === tool.name);
+  if (!call) return { is_reservation: false, confidence: "low" };
+  try { return JSON.parse(call.function.arguments) as Extracted; } catch { return { is_reservation: false, confidence: "low" }; }
+}
+
+async function extractReservation(
+  botCfg: BotConfig,
+  subject: string,
+  body: string,
+  bodyHtml: string,
+  attachments: Array<{ name: string; mime: string; base64: string }>,
+  companyHint: { id: string; name: string } | null,
+): Promise<Extracted> {
+  const tool = buildExtractionTool();
+  const systemPrompt = buildSystemPrompt(companyHint);
+  const userText = buildUserText(subject, body, bodyHtml);
+  if (botCfg.provider === "groq") return extractViaGroq(botCfg, systemPrompt, userText, tool);
+  return extractViaAnthropic(botCfg, systemPrompt, userText, attachments, tool);
 }
 
 serve(async (req) => {
@@ -249,7 +294,7 @@ serve(async (req) => {
 
   const botCfg = await loadBotConfig();
   if (!botCfg?.api_key) return json({ skipped: "no_llm_key" });
-  if (botCfg.provider !== "claude") return json({ skipped: `provider_not_supported: ${botCfg.provider}` });
+  if (botCfg.provider !== "claude" && botCfg.provider !== "groq") return json({ skipped: `provider_not_supported: ${botCfg.provider}` });
 
   const attRefs = (msg.attachments ?? []) as AttachmentRef[];
   const downloadedAtt = await loadAttachments(attRefs);

@@ -14,7 +14,7 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth
 
 type BotConfig = {
   enabled: boolean;
-  provider: "claude" | "openai" | "gemini" | "rule" | "none";
+  provider: "claude" | "openai" | "gemini" | "groq" | "rule" | "none";
   model: string;
   api_key: string;
   system_prompt_template: string;
@@ -192,6 +192,8 @@ const PRICING: Record<string, { in: number; out: number }> = {
   "gpt-5": { in: 5.0, out: 15.0 },
   "gemini-2.0-flash": { in: 0.075, out: 0.3 },
   "gemini-2.5-pro": { in: 1.25, out: 5.0 },
+  "llama-3.3-70b-versatile": { in: 0.59, out: 0.79 },
+  "llama-3.1-8b-instant": { in: 0.05, out: 0.08 },
 };
 function calcCost(model: string, inTok: number, outTok: number): number {
   const p = PRICING[model];
@@ -237,17 +239,17 @@ async function callAnthropicWithTools(apiKey: string, model: string, systemPromp
   throw new Error("Max tool iterations (5) excedidas");
 }
 
-async function callOpenAIWithTools(apiKey: string, model: string, systemPrompt: string, history: ChatMsg[], userMsg: string): Promise<LLMResult> {
+async function callOpenAICompatibleWithTools(label: string, baseUrl: string, apiKey: string, model: string, systemPrompt: string, history: ChatMsg[], userMsg: string): Promise<LLMResult> {
   const messages: Array<Record<string, unknown>> = [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: userMsg }];
   let inTok = 0, outTok = 0;
   const toolsUsed: string[] = [];
   for (let i = 0; i < 5; i++) {
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    const r = await fetch(baseUrl, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, max_tokens: 1024, messages, tools: TOOLS_OPENAI }),
     });
-    if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    if (!r.ok) throw new Error(`${label} ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const j = await r.json() as { choices?: Array<{ message?: Record<string, unknown>; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
     inTok += j.usage?.prompt_tokens ?? 0;
     outTok += j.usage?.completion_tokens ?? 0;
@@ -320,7 +322,8 @@ function ruleBasedReply(_history: ChatMsg[], userMsg: string): LLMResult {
 
 async function callLLM(cfg: BotConfig, systemPrompt: string, history: ChatMsg[], userMsg: string): Promise<LLMResult> {
   if (cfg.provider === "claude") return callAnthropicWithTools(cfg.api_key, cfg.model, systemPrompt, history, userMsg);
-  if (cfg.provider === "openai") return callOpenAIWithTools(cfg.api_key, cfg.model, systemPrompt, history, userMsg);
+  if (cfg.provider === "openai") return callOpenAICompatibleWithTools("OpenAI", "https://api.openai.com/v1/chat/completions", cfg.api_key, cfg.model, systemPrompt, history, userMsg);
+  if (cfg.provider === "groq") return callOpenAICompatibleWithTools("Groq", "https://api.groq.com/openai/v1/chat/completions", cfg.api_key, cfg.model, systemPrompt, history, userMsg);
   if (cfg.provider === "gemini") return callGeminiWithTools(cfg.api_key, cfg.model, systemPrompt, history, userMsg);
   if (cfg.provider === "rule") return ruleBasedReply(history, userMsg);
   throw new Error(`unknown provider: ${cfg.provider}`);

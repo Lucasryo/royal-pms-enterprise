@@ -100,7 +100,7 @@ interface BotConfig {
   botMood: string;
   // Automation engine
   enabled: boolean;
-  provider: 'claude' | 'openai' | 'gemini' | 'rule';
+  provider: 'claude' | 'openai' | 'gemini' | 'groq' | 'rule';
   model: string;
   apiKey: string;
   systemPromptTemplate: string;
@@ -3237,6 +3237,7 @@ function BotTrainingTab() {
     claude: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-7'],
     openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-5'],
     gemini: ['gemini-2.0-flash', 'gemini-2.5-pro'],
+    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     rule: ['rule-based'],
   };
 
@@ -3294,6 +3295,7 @@ function BotTrainingTab() {
                   <option value="claude">Anthropic Claude</option>
                   <option value="openai">OpenAI</option>
                   <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq (Llama, free tier)</option>
                   <option value="rule">Rule-based (sem custo)</option>
                 </select>
               </div>
