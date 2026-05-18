@@ -1,623 +1,664 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import { Menu, X } from 'lucide-react';
+import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
+import { Menu, X, ArrowRight, Check } from 'lucide-react';
 import Login from './Login';
 
 /* ============================================================
- * Royal PMS — Landing 3D
- * ----------------------------------------------------------------
- * • WebGL + GLSL  → fragment shader animado no background da hero
- * • CSS 3D        → perspective / rotateX / rotateY / translateZ
- * • JS parallax   → rotação dos painéis seguindo o mouse e o scroll
- * • React + Motion→ orquestração de entrada e estado
+ * Royal PMS — Landing editorial com profundidade 3D (perfomática)
+ *  - CSS 3D (perspective + rotateX/Y + translateZ) para profundidade
+ *  - motion values + spring para parallax SEM re-render do React
+ *  - mockups densos, com tipografia e dados reais do produto
  * ============================================================ */
 
 const WHATSAPP_NUMBER = '5522996105104';
 const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
 
 const navLinks = [
-  { href: '#telas', label: 'Telas em 3D' },
-  { href: '#modulos', label: 'Módulos' },
+  { href: '#telas',    label: 'Telas do sistema' },
+  { href: '#modulos',  label: 'Módulos' },
   { href: '#operacao', label: 'Operação' },
-  { href: '#contato', label: 'Contato' },
+  { href: '#contato',  label: 'Contato' },
 ];
 
 /* ============================================================
- * 1. GLSL SHADER BACKGROUND (WebGL puro, sem three.js)
+ * Hook: parallax de mouse usando motion values (zero React state)
  * ============================================================ */
-const VERTEX_SHADER = `
-attribute vec2 a_position;
-void main() {
-  gl_Position = vec4(a_position, 0.0, 1.0);
-}
-`;
+function useMouseParallax(strength = 12) {
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const sx = useSpring(x, { stiffness: 80, damping: 18, mass: 0.6 });
+  const sy = useSpring(y, { stiffness: 80, damping: 18, mass: 0.6 });
+  const rx = useTransform(sy, [-1, 1], [strength, -strength]);
+  const ry = useTransform(sx, [-1, 1], [-strength, strength]);
 
-const FRAGMENT_SHADER = `
-precision highp float;
-uniform vec2  u_resolution;
-uniform float u_time;
-uniform vec2  u_mouse;
-
-// — simplex-like cheap noise —
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p){
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  float a = hash(i);
-  float b = hash(i + vec2(1.0, 0.0));
-  float c = hash(i + vec2(0.0, 1.0));
-  float d = hash(i + vec2(1.0, 1.0));
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-}
-float fbm(vec2 p){
-  float v = 0.0; float a = 0.5;
-  for(int i = 0; i < 5; i++){
-    v += a * noise(p);
-    p *= 2.02; a *= 0.5;
-  }
-  return v;
-}
-
-void main(){
-  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-  vec2 p  = uv * 2.0 - 1.0;
-  p.x *= u_resolution.x / u_resolution.y;
-
-  // mouse parallax shift
-  vec2 m = (u_mouse / u_resolution.xy) * 2.0 - 1.0;
-  p += m * 0.18;
-
-  float t = u_time * 0.06;
-
-  // flowing field
-  vec2  q  = vec2(fbm(p + t), fbm(p - t + 5.2));
-  float n  = fbm(p + 1.8 * q + t * 0.5);
-
-  // editorial palette: paper → soft gold → ink
-  vec3 paper = vec3(0.972, 0.957, 0.918);
-  vec3 gold  = vec3(0.866, 0.682, 0.345);
-  vec3 moss  = vec3(0.211, 0.286, 0.227);
-  vec3 ink   = vec3(0.105, 0.090, 0.075);
-
-  vec3 col = mix(paper, gold, smoothstep(0.30, 0.85, n));
-  col      = mix(col,   moss, smoothstep(0.55, 1.00, n) * 0.35);
-  col      = mix(col,   ink,  smoothstep(0.78, 1.05, n) * 0.55);
-
-  // soft vignette
-  float vign = smoothstep(1.35, 0.30, length(p));
-  col *= mix(0.70, 1.05, vign);
-
-  // film grain
-  float g = fract(sin(dot(uv * u_resolution.xy, vec2(12.9898, 78.233))) * 43758.5453);
-  col += (g - 0.5) * 0.025;
-
-  gl_FragColor = vec4(col, 1.0);
-}
-`;
-
-function ShaderCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouseRef  = useRef<[number, number]>([0, 0]);
-
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const gl = canvas.getContext('webgl', { antialias: true, premultipliedAlpha: false });
-    if (!gl) return;
-
-    const compile = (type: number, src: string) => {
-      const sh = gl.createShader(type)!;
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-        console.warn('GLSL compile error:', gl.getShaderInfoLog(sh));
-      }
-      return sh;
-    };
-
-    const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
-      gl.STATIC_DRAW,
-    );
-    const loc = gl.getAttribLocation(prog, 'a_position');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-    const uRes   = gl.getUniformLocation(prog, 'u_resolution');
-    const uTime  = gl.getUniformLocation(prog, 'u_time');
-    const uMouse = gl.getUniformLocation(prog, 'u_mouse');
-
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.6);
-      canvas.width  = canvas.clientWidth  * dpr;
-      canvas.height = canvas.clientHeight * dpr;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
-    const onMove = (e: MouseEvent) => {
-      const r = canvas.getBoundingClientRect();
-      mouseRef.current = [
-        (e.clientX - r.left) * (canvas.width  / r.width),
-        (r.height - (e.clientY - r.top)) * (canvas.height / r.height),
-      ];
-    };
-    window.addEventListener('mousemove', onMove);
-
+    const el = ref.current;
+    if (!el) return;
     let raf = 0;
-    const t0 = performance.now();
-    const tick = () => {
-      const t = (performance.now() - t0) / 1000;
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uTime, t);
-      gl.uniform2f(uMouse, mouseRef.current[0], mouseRef.current[1]);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      raf = requestAnimationFrame(tick);
-    };
-    tick();
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-    };
-  }, []);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 -z-10 h-full w-full"
-      aria-hidden
-    />
-  );
-}
-
-/* ============================================================
- * 2. SCREEN 3D — painel "tela do sistema" em perspectiva
- * ============================================================ */
-function Screen3D({
-  rx, ry, tz, x, y, scale = 1, delay = 0, children, glow,
-}: {
-  rx: number; ry: number; tz: number;
-  x: string; y: string; scale?: number; delay?: number;
-  children: ReactNode; glow?: string;
-}) {
-  const style: CSSProperties = {
-    left: x, top: y,
-    transform: `translate(-50%, -50%) translateZ(${tz}px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${scale})`,
-    transformStyle: 'preserve-3d',
-  };
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 60 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1.1, delay, ease: [0.22, 1, 0.36, 1] }}
-      className="absolute w-[280px] sm:w-[340px] lg:w-[400px]"
-      style={style}
-    >
-      {glow && (
-        <div
-          aria-hidden
-          className="absolute -inset-10 -z-10 rounded-[3rem] blur-3xl opacity-60"
-          style={{ background: glow }}
-        />
-      )}
-      <div className="overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-[0_40px_100px_-25px_rgba(20,15,10,0.55)]">
-        <div className="flex items-center justify-between border-b border-ink/10 bg-paper/70 px-4 py-2">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-ink/15" />
-            <span className="h-2 w-2 rounded-full bg-ink/15" />
-            <span className="h-2 w-2 rounded-full bg-ink/15" />
-          </div>
-          <div className="text-[9px] uppercase tracking-[0.2em] text-stone-500">royalpms.app</div>
-        </div>
-        {children}
-      </div>
-    </motion.div>
-  );
-}
-
-/* — Mockups das telas reais — */
-function MiniReservas() {
-  return (
-    <div className="p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Central de reservas</p>
-      <div className="mt-3 grid grid-cols-7 gap-1 text-[8px]">
-        {['S','T','Q','Q','S','S','D'].map(d => <div key={d} className="text-center text-stone-400">{d}</div>)}
-        {Array.from({length: 28}).map((_, i) => {
-          const filled = [3,4,5,9,10,11,12,16,17,22,23,24,25].includes(i);
-          const half = [6,18].includes(i);
-          return (
-            <div key={i} className={`h-5 rounded-[3px] ${filled ? 'bg-ink' : half ? 'bg-gold/60' : 'bg-paper border border-ink/10'}`} />
-          );
-        })}
-      </div>
-      <div className="mt-3 flex items-center justify-between text-[10px]">
-        <span className="text-stone-500">Ocupação · semana</span>
-        <span className="font-display text-base text-ink">87%</span>
-      </div>
-    </div>
-  );
-}
-
-function MiniGovernanca() {
-  const rooms = [
-    {n:'301', s:'limpo'}, {n:'302', s:'sujo'}, {n:'303', s:'manut'}, {n:'304', s:'limpo'},
-    {n:'305', s:'limpo'}, {n:'306', s:'sujo'}, {n:'307', s:'limpo'}, {n:'308', s:'inspec'},
-    {n:'309', s:'limpo'}, {n:'310', s:'sujo'}, {n:'311', s:'limpo'}, {n:'312', s:'limpo'},
-  ];
-  const color = (s:string) => s==='limpo'?'bg-moss/80 text-paper': s==='sujo'?'bg-amber-700/80 text-paper': s==='manut'?'bg-red-700/80 text-paper':'bg-gold text-ink';
-  return (
-    <div className="p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Governança · andar 3</p>
-      <div className="mt-3 grid grid-cols-4 gap-1.5">
-        {rooms.map(r => (
-          <div key={r.n} className={`rounded-md ${color(r.s)} px-1.5 py-2 text-center`}>
-            <p className="text-[10px] font-medium">{r.n}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex gap-3 text-[9px] text-stone-500">
-        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-moss"/>limpo</span>
-        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-700"/>sujo</span>
-        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-700"/>manut.</span>
-      </div>
-    </div>
-  );
-}
-
-function MiniDashboard() {
-  return (
-    <div className="bg-ink p-4 text-paper">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-paper/50">Indicadores · hoje</p>
-      <p className="mt-2 font-display text-4xl font-light">84%</p>
-      <p className="text-[10px] text-paper/60">68 / 81 UHs</p>
-      <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-paper/10">
-        <div className="h-full w-[84%] rounded-full bg-gradient-to-r from-gold to-gold-soft" />
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-[10px]">
-        <div><p className="text-paper/50">ADR</p><p className="font-display text-base">R$286</p></div>
-        <div><p className="text-paper/50">RevPAR</p><p className="font-display text-base">R$240</p></div>
-        <div><p className="text-paper/50">GOP</p><p className="font-display text-base">38%</p></div>
-      </div>
-      <div className="mt-3 flex h-8 items-end gap-1">
-        {[40, 65, 50, 80, 70, 90, 75, 95, 60, 85, 78, 92].map((h, i) => (
-          <div key={i} className="flex-1 rounded-sm bg-gold/80" style={{ height: `${h}%` }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MiniManutencao() {
-  const items = [
-    { p:'P1', t:'Ar-cond. UH 412', s:'em curso' },
-    { p:'P2', t:'Lâmpada corredor 3', s:'aberto' },
-    { p:'P1', t:'Vazamento UH 207', s:'em curso' },
-    { p:'P3', t:'Pintura recepção',  s:'agendado' },
-  ];
-  return (
-    <div className="p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Fila de manutenção</p>
-      <ul className="mt-3 space-y-2">
-        {items.map((i, k) => (
-          <li key={k} className="flex items-center gap-2 rounded-md border border-ink/10 bg-paper/40 px-2 py-1.5">
-            <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${i.p==='P1'?'bg-red-700 text-paper':i.p==='P2'?'bg-amber-600 text-paper':'bg-stone-400 text-paper'}`}>{i.p}</span>
-            <span className="flex-1 text-[10px] text-ink">{i.t}</span>
-            <span className="text-[9px] uppercase tracking-wider text-stone-500">{i.s}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function MiniPOS() {
-  return (
-    <div className="p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">A&amp;B · Comanda</p>
-      <div className="mt-3 space-y-1.5 text-[11px]">
-        {[
-          ['2x Espresso', 'R$ 18,00'],
-          ['1x Sanduíche', 'R$ 32,00'],
-          ['1x Vinho Malbec', 'R$ 89,00'],
-          ['1x Sobremesa',  'R$ 24,00'],
-        ].map(([t,v]) => (
-          <div key={t} className="flex justify-between border-b border-ink/5 pb-1">
-            <span className="text-ink/80">{t}</span>
-            <span className="text-ink">{v}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex justify-between border-t border-ink/15 pt-2">
-        <span className="text-[10px] uppercase tracking-wider text-stone-500">Total</span>
-        <span className="font-display text-lg text-ink">R$ 163,00</span>
-      </div>
-      <button className="mt-3 w-full rounded-lg bg-ink py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">
-        Lançar no apto. 412
-      </button>
-    </div>
-  );
-}
-
-function MiniRecepcao() {
-  return (
-    <div className="p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Check-in · 14h22</p>
-      <div className="mt-3 rounded-lg border border-ink/10 bg-paper/60 p-2.5">
-        <p className="font-display text-sm text-ink">Mariana Aragão</p>
-        <p className="text-[10px] text-stone-500">RG verificado · LGPD aceita</p>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-        <div className="rounded bg-paper/40 p-1.5">
-          <p className="text-stone-500">UH</p>
-          <p className="font-display text-sm text-ink">412 · Luxo</p>
-        </div>
-        <div className="rounded bg-paper/40 p-1.5">
-          <p className="text-stone-500">Saída</p>
-          <p className="font-display text-sm text-ink">21/05</p>
-        </div>
-      </div>
-      <div className="mt-3 flex gap-2">
-        <button className="flex-1 rounded-md border border-ink/20 py-1 text-[10px] text-ink/80">Imprimir FNRH</button>
-        <button className="flex-1 rounded-md bg-gold py-1 text-[10px] font-medium text-ink">Liberar chave</button>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
- * 3. SCENE 3D — palco com parallax de mouse + rotação contínua
- * ============================================================ */
-function Scene3D() {
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [tilt, setTilt] = useState({ rx: 0, ry: 0 });
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const el = stageRef.current;
-      if (!el) return;
+    let pending: { cx: number; cy: number } | null = null;
+    const apply = () => {
+      raf = 0;
+      if (!pending) return;
       const r = el.getBoundingClientRect();
-      const nx = ((e.clientX - r.left) / r.width)  * 2 - 1;
-      const ny = ((e.clientY - r.top)  / r.height) * 2 - 1;
-      setTilt({ rx: -ny * 6, ry: nx * 10 });
+      const nx = ((pending.cx - r.left) / r.width)  * 2 - 1;
+      const ny = ((pending.cy - r.top)  / r.height) * 2 - 1;
+      x.set(Math.max(-1, Math.min(1, nx)));
+      y.set(Math.max(-1, Math.min(1, ny)));
+      pending = null;
     };
-    window.addEventListener('mousemove', onMove);
-    return () => window.removeEventListener('mousemove', onMove);
-  }, []);
+    const onMove = (e: PointerEvent) => {
+      pending = { cx: e.clientX, cy: e.clientY };
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    const onLeave = () => { x.set(0); y.set(0); };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerleave', onLeave);
+    return () => {
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerleave', onLeave);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [x, y]);
+
+  return { ref, rx, ry, sx, sy };
+}
+
+/* ============================================================
+ * Browser frame editorial — moldura usada nos mockups
+ * ============================================================ */
+function Frame({ url, children, dark, className }: { url: string; children: ReactNode; dark?: boolean; className?: string }) {
+  return (
+    <div className={`overflow-hidden rounded-xl border ${dark ? 'border-paper/15 bg-ink' : 'border-ink/10 bg-white'} shadow-[0_30px_80px_-30px_rgba(20,15,10,0.45)] ${className ?? ''}`}>
+      <div className={`flex items-center justify-between border-b px-4 py-2.5 ${dark ? 'border-paper/10 bg-ink/80' : 'border-ink/10 bg-paper/60'}`}>
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
+          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
+          <span className={`h-2.5 w-2.5 rounded-full ${dark ? 'bg-paper/15' : 'bg-ink/15'}`} />
+        </div>
+        <span className={`text-[10px] uppercase tracking-[0.18em] ${dark ? 'text-paper/45' : 'text-stone-500'}`}>{url}</span>
+        <span className="w-10" />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* ============================================================
+ * 1. DASHBOARD — tela principal da hero
+ * ============================================================ */
+function DashboardScreen() {
+  const bars = [40, 62, 48, 78, 65, 88, 70, 92, 60, 85, 76, 95];
+  const spark = [10, 24, 18, 30, 22, 36, 42, 38, 52, 48, 60, 58, 68, 64, 72];
+  const spPath = spark
+    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${i * (260 / (spark.length - 1))} ${72 - (v / 80) * 60}`)
+    .join(' ');
 
   return (
-    <div
-      ref={stageRef}
-      className="relative h-[560px] w-full sm:h-[640px] lg:h-[720px]"
-      style={{ perspective: '1600px', perspectiveOrigin: '50% 45%' }}
-    >
-      <motion.div
-        className="absolute inset-0"
-        animate={{ rotateX: tilt.rx, rotateY: tilt.ry }}
-        transition={{ type: 'spring', stiffness: 60, damping: 18, mass: 0.6 }}
-        style={{ transformStyle: 'preserve-3d' }}
-      >
-        {/* central / front — Dashboard */}
-        <Screen3D
-          x="50%" y="50%" tz={120} rx={4} ry={-6} scale={1.05} delay={0.15}
-          glow="radial-gradient(closest-side, rgba(218,170,90,0.55), transparent 70%)"
-        >
-          <MiniDashboard />
-        </Screen3D>
+    <Frame url="royalpms.app · painel" dark>
+      <div className="p-5 text-paper sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-paper/45">Painel · Hotel Boutique</p>
+            <p className="mt-1 font-display text-xl font-light">Quarta · 18 mai · 14h22</p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full bg-paper/8 px-3 py-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse-dot" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-paper/70">ao vivo</span>
+          </div>
+        </div>
 
-        {/* left back — Reservas */}
-        <Screen3D
-          x="22%" y="38%" tz={-80} rx={6} ry={22} scale={0.85} delay={0.35}
-          glow="radial-gradient(closest-side, rgba(180,83,9,0.35), transparent 70%)"
-        >
-          <MiniReservas />
-        </Screen3D>
+        {/* KPI principal */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Ocupação</p>
+            <p className="mt-1 font-display text-3xl font-light">84%</p>
+            <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-paper/10">
+              <div className="h-full w-[84%] rounded-full bg-gradient-to-r from-gold to-gold-soft" />
+            </div>
+            <p className="mt-1.5 text-[10px] text-paper/55">68 / 81 UHs</p>
+          </div>
+          <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">ADR</p>
+            <p className="mt-1 font-display text-3xl font-light">R$ 286</p>
+            <p className="mt-2.5 text-[10px] text-emerald-300/90">▲ 4,2% vs semana</p>
+          </div>
+          <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">RevPAR</p>
+            <p className="mt-1 font-display text-3xl font-light">R$ 240</p>
+            <p className="mt-2.5 text-[10px] text-emerald-300/90">▲ 6,8% vs semana</p>
+          </div>
+        </div>
 
-        {/* right back — Governança */}
-        <Screen3D
-          x="78%" y="36%" tz={-60} rx={5} ry={-22} scale={0.85} delay={0.45}
-          glow="radial-gradient(closest-side, rgba(56,90,72,0.45), transparent 70%)"
-        >
-          <MiniGovernanca />
-        </Screen3D>
+        {/* Gráfico de barras */}
+        <div className="mt-5 rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Receita diária · últimos 12 dias</p>
+            <p className="text-[10px] text-paper/55">R$ 142,8 mil acum.</p>
+          </div>
+          <div className="mt-4 flex h-24 items-end gap-1.5">
+            {bars.map((h, i) => (
+              <div
+                key={i}
+                className={`flex-1 rounded-sm ${i === bars.length - 1 ? 'bg-gold' : 'bg-paper/25'}`}
+                style={{ height: `${h}%` }}
+              />
+            ))}
+          </div>
+        </div>
 
-        {/* bottom left — Manutenção */}
-        <Screen3D
-          x="18%" y="78%" tz={40} rx={-8} ry={18} scale={0.78} delay={0.55}
-        >
-          <MiniManutencao />
-        </Screen3D>
+        {/* Sparkline + atividade */}
+        <div className="mt-3 grid gap-3 sm:grid-cols-5">
+          <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10 sm:col-span-2">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Tendência ADR · 15d</p>
+            <svg viewBox="0 0 260 80" className="mt-2 w-full">
+              <defs>
+                <linearGradient id="spg" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="oklch(0.72 0.12 75)" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="oklch(0.72 0.12 75)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path d={`${spPath} L 260 72 L 0 72 Z`} fill="url(#spg)" />
+              <path d={spPath} stroke="oklch(0.72 0.12 75)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
+          </div>
+          <div className="rounded-xl bg-paper/[0.04] p-4 ring-1 ring-paper/10 sm:col-span-3">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-paper/45">Atividade recente</p>
+            <ul className="mt-3 space-y-2 text-[11px]">
+              {[
+                ['bg-gold',    'UH 312 liberada para governança',     'há 2 min'],
+                ['bg-emerald-400', 'Pagamento reserva #1842 conciliado', 'há 12 min'],
+                ['bg-paper/60','Nova reserva (3 noites) registrada',   'há 18 min'],
+              ].map(([dot, t, ts], i) => (
+                <li key={i} className="flex items-center gap-2.5">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                  <span className="flex-1 truncate text-paper/85">{t}</span>
+                  <span className="text-[10px] text-paper/45">{ts}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
 
-        {/* bottom right — POS */}
-        <Screen3D
-          x="82%" y="80%" tz={50} rx={-10} ry={-18} scale={0.78} delay={0.65}
-        >
-          <MiniPOS />
-        </Screen3D>
+/* ============================================================
+ * 2. RATES CALENDAR — telão de reservas/tarifas
+ * ============================================================ */
+function RatesScreen() {
+  const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  const cells = Array.from({ length: 28 }, (_, i) => {
+    const occ = [88, 70, 65, 80, 92, 100, 100, 60, 55, 70, 78, 85, 95, 100, 50, 48, 60, 72, 80, 90, 95, 45, 42, 58, 68, 75, 88, 92][i];
+    const rate = 240 + Math.round(occ * 1.6);
+    return { occ, rate };
+  });
 
-        {/* floating top — Recepção */}
-        <Screen3D
-          x="62%" y="14%" tz={200} rx={12} ry={-14} scale={0.7} delay={0.75}
-          glow="radial-gradient(closest-side, rgba(218,170,90,0.5), transparent 70%)"
-        >
-          <MiniRecepcao />
-        </Screen3D>
+  const heat = (o: number) =>
+    o >= 90 ? 'bg-ink text-paper'
+    : o >= 75 ? 'bg-gold/80 text-ink'
+    : o >= 60 ? 'bg-gold/40 text-ink'
+    : 'bg-paper text-ink/70 ring-1 ring-ink/10';
 
-        {/* decorative golden ring far back */}
-        <div
-          aria-hidden
-          className="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-gold/30"
-          style={{ transform: 'translate(-50%, -50%) translateZ(-300px) rotateX(70deg)' }}
-        />
-        <div
-          aria-hidden
-          className="absolute left-1/2 top-1/2 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-ink/10"
-          style={{ transform: 'translate(-50%, -50%) translateZ(-400px) rotateX(70deg)' }}
-        />
+  return (
+    <Frame url="royalpms.app · reservas / tarifas">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Tarifário · Maio</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">Categoria Luxo Vista Mar</p>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-stone-500">
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-ink" /> 90%+</span>
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-gold/80" /> 75%</span>
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-gold/40" /> 60%</span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-7 gap-1 text-[10px]">
+          {days.map(d => <div key={d} className="text-center font-medium uppercase tracking-wider text-stone-500">{d}</div>)}
+          {cells.map((c, i) => (
+            <div key={i} className={`rounded-md ${heat(c.occ)} p-1.5`}>
+              <p className="text-[9px] opacity-70">{i + 1}</p>
+              <p className="mt-0.5 font-display text-[11px] font-medium leading-none">R${c.rate}</p>
+              <p className="mt-0.5 text-[9px] opacity-70">{c.occ}%</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between border-t border-ink/10 pt-3">
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Channel manager sincronizado</span>
+            <span className="text-[10px] text-stone-500">há 1 min</span>
+          </div>
+          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">
+            Aplicar regra de yield
+          </button>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 3. HOUSEKEEPING MAP — telão de governança
+ * ============================================================ */
+function HousekeepingScreen() {
+  type S = 'limpo' | 'sujo' | 'manut' | 'inspec' | 'vazio';
+  const floor: { n: string; s: S; g?: string }[] = [
+    { n: '301', s: 'limpo', g: 'Sra. Andrade' }, { n: '302', s: 'sujo' }, { n: '303', s: 'manut' }, { n: '304', s: 'limpo', g: 'Costa, J.' },
+    { n: '305', s: 'limpo', g: 'Família Reis' }, { n: '306', s: 'inspec' }, { n: '307', s: 'sujo' }, { n: '308', s: 'limpo', g: 'Sr. Park' },
+    { n: '309', s: 'vazio' }, { n: '310', s: 'limpo', g: 'Aragão, M.' }, { n: '311', s: 'sujo' }, { n: '312', s: 'limpo', g: 'Lopez & Co.' },
+  ];
+  const meta: Record<S, { cls: string; lbl: string }> = {
+    limpo:  { cls: 'bg-emerald-700/90 text-paper border-emerald-900/20', lbl: 'Ocupado' },
+    sujo:   { cls: 'bg-amber-600/90 text-paper border-amber-800/20',     lbl: 'Saiu hoje' },
+    manut:  { cls: 'bg-red-700/90 text-paper border-red-900/20',         lbl: 'Manutenção' },
+    inspec: { cls: 'bg-gold text-ink border-ink/10',                     lbl: 'Inspeção' },
+    vazio:  { cls: 'bg-white text-ink/70 border-ink/10',                 lbl: 'Vago' },
+  };
+
+  return (
+    <Frame url="royalpms.app · governança">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Governança · Andar 3</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">Escala da camareira · Joana M.</p>
+          </div>
+          <div className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">
+            7 de 12 prontos
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-4 gap-2">
+          {floor.map(r => (
+            <div key={r.n} className={`rounded-lg border ${meta[r.s].cls} p-2.5`}>
+              <div className="flex items-center justify-between">
+                <p className="font-display text-base font-medium leading-none">{r.n}</p>
+                <span className="text-[9px] uppercase tracking-wider opacity-80">{meta[r.s].lbl}</span>
+              </div>
+              {r.g
+                ? <p className="mt-2 text-[10px] opacity-80 truncate">{r.g}</p>
+                : <p className="mt-2 text-[10px] opacity-50">—</p>}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-[10px]">
+          <div>
+            <p className="text-stone-500">Tempo médio</p>
+            <p className="font-display text-lg font-light text-ink">28 min</p>
+          </div>
+          <div>
+            <p className="text-stone-500">UHs fora de ordem</p>
+            <p className="font-display text-lg font-light text-ink">1</p>
+          </div>
+          <div>
+            <p className="text-stone-500">Previsão para 16h</p>
+            <p className="font-display text-lg font-light text-emerald-700">100%</p>
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 4. MAINTENANCE — fila de chamados
+ * ============================================================ */
+function MaintenanceScreen() {
+  const items = [
+    { p: 'P1', t: 'Ar-condicionado UH 412 sem refrigerar', u: 'Carlos R.', sla: '12 min', s: 'em curso',  c: 'text-amber-700 bg-amber-50' },
+    { p: 'P1', t: 'Vazamento sob a pia · UH 207',           u: 'Diego S.',  sla: '38 min', s: 'em curso',  c: 'text-amber-700 bg-amber-50' },
+    { p: 'P2', t: 'Lâmpada queimada · corredor 3',          u: '—',         sla: '2 h',    s: 'aberto',    c: 'text-stone-600 bg-stone-100' },
+    { p: 'P2', t: 'Persiana travada · UH 503',              u: 'Diego S.',  sla: '1 h',    s: 'aberto',    c: 'text-stone-600 bg-stone-100' },
+    { p: 'P3', t: 'Pintura de retoque · recepção',          u: 'Equipe A',  sla: '6 h',    s: 'agendado',  c: 'text-blue-700 bg-blue-50' },
+  ];
+  const pclr = (p: string) => p === 'P1' ? 'bg-red-700 text-paper' : p === 'P2' ? 'bg-amber-600 text-paper' : 'bg-stone-400 text-paper';
+
+  return (
+    <Frame url="royalpms.app · manutenção">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Fila de chamados</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">5 abertos · 2 em SLA crítico</p>
+          </div>
+          <button className="rounded-full bg-ink px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-paper">
+            Novo chamado
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {items.map((i, k) => (
+            <div key={k} className="flex items-center gap-3 rounded-lg border border-ink/10 bg-paper/40 px-3 py-2.5">
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${pclr(i.p)}`}>{i.p}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-ink">{i.t}</p>
+                <p className="mt-0.5 text-[10px] text-stone-500">Responsável: <span className="text-ink/80">{i.u}</span> · SLA {i.sla}</p>
+              </div>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${i.c}`}>{i.s}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-ink/10 pt-3 text-[10px]">
+          <div><p className="text-stone-500">Tempo médio resolução</p><p className="font-display text-base text-ink">47 min</p></div>
+          <div><p className="text-stone-500">SLA do mês</p><p className="font-display text-base text-emerald-700">96,4%</p></div>
+          <div><p className="text-stone-500">Reincidências</p><p className="font-display text-base text-ink">2</p></div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 5. POS / A&B — comanda do restaurante
+ * ============================================================ */
+function POSScreen() {
+  const items = [
+    ['2', 'Espresso duplo', 'R$ 18,00'],
+    ['1', 'Sanduíche de pernil', 'R$ 32,00'],
+    ['1', 'Salada Caesar', 'R$ 28,00'],
+    ['1', 'Vinho Malbec · taça', 'R$ 38,00'],
+    ['1', 'Cheesecake de framboesa', 'R$ 24,00'],
+  ];
+  return (
+    <Frame url="royalpms.app · A&B / POS">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Mesa 04 · Restaurante</p>
+            <p className="mt-1 font-display text-xl font-light text-ink">Hóspede · Mariana Aragão · UH 412</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-700">aberta</span>
+        </div>
+
+        <div className="mt-5 divide-y divide-ink/10 rounded-xl border border-ink/10">
+          {items.map(([q, n, v]) => (
+            <div key={n} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="w-6 rounded bg-paper/60 text-center text-[11px] font-medium text-ink">{q}</span>
+              <span className="flex-1 text-ink/85">{n}</span>
+              <span className="font-display text-ink">{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-paper/40 p-3">
+            <p className="text-[10px] uppercase tracking-wider text-stone-500">Sub-total</p>
+            <p className="font-display text-lg text-ink">R$ 140,00</p>
+          </div>
+          <div className="rounded-xl bg-ink p-3 text-paper">
+            <p className="text-[10px] uppercase tracking-wider text-paper/55">Total c/ couvert 10%</p>
+            <p className="font-display text-lg">R$ 154,00</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-[11px] font-medium uppercase tracking-wider text-ink/80">
+            Dividir conta
+          </button>
+          <button className="flex-1 rounded-lg bg-gold py-2 text-[11px] font-medium uppercase tracking-wider text-ink">
+            Lançar no apto. 412
+          </button>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * 6. CHECK-IN — recepção
+ * ============================================================ */
+function ReceptionScreen() {
+  return (
+    <Frame url="royalpms.app · recepção / check-in">
+      <div className="p-5 sm:p-6">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.22em] text-stone-500">Check-in · 14h22</p>
+          <span className="rounded-full bg-gold/15 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-amber-800">VIP · 3ª estadia</span>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-ink/10 bg-paper/50 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink font-display text-lg text-paper">MA</div>
+            <div className="min-w-0">
+              <p className="font-display text-lg text-ink">Mariana Aragão</p>
+              <p className="text-[11px] text-stone-500">RG verificado · LGPD aceita · pré-check-in feito 09h12</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
+              <p className="text-[10px] text-stone-500">Unidade habitacional</p>
+              <p className="mt-0.5 font-display text-base text-ink">412 · Luxo Vista Mar</p>
+            </div>
+            <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
+              <p className="text-[10px] text-stone-500">Saída prevista</p>
+              <p className="mt-0.5 font-display text-base text-ink">21/mai · 11h00</p>
+            </div>
+            <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
+              <p className="text-[10px] text-stone-500">Tarifa / noite</p>
+              <p className="mt-0.5 font-display text-base text-ink">R$ 720,00</p>
+            </div>
+            <div className="rounded-lg bg-white p-2.5 ring-1 ring-ink/5">
+              <p className="text-[10px] text-stone-500">Garantia</p>
+              <p className="mt-0.5 font-display text-base text-emerald-700">Pré-paga</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-1.5 text-[11px]">
+          {[
+            'FNRH preenchida automaticamente do pré-check-in',
+            'Vincular cartão para extras (frigobar, A&B, spa)',
+            'Disparar mensagem de boas-vindas no WhatsApp',
+          ].map(t => (
+            <div key={t} className="flex items-center gap-2 text-ink/75">
+              <Check className="h-3 w-3 text-emerald-700" />
+              <span>{t}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <button className="flex-1 rounded-lg border border-ink/15 py-2 text-[11px] font-medium uppercase tracking-wider text-ink/80">Imprimir FNRH</button>
+          <button className="flex-1 rounded-lg bg-ink py-2 text-[11px] font-medium uppercase tracking-wider text-paper">Liberar chave</button>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ============================================================
+ * HERO VITRINE — peça única com tilt suave + cards orbitando
+ * ============================================================ */
+function HeroVitrine() {
+  const { ref, rx, ry } = useMouseParallax(8);
+
+  return (
+    <div ref={ref} className="relative" style={{ perspective: '1800px' }}>
+      {/* sombra/halo */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-12 -z-10 rounded-[3rem] blur-3xl"
+        style={{ background: 'radial-gradient(closest-side, rgba(218,170,90,0.35), transparent 70%)' }}
+      />
+
+      <motion.div style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }} className="relative">
+        {/* tela principal */}
+        <div style={{ transform: 'translateZ(40px)' }}>
+          <DashboardScreen />
+        </div>
+
+        {/* card flutuante 1 — KPI rápido (esquerda baixo) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          style={{ transform: 'translateZ(120px)' }}
+          className="absolute -left-6 bottom-8 hidden w-56 rounded-2xl border border-ink/10 bg-white p-4 shadow-2xl sm:block"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-700/10 text-emerald-700">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="M3 12h4l3-9 4 18 3-9h4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Faturamento</p>
+              <p className="font-display text-lg font-medium leading-tight text-ink">R$ 142,8 mil</p>
+              <p className="text-[10px] text-stone-500">acumulado · maio</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* card flutuante 2 — notificação (direita topo) */}
+        <motion.div
+          initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.7, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          style={{ transform: 'translateZ(160px)' }}
+          className="absolute -right-4 -top-6 hidden w-60 rounded-2xl border border-ink/10 bg-paper/95 p-4 shadow-2xl backdrop-blur md:block"
+        >
+          <p className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Reserva confirmada</p>
+          <p className="mt-1 font-display text-sm text-ink">Família Carvalho · 3 noites</p>
+          <div className="mt-2 flex items-center justify-between text-[10px] text-stone-500">
+            <span>Suíte Master · 28–30 mai</span>
+            <span className="font-display text-ink">R$ 4.320</span>
+          </div>
+        </motion.div>
       </motion.div>
     </div>
   );
 }
 
 /* ============================================================
- * 4. TILT CARD — módulo do sistema com 3D no hover
+ * TILT CARD para módulos (sem React state, com motion values)
  * ============================================================ */
 function TiltCard({ n, title, desc, icon }: { n: string; title: string; desc: string; icon: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [t, setT] = useState({ rx: 0, ry: 0 });
-
-  const onMove = (e: React.MouseEvent) => {
-    const r = ref.current!.getBoundingClientRect();
-    const nx = ((e.clientX - r.left) / r.width)  * 2 - 1;
-    const ny = ((e.clientY - r.top)  / r.height) * 2 - 1;
-    setT({ rx: -ny * 8, ry: nx * 10 });
-  };
-
+  const { ref, rx, ry } = useMouseParallax(8);
   return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={() => setT({ rx: 0, ry: 0 })} style={{ perspective: '900px' }}>
+    <div ref={ref} style={{ perspective: '900px' }} className="h-full">
       <motion.div
-        animate={{ rotateX: t.rx, rotateY: t.ry }}
-        transition={{ type: 'spring', stiffness: 200, damping: 18 }}
-        className="relative h-full rounded-2xl border border-ink/10 bg-paper p-6 transition-shadow hover:shadow-[0_30px_60px_-20px_rgba(20,15,10,0.25)]"
-        style={{ transformStyle: 'preserve-3d' }}
+        style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }}
+        className="group relative h-full rounded-2xl border border-ink/10 bg-paper p-6 transition-shadow hover:shadow-[0_30px_60px_-20px_rgba(20,15,10,0.25)]"
       >
-        <div style={{ transform: 'translateZ(40px)' }} className="flex items-center justify-between">
+        <div style={{ transform: 'translateZ(35px)' }} className="flex items-center justify-between">
           <span className="font-display text-2xl font-light italic text-gold">{n}</span>
           <div className="h-9 w-9 text-ink/70">{icon}</div>
         </div>
-        <h3 style={{ transform: 'translateZ(30px)' }} className="mt-6 font-display text-xl font-medium text-ink">{title}</h3>
-        <p style={{ transform: 'translateZ(20px)' }} className="mt-2 text-sm leading-relaxed text-ink/65">{desc}</p>
+        <h3 style={{ transform: 'translateZ(25px)' }} className="mt-6 font-display text-xl font-medium text-ink">{title}</h3>
+        <p style={{ transform: 'translateZ(15px)' }} className="mt-2 text-sm leading-relaxed text-ink/65">{desc}</p>
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gold to-transparent opacity-0 transition group-hover:opacity-100" />
       </motion.div>
     </div>
   );
 }
 
-const moduleIcon = (path: string) => (
+const ic = (d: string) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d={path} />
+    <path d={d} />
   </svg>
 );
 
 const modules = [
-  { n: '01', title: 'Reservas',     desc: 'Disponibilidade, tarifa, garantia e ocupação em um único fluxo.', icon: moduleIcon('M3 10h18M8 3v4M16 3v4M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v15H3z') },
-  { n: '02', title: 'Recepção',     desc: 'Check-in expresso, FNRH, leitura de documento e assinatura digital.', icon: moduleIcon('M3 21v-2a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v2M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z') },
-  { n: '03', title: 'Governança',   desc: 'Status de UH em tempo real, escalas e checklist de limpeza.', icon: moduleIcon('M3 7l9-4 9 4M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M9 21V12h6v9') },
-  { n: '04', title: 'Manutenção',   desc: 'Chamados priorizados por UH, fotos, fila por setor e SLA.', icon: moduleIcon('M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z') },
-  { n: '05', title: 'A&B / POS',    desc: 'Comandas, débito em conta e ponto de venda integrado.', icon: moduleIcon('M4 3v18M4 8h6M10 3v18M14 3l2 5v13M16 8h4') },
-  { n: '06', title: 'Eventos',      desc: 'Salões, propostas, contratos e produção do orçamento ao faturamento.', icon: moduleIcon('M5 21V8l7-5 7 5v13M9 21v-6h6v6') },
-  { n: '07', title: 'Financeiro',   desc: 'Conciliação bancária, contas a pagar/receber, DRE.', icon: moduleIcon('M12 1v22M17 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7') },
-  { n: '08', title: 'Auditoria',    desc: 'Trilha completa, fechamento noturno e relatórios fiscais.', icon: moduleIcon('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13l2 2 4-4') },
+  { n: '01', title: 'Reservas',    desc: 'Disponibilidade, tarifa, garantia e ocupação em um único fluxo.',           icon: ic('M3 10h18M8 3v4M16 3v4M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v15H3z') },
+  { n: '02', title: 'Recepção',    desc: 'Check-in expresso, FNRH, leitura de documento e assinatura digital.',       icon: ic('M3 21v-2a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v2M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z') },
+  { n: '03', title: 'Governança',  desc: 'Status de UH em tempo real, escalas e checklist de limpeza.',               icon: ic('M3 7l9-4 9 4M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M9 21V12h6v9') },
+  { n: '04', title: 'Manutenção',  desc: 'Chamados priorizados por UH, fotos, fila por setor e SLA.',                 icon: ic('M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z') },
+  { n: '05', title: 'A&B / POS',   desc: 'Comandas, débito em conta e ponto de venda integrado.',                     icon: ic('M4 3v18M4 8h6M10 3v18M14 3l2 5v13M16 8h4') },
+  { n: '06', title: 'Eventos',     desc: 'Salões, propostas, contratos e produção do orçamento ao faturamento.',      icon: ic('M5 21V8l7-5 7 5v13M9 21v-6h6v6') },
+  { n: '07', title: 'Financeiro',  desc: 'Conciliação bancária, contas a pagar/receber, DRE.',                        icon: ic('M12 1v22M17 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7') },
+  { n: '08', title: 'Auditoria',   desc: 'Trilha completa, fechamento noturno e relatórios fiscais.',                  icon: ic('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13l2 2 4-4') },
 ];
 
 /* ============================================================
- * 5. CAROUSEL 3D — telas do sistema rotacionando sobre cilindro
+ * SHOWCASE — telas do sistema com perspectiva 3D editorial
  * ============================================================ */
-const screens = [
-  { title: 'Central de reservas',    panel: <MiniReservas /> },
-  { title: 'Mapa de governança',     panel: <MiniGovernanca /> },
-  { title: 'Indicadores gerenciais', panel: <MiniDashboard /> },
-  { title: 'Fila de manutenção',     panel: <MiniManutencao /> },
-  { title: 'Ponto de venda (A&B)',   panel: <MiniPOS /> },
-  { title: 'Check-in da recepção',   panel: <MiniRecepcao /> },
-];
-
-function Carousel3D() {
-  const [angle, setAngle] = useState(0);
-  const dragging = useRef<{ x: number; a: number } | null>(null);
-  const radius = 480;
-  const step   = 360 / screens.length;
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!dragging.current) setAngle(a => a - 0.25);
-    }, 50);
-    return () => clearInterval(id);
-  }, []);
-
-  const onDown = (e: React.PointerEvent) => {
-    dragging.current = { x: e.clientX, a: angle };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    setAngle(dragging.current.a + (e.clientX - dragging.current.x) * 0.35);
-  };
-  const onUp = (e: React.PointerEvent) => {
-    dragging.current = null;
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-  };
+function Showcase({
+  index, title, kicker, desc, screen, side, accent,
+}: {
+  index: string; title: string; kicker: string; desc: string;
+  screen: ReactNode; side: 'left' | 'right'; accent: string;
+}) {
+  const { ref, rx, ry } = useMouseParallax(6);
+  const tiltY = side === 'left' ? -6 : 6;
 
   return (
-    <div
-      className="relative h-[460px] w-full select-none sm:h-[520px]"
-      style={{ perspective: '1400px' }}
-      onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
-      onPointerCancel={onUp}
-    >
-      <div
-        className="relative left-1/2 top-1/2 h-0 w-0"
-        style={{
-          transformStyle: 'preserve-3d',
-          transform: `translate(-50%, -50%) rotateX(-8deg) rotateY(${angle}deg)`,
-          transition: dragging.current ? 'none' : 'transform 0.1s linear',
-        }}
-      >
-        {screens.map((s, i) => (
-          <div
-            key={i}
-            className="absolute w-[280px] sm:w-[320px]"
-            style={{
-              left: '-160px',
-              top:  '-180px',
-              transform: `rotateY(${i * step}deg) translateZ(${radius}px)`,
-              transformStyle: 'preserve-3d',
-            }}
-          >
-            <div className="overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-[0_30px_80px_-25px_rgba(20,15,10,0.6)]">
-              <div className="flex items-center justify-between border-b border-ink/10 bg-paper/70 px-4 py-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-ink/15" />
-                  <span className="h-2 w-2 rounded-full bg-ink/15" />
-                  <span className="h-2 w-2 rounded-full bg-ink/15" />
-                </div>
-                <span className="text-[9px] uppercase tracking-[0.18em] text-stone-500">{s.title}</span>
-              </div>
-              {s.panel}
-            </div>
-          </div>
-        ))}
+    <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-14">
+      <div className={`lg:col-span-5 ${side === 'right' ? 'lg:order-2' : ''}`}>
+        <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">{kicker}</p>
+        <div className="mt-3 flex items-baseline gap-4">
+          <span className="font-display text-2xl font-light italic text-gold">{index}</span>
+          <h3 className="font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink sm:text-4xl">{title}</h3>
+        </div>
+        <p className="mt-4 max-w-md text-sm leading-relaxed text-ink/70 sm:text-base">{desc}</p>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 text-center text-[10px] uppercase tracking-[0.22em] text-stone-500">
-        arraste para girar
+      <div ref={ref} className={`lg:col-span-7 ${side === 'right' ? 'lg:order-1' : ''}`} style={{ perspective: '1600px' }}>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute h-full w-full -translate-x-6 translate-y-6 rounded-[2rem] blur-2xl"
+          style={{ background: accent, maxWidth: '640px' }}
+        />
+        <motion.div
+          style={{
+            rotateX: rx,
+            rotateY: useTransform(ry, v => (v as number) + tiltY),
+            transformStyle: 'preserve-3d',
+          }}
+          className="relative"
+        >
+          {screen}
+        </motion.div>
       </div>
     </div>
   );
 }
 
 /* ============================================================
- * 6. LANDING — componente raiz
+ * BACKGROUND DECOR — gradientes CSS estáticos (sem WebGL)
+ * ============================================================ */
+function HeroBackdrop() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+      <div className="absolute inset-0 bg-paper" />
+      <div
+        className="absolute -top-32 right-[-10%] h-[600px] w-[600px] rounded-full opacity-60 blur-3xl"
+        style={{ background: 'radial-gradient(closest-side, oklch(0.92 0.05 85), transparent 70%)' }}
+      />
+      <div
+        className="absolute bottom-[-20%] left-[-10%] h-[500px] w-[500px] rounded-full opacity-50 blur-3xl"
+        style={{ background: 'radial-gradient(closest-side, oklch(0.72 0.12 75 / 0.35), transparent 70%)' }}
+      />
+      <div
+        className="absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            'linear-gradient(to right, oklch(0.16 0.012 60) 1px, transparent 1px), linear-gradient(to bottom, oklch(0.16 0.012 60) 1px, transparent 1px)',
+          backgroundSize: '64px 64px',
+          maskImage: 'radial-gradient(ellipse at 50% 30%, black 30%, transparent 75%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-10 right-[-15%] select-none font-display text-[18rem] leading-none text-ink/[0.025] sm:right-[-5%] sm:text-[26rem] lg:right-[3%]"
+      >
+        R
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+ * LANDING ROOT
  * ============================================================ */
 export default function Landing3D() {
-  const [loginOpen, setLoginOpen]   = useState(false);
-  const [menuOpen,  setMenuOpen]    = useState(false);
-  const [scrolled,  setScrolled]    = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [menuOpen, setMenuOpen]   = useState(false);
+  const [scrolled, setScrolled]   = useState(false);
 
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 12);
@@ -642,11 +683,9 @@ export default function Landing3D() {
   return (
     <div className="relative min-h-screen overflow-x-clip bg-paper font-sans text-ink antialiased">
       {/* HEADER */}
-      <header
-        className={`fixed inset-x-0 top-0 z-40 transition-all duration-500 ${
-          scrolled ? 'border-b border-ink/10 bg-paper/85 backdrop-blur-xl' : 'bg-transparent'
-        }`}
-      >
+      <header className={`fixed inset-x-0 top-0 z-40 transition-all duration-500 ${
+        scrolled ? 'border-b border-ink/10 bg-paper/85 backdrop-blur-xl' : 'bg-transparent'
+      }`}>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-10">
           <a href="#inicio" className="flex items-center gap-2.5" onClick={() => setMenuOpen(false)}>
             <div className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 bg-paper">
@@ -654,7 +693,7 @@ export default function Landing3D() {
             </div>
             <div className="leading-tight">
               <p className="font-display text-sm font-medium tracking-tight text-ink">Royal PMS</p>
-              <p className="hidden text-[10px] uppercase tracking-[0.18em] text-stone-500 sm:block">Plataforma 3D · hotelaria</p>
+              <p className="hidden text-[10px] uppercase tracking-[0.18em] text-stone-500 sm:block">Plataforma de hotelaria</p>
             </div>
           </a>
 
@@ -671,16 +710,10 @@ export default function Landing3D() {
             <button onClick={() => setLoginOpen(true)} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
               Acessar
             </button>
-            <a
-              href="#contato"
-              className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3"
-            >
-              Ver demonstração <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
+            <a href="#contato" className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3">
+              Ver demonstração <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
-            <a
-              href="#contato"
-              className="inline-flex md:hidden items-center rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper"
-            >
+            <a href="#contato" className="inline-flex md:hidden items-center rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper">
               Demo
             </a>
             <button
@@ -718,89 +751,181 @@ export default function Landing3D() {
       </header>
 
       <main>
-        {/* HERO com WebGL/GLSL + cena 3D */}
-        <section id="inicio" className="relative overflow-hidden pt-24 pb-12 sm:pt-32 sm:pb-20 lg:pt-40">
-          <ShaderCanvas />
-          {/* paper fade na base para amarrar com a próxima sessão */}
-          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-paper" />
+        {/* HERO */}
+        <section id="inicio" className="relative overflow-hidden pt-28 pb-16 sm:pt-36 sm:pb-24 lg:pt-44">
+          <HeroBackdrop />
+          <div className="mx-auto grid max-w-7xl items-center gap-12 px-5 sm:px-6 lg:grid-cols-12 lg:gap-10 lg:px-10">
+            <div className="lg:col-span-5">
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
+                className="inline-flex items-center gap-3 rounded-full border border-ink/10 bg-paper px-4 py-1.5"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse-dot" />
+                <span className="text-[11px] uppercase tracking-[0.22em] text-stone-500">PMS para hotelaria independente</span>
+              </motion.div>
 
-          <div className="relative mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
-            <div className="grid items-center gap-10 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-                  className="inline-flex items-center gap-3 rounded-full border border-ink/15 bg-paper/70 px-4 py-1.5 backdrop-blur"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse-dot" />
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-stone-700">
-                    Nova experiência · 3D
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}
+                className="mt-5 font-display text-4xl font-light leading-[1.02] tracking-[-0.02em] text-ink text-balance sm:mt-7 sm:text-5xl lg:text-[5rem]"
+              >
+                A operação do hotel,
+                <br />
+                <span className="italic text-ink/90">orquestrada</span>{' '}
+                <span className="relative inline-block">
+                  com método.
+                  <svg viewBox="0 0 300 12" className="absolute -bottom-2 left-0 w-full text-gold" preserveAspectRatio="none">
+                    <path d="M2 8 C 80 2, 160 12, 298 4" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+                  </svg>
+                </span>
+              </motion.h1>
+
+              <motion.p
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.25 }}
+                className="mt-5 max-w-xl text-base leading-relaxed text-ink/70 text-pretty sm:mt-7 sm:text-lg"
+              >
+                Reservas, recepção, governança, manutenção, A&amp;B, eventos e financeiro em uma só plataforma —
+                desenhada para meios de hospedagem que trocam improviso por padrão.
+              </motion.p>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.4 }}
+                className="mt-7 flex flex-wrap items-center gap-3 sm:mt-10 sm:gap-4"
+              >
+                <a href="#contato" className="group inline-flex items-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-medium text-paper transition-all hover:bg-ink/90">
+                  Solicitar demonstração
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink transition-transform group-hover:translate-x-0.5">
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </span>
-                </motion.div>
+                </a>
+                <button onClick={() => setLoginOpen(true)} className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink">
+                  <span className="border-b border-ink/30 pb-0.5 transition group-hover:border-ink">Já tenho acesso</span>
+                </button>
+              </motion.div>
 
-                <motion.h1
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }}
-                  className="mt-5 font-display text-4xl font-light leading-[1.02] tracking-[-0.02em] text-ink text-balance sm:mt-7 sm:text-5xl lg:text-[5.25rem]"
-                >
-                  A operação do hotel,
-                  <br />
-                  <span className="italic text-ink/90">em três dimensões.</span>
-                </motion.h1>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.6 }}
+                className="mt-8 grid max-w-md grid-cols-3 gap-4 border-t border-ink/10 pt-5 text-xs sm:mt-12 sm:gap-6 sm:pt-6"
+              >
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">100%</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">web · sem instalação</p>
+                </div>
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">24/7</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">operação contínua</p>
+                </div>
+                <div>
+                  <p className="font-display text-2xl font-light text-ink">LGPD</p>
+                  <p className="mt-1 uppercase tracking-[0.16em] text-stone-500">dados em conformidade</p>
+                </div>
+              </motion.div>
+            </div>
 
-                <motion.p
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.25 }}
-                  className="mt-5 max-w-xl text-base leading-relaxed text-ink/75 text-pretty sm:mt-7 sm:text-lg"
-                >
-                  Reservas, recepção, governança, manutenção, A&amp;B, eventos e financeiro — orquestrados em uma só
-                  plataforma. Cada tela do sistema, agora, gira no espaço.
-                </motion.p>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.4 }}
-                  className="mt-7 flex flex-wrap items-center gap-3 sm:mt-10 sm:gap-4"
-                >
-                  <a
-                    href="#contato"
-                    className="group inline-flex items-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-medium text-paper transition-all hover:bg-ink/90"
-                  >
-                    Solicitar demonstração
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink transition-transform group-hover:translate-x-0.5">→</span>
-                  </a>
-                  <button
-                    onClick={() => setLoginOpen(true)}
-                    className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink"
-                  >
-                    <span className="border-b border-ink/30 pb-0.5 group-hover:border-ink">Já tenho acesso</span>
-                  </button>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.6 }}
-                  className="mt-8 grid max-w-md grid-cols-3 gap-4 border-t border-ink/15 pt-5 text-xs sm:mt-12 sm:gap-6 sm:pt-6"
-                >
-                  <div>
-                    <p className="font-display text-2xl font-light text-ink">WebGL</p>
-                    <p className="mt-1 uppercase tracking-[0.16em] text-stone-600">render acelerado por GPU</p>
-                  </div>
-                  <div>
-                    <p className="font-display text-2xl font-light text-ink">24/7</p>
-                    <p className="mt-1 uppercase tracking-[0.16em] text-stone-600">operação contínua</p>
-                  </div>
-                  <div>
-                    <p className="font-display text-2xl font-light text-ink">LGPD</p>
-                    <p className="mt-1 uppercase tracking-[0.16em] text-stone-600">dados em conformidade</p>
-                  </div>
-                </motion.div>
-              </div>
-
-              <div className="lg:col-span-7">
-                <Scene3D />
-              </div>
+            <div className="lg:col-span-7">
+              <HeroVitrine />
             </div>
           </div>
         </section>
 
-        {/* TELAS 3D — carrossel cilíndrico */}
-        <section id="telas" className="relative bg-ink py-16 text-paper sm:py-24 lg:py-32 overflow-hidden">
+        {/* MARQUEE */}
+        <section className="relative border-y border-ink/10 bg-paper py-8">
+          <div className="mx-auto mb-5 max-w-7xl px-6 lg:px-10">
+            <p className="text-center text-[11px] uppercase tracking-[0.28em] text-stone-500">Uma plataforma · toda a operação do hotel</p>
+          </div>
+          <div className="relative overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
+            <div className="flex w-max animate-marquee gap-16 whitespace-nowrap">
+              {[...['RESERVAS','RECEPÇÃO','GOVERNANÇA','MANUTENÇÃO','RESTAURANTE & A&B','EVENTOS','FINANCEIRO','AUDITORIA'],
+                ...['RESERVAS','RECEPÇÃO','GOVERNANÇA','MANUTENÇÃO','RESTAURANTE & A&B','EVENTOS','FINANCEIRO','AUDITORIA']].map((l, i) => (
+                <span key={i} className="font-display text-lg italic tracking-[0.18em] text-ink/60">· {l}</span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* TELAS DO SISTEMA — showcase 3D */}
+        <section id="telas" className="relative py-20 sm:py-28 lg:py-36">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
+            <div className="grid gap-8 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Telas do sistema</p>
+                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
+                  Veja o Royal PMS <span className="italic">em ação.</span>
+                </h2>
+              </div>
+              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
+                Interfaces reais — recepção, governança, manutenção, A&amp;B e tarifário — desenhadas para a rotina do
+                chão de hotel. Passe o mouse para girar cada peça e perceber a profundidade.
+              </p>
+            </div>
+
+            <div className="mt-16 space-y-24 sm:space-y-32">
+              <Showcase
+                index="01" side="left"
+                kicker="· Reservas / tarifário"
+                title="Tarifário visual, em tempo real."
+                desc="Heatmap por dia, regras de yield em um clique e sincronização com channel manager. A equipe vê para onde a ocupação está indo antes de o telefone tocar."
+                screen={<RatesScreen />}
+                accent="radial-gradient(closest-side, oklch(0.72 0.12 75 / 0.35), transparent 70%)"
+              />
+              <Showcase
+                index="02" side="right"
+                kicker="· Governança"
+                title="Mapa de UHs por andar, sem ruído."
+                desc="Status de limpeza, ocupação, hóspede e inspeção em uma única grade. Camareiras, recepção e gerência leem a mesma fonte — sem caderno, sem ruído de rádio."
+                screen={<HousekeepingScreen />}
+                accent="radial-gradient(closest-side, oklch(0.55 0.12 145 / 0.35), transparent 70%)"
+              />
+              <Showcase
+                index="03" side="left"
+                kicker="· Manutenção"
+                title="Fila com prioridade, SLA e responsável."
+                desc="Cada chamado nasce com prioridade, prazo e responsável. Fotos pelo celular, histórico por UH e SLA acompanhado em tempo real — para você cobrar pelo dado, não pela memória."
+                screen={<MaintenanceScreen />}
+                accent="radial-gradient(closest-side, oklch(0.65 0.18 30 / 0.30), transparent 70%)"
+              />
+              <Showcase
+                index="04" side="right"
+                kicker="· A&B / POS"
+                title="Comanda do restaurante na conta do quarto."
+                desc="Lance no apartamento em um toque, divida conta entre hóspedes, aplique couvert e taxa de serviço. O fechamento bate com o financeiro sem digitação dupla."
+                screen={<POSScreen />}
+                accent="radial-gradient(closest-side, oklch(0.72 0.12 75 / 0.30), transparent 70%)"
+              />
+              <Showcase
+                index="05" side="left"
+                kicker="· Recepção"
+                title="Check-in em menos de 90 segundos."
+                desc="Pré-check-in pelo celular do hóspede, FNRH preenchida automaticamente, garantia pré-validada. A recepção entrega chave — não preenche formulário."
+                screen={<ReceptionScreen />}
+                accent="radial-gradient(closest-side, oklch(0.85 0.10 75 / 0.40), transparent 70%)"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* MÓDULOS */}
+        <section id="modulos" className="relative bg-paper py-16 sm:py-24 lg:py-32 border-y border-ink/10">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
+            <div className="grid gap-8 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Módulos</p>
+                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
+                  Toda a operação <span className="italic">em uma plataforma.</span>
+                </h2>
+              </div>
+              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
+                Mesma base de dados, sem retrabalho entre setores. Ative apenas o que faz sentido para a sua hotelaria.
+              </p>
+            </div>
+
+            <div className="mt-12 grid grid-cols-1 gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
+              {modules.map(m => <TiltCard key={m.n} {...m} />)}
+            </div>
+          </div>
+        </section>
+
+        {/* OPERAÇÃO / NÚMEROS */}
+        <section id="operacao" className="relative bg-ink py-20 text-paper sm:py-28 lg:py-32 overflow-hidden">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-[0.08]"
@@ -810,117 +935,50 @@ export default function Landing3D() {
             }}
           />
           <div className="relative mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
-            <div className="grid gap-8 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Telas do sistema</p>
-                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
-                  Seis módulos, <span className="italic text-gold">um palco</span>.
-                </h2>
-              </div>
-              <p className="text-sm leading-relaxed text-paper/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
-                Cada painel é uma tela real do Royal PMS — recepção, governança, manutenção, A&amp;B, indicadores e reservas
-                — projetada num cilindro 3D que você arrasta para girar. Sem screenshot, sem maquete: é a interface viva.
-              </p>
+            <div className="max-w-3xl">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Como entregamos</p>
+              <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
+                Do <span className="italic text-gold">caderno de turno</span> à decisão em tempo real.
+              </h2>
             </div>
 
-            <div className="mt-12 sm:mt-16">
-              <Carousel3D />
-            </div>
-          </div>
-        </section>
-
-        {/* MÓDULOS — tilt 3D no hover */}
-        <section id="modulos" className="relative py-16 sm:py-24 lg:py-32">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
-            <div className="grid gap-8 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Módulos</p>
-                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-6xl">
-                  Toda a operação <span className="italic">em uma plataforma única.</span>
-                </h2>
-              </div>
-              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
-                Mesma base de dados, sem retrabalho entre setores. Ative apenas o que faz sentido para a sua hotelaria —
-                e passe o mouse nos cartões para sentir o relevo de cada módulo.
-              </p>
-            </div>
-
-            <div className="mt-10 grid grid-cols-1 gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
-              {modules.map(m => (
-                <TiltCard key={m.n} {...m} />
+            <div className="mt-12 grid grid-cols-2 gap-6 sm:gap-10 sm:grid-cols-4 sm:mt-16">
+              {[
+                { v: '4 sem.', l: 'Da assinatura ao go-live médio' },
+                { v: '96%',    l: 'SLA cumprido em manutenção' },
+                { v: '< 90s',  l: 'Tempo médio de check-in' },
+                { v: '0',      l: 'Servidores locais para gerenciar' },
+              ].map(s => (
+                <div key={s.l}>
+                  <p className="font-display text-4xl font-light text-paper sm:text-5xl">{s.v}</p>
+                  <p className="mt-2 text-xs text-paper/60 sm:text-sm">{s.l}</p>
+                </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* OPERAÇÃO — bloco de stack tecnológica (transparência sobre o "como") */}
-        <section id="operacao" className="relative bg-paper py-16 sm:py-24 lg:py-32 border-y border-ink/10">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
-            <div className="grid gap-8 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Stack que move tudo</p>
-                <h2 className="mt-4 font-display text-3xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-4xl lg:text-5xl">
-                  Engenharia <span className="italic">sem improviso.</span>
-                </h2>
-              </div>
-              <p className="text-sm leading-relaxed text-ink/70 text-pretty sm:text-base lg:col-span-6 lg:col-start-7 lg:mt-3">
-                Esta landing usa WebGL com shader em GLSL para o background, CSS 3D com perspective real e parallax
-                controlado por JavaScript — orquestrado em React. A plataforma por trás roda em nuvem, com banco
-                Postgres em tempo real e auditoria criptografada de cada alteração.
-              </p>
-            </div>
-
-            <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-16 sm:gap-6 sm:grid-cols-3 lg:grid-cols-6">
-              {['React 19', 'TypeScript', 'WebGL / GLSL', 'CSS 3D', 'Postgres', 'Realtime'].map((s, i) => (
-                <motion.div
-                  key={s}
-                  initial={{ opacity: 0, y: 12 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: '-10%' }}
-                  transition={{ duration: 0.5, delay: i * 0.05 }}
-                  className="rounded-xl border border-ink/10 bg-paper px-4 py-5 text-center"
-                >
-                  <p className="font-display text-base text-ink">{s}</p>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* CTA / CONTATO */}
-        <section id="contato" className="relative bg-ink py-20 text-paper sm:py-28 lg:py-36 overflow-hidden">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 50% 50%, oklch(0.72 0.12 75 / 0.2) 0%, transparent 55%)',
-            }}
-          />
-          <div className="relative mx-auto max-w-4xl px-5 text-center sm:px-6 lg:px-10">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Próximo passo</p>
-            <h2 className="mt-4 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-balance sm:mt-5 sm:text-5xl lg:text-6xl">
-              Sua operação merece <span className="italic text-gold">profundidade</span>.
+        {/* CTA */}
+        <section id="contato" className="relative bg-paper py-20 sm:py-28 lg:py-32">
+          <div className="mx-auto max-w-4xl px-5 text-center sm:px-6 lg:px-10">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Próximo passo</p>
+            <h2 className="mt-4 font-display text-4xl font-light leading-[1.05] tracking-[-0.02em] text-ink text-balance sm:mt-5 sm:text-5xl lg:text-6xl">
+              Sua operação merece <span className="italic">profundidade.</span>
             </h2>
-            <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-paper/70 text-pretty sm:mt-7 sm:text-base">
-              Marque uma demonstração ao vivo. Em até 30 minutos mostramos o sistema rodando sobre o cenário do seu hotel.
+            <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-ink/70 text-pretty sm:mt-7 sm:text-base">
+              Em até 30 minutos mostramos o sistema rodando sobre o cenário do seu hotel — com seus tarifários, suas UHs e seus indicadores.
             </p>
 
             <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                href={WHATSAPP_LINK}
-                target="_blank"
-                rel="noreferrer"
-                className="group inline-flex items-center gap-3 rounded-full bg-gold px-8 py-4 text-sm font-medium text-ink transition-all hover:gap-4"
-              >
+              <a href={WHATSAPP_LINK} target="_blank" rel="noreferrer"
+                 className="group inline-flex items-center gap-3 rounded-full bg-ink px-8 py-4 text-sm font-medium text-paper transition-all hover:gap-4">
                 Falar pelo WhatsApp
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-gold transition-transform group-hover:translate-x-0.5">→</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink transition-transform group-hover:translate-x-0.5">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
               </a>
-              <button
-                onClick={() => setLoginOpen(true)}
-                className="group inline-flex items-center gap-2 text-sm font-medium text-paper/90"
-              >
-                <span className="border-b border-paper/40 pb-0.5 group-hover:border-paper">Já sou cliente — entrar</span>
+              <button onClick={() => setLoginOpen(true)} className="group inline-flex items-center gap-2 text-sm font-medium text-ink">
+                <span className="border-b border-ink/30 pb-0.5 group-hover:border-ink">Já sou cliente — entrar</span>
               </button>
             </div>
           </div>
@@ -935,7 +993,7 @@ export default function Landing3D() {
               </div>
               <p className="font-display text-sm text-ink">Royal PMS Enterprise</p>
             </div>
-            <p className="text-xs text-stone-500">© {new Date().getFullYear()} · Hotelaria em três dimensões.</p>
+            <p className="text-xs text-stone-500">© {new Date().getFullYear()} · Hotelaria orquestrada com método.</p>
           </div>
         </footer>
       </main>
@@ -950,7 +1008,7 @@ export default function Landing3D() {
           >
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0,  scale: 1 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.96 }}
               transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
               className="relative w-full max-w-md"
@@ -971,3 +1029,6 @@ export default function Landing3D() {
     </div>
   );
 }
+
+/* keep CSSProperties import-side-effect free */
+type _CSS = CSSProperties;
