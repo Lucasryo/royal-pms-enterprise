@@ -104,7 +104,14 @@ serve(async (req) => {
           continue;
         }
 
-        const contact = await upsertContact(parsed);
+        // Postgres JSONB nao aceita \u0000. Strip null bytes de tudo que vai pro DB.
+        const stripNull = (s: string | null | undefined): string => (s ?? "").replace(/\u0000/g, "");
+        const safeSubject = stripNull(parsed.subject);
+        const safeBody = stripNull(parsed.body);
+        const safeBodyHtml = parsed.bodyHtml ? stripNull(parsed.bodyHtml) : null;
+        const safeFromEmail = stripNull(parsed.fromEmail);
+
+        const contact = await upsertContact({ ...parsed, fromEmail: safeFromEmail, subject: safeSubject, body: safeBody, bodyHtml: safeBodyHtml });
 
         // Upload attachments (PDF/imagem) pro Storage e referencia em inbox_messages.attachments
         const uploadedAttachments = parsed.attachmentParts.length > 0
@@ -115,12 +122,12 @@ serve(async (req) => {
           .from("inbox_messages")
           .insert([{
             contact_id: contact.id,
-            contact_identifier: parsed.fromEmail,
+            contact_identifier: safeFromEmail,
             channel: "email",
             direction: "in",
-            subject: parsed.subject,
-            body: parsed.body,
-            body_html: parsed.bodyHtml,
+            subject: safeSubject,
+            body: safeBody,
+            body_html: safeBodyHtml,
             message_uid: uid,
             email_message_id: parsed.messageId,
             email_references: parsed.references,
@@ -510,9 +517,10 @@ async function uploadEmailAttachments(parts: MimePart[], uid: string): Promise<A
       const bytes = decodePartToBytes(att);
       if (bytes.length === 0 || bytes.length > 20 * 1024 * 1024) continue;
       const safeName = (att.filename ?? "anexo").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const safeMime = (att.contentType ?? "application/octet-stream").replace(/\u0000/g, "").replace(/[^a-zA-Z0-9./+-]/g, "");
       const path = `email/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
-      const { error } = await adminClient.storage.from("inbox_attachments").upload(path, bytes, { contentType: att.contentType, upsert: false });
-      if (!error) out.push({ path, name: safeName, size: bytes.length, mime: att.contentType });
+      const { error } = await adminClient.storage.from("inbox_attachments").upload(path, bytes, { contentType: safeMime || "application/octet-stream", upsert: false });
+      if (!error) out.push({ path, name: safeName, size: bytes.length, mime: safeMime || "application/octet-stream" });
       else console.warn(`[email-attachment] upload failed: ${error.message}`);
     } catch (err) {
       console.warn(`[email-attachment] error: ${err instanceof Error ? err.message : err}`);
