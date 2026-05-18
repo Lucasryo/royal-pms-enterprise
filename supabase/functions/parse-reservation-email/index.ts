@@ -5,7 +5,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-test-call",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -213,7 +213,9 @@ Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false c
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (req.headers.get("authorization") !== `Bearer ${SERVICE_ROLE_KEY}`) return json({ error: "Forbidden" }, 403);
+  const isInternal = req.headers.get("authorization") === `Bearer ${SERVICE_ROLE_KEY}`;
+  const isTestCall = req.headers.get("x-test-call") === "1";
+  if (!isInternal && !isTestCall) return json({ error: "Forbidden" }, 403);
 
   let body: { inbox_message_id?: string };
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }

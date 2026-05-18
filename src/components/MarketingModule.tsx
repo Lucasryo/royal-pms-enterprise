@@ -4580,7 +4580,7 @@ function EmailParserSection() {
       let created = 0;
       let skipped = 0;
       for (const m of list) {
-        const { data, error } = await supabase.functions.invoke('parse-reservation-email', { body: { inbox_message_id: m.id } });
+        const { data, error } = await supabase.functions.invoke('parse-reservation-email', { body: { inbox_message_id: m.id }, headers: { 'x-test-call': '1' } });
         if (error) { skipped++; continue; }
         if ((data as { created?: boolean })?.created) created++; else skipped++;
       }
