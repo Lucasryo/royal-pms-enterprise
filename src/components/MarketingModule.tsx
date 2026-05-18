@@ -2927,20 +2927,172 @@ function AnalyticsTab() {
 
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
+type NpsConfig = { enabled: boolean; send_after_hours: number; message_template: string; hotel_name?: string };
+type NpsResponse = { id: string; guest_name: string | null; channel: string; score: number | null; comment: string | null; sent_at: string; responded_at: string | null };
+
+const DEFAULT_NPS_TEMPLATE = "Olá {{guest_name}}! Aqui é o {{hotel_name}}. Esperamos que tenha gostado da estadia! Numa escala de 0 a 10, qual a chance de você nos recomendar pra um amigo? Responda com a nota (e fique à vontade pra deixar um comentário).";
+
 function NPSTab() {
+  const [responses, setResponses] = useState<NpsResponse[]>([]);
+  const [config, setConfig] = useState<NpsConfig>({ enabled: false, send_after_hours: 24, message_template: DEFAULT_NPS_TEMPLATE, hotel_name: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const [respRes, cfgRes] = await Promise.all([
+      supabase.from('nps_responses').select('id, guest_name, channel, score, comment, sent_at, responded_at').order('sent_at', { ascending: false }).limit(200),
+      supabase.from('app_settings').select('value').eq('id', 'nps_config').maybeSingle(),
+    ]);
+    setResponses((respRes.data as NpsResponse[] | null) ?? []);
+    if (cfgRes.data?.value) {
+      try {
+        const parsed = typeof cfgRes.data.value === 'string' ? JSON.parse(cfgRes.data.value) : cfgRes.data.value;
+        setConfig(prev => ({ ...prev, ...parsed }));
+      } catch { /* ignore */ }
+    }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function saveConfig() {
+    setSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 'nps_config', value: JSON.stringify(config), updated_at: new Date().toISOString() });
+    setSaving(false);
+    if (error) toast.error('Falha: ' + error.message); else toast.success('Configuração NPS salva');
+  }
+
+  async function dispatchNow() {
+    setDispatching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-nps', { body: { force: true } });
+      if (error) throw error;
+      const d = data as { processed?: number; sent?: number };
+      toast.success(`Enviado: ${d.sent ?? 0} de ${d.processed ?? 0} elegíveis`);
+      load();
+    } catch (e) {
+      toast.error('Falha: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  const responded = responses.filter(r => r.score != null);
+  const promoters = responded.filter(r => (r.score ?? 0) >= 9).length;
+  const passives = responded.filter(r => (r.score ?? 0) >= 7 && (r.score ?? 0) <= 8).length;
+  const detractors = responded.filter(r => (r.score ?? 0) <= 6).length;
+  const nps = responded.length === 0 ? 0 : Math.round(((promoters - detractors) / responded.length) * 100);
+  const avg = responded.length === 0 ? 0 : (responded.reduce((a, b) => a + (b.score ?? 0), 0) / responded.length);
+  const histogram = Array.from({ length: 11 }, (_, i) => ({ score: i, count: responded.filter(r => r.score === i).length }));
+  const maxBar = Math.max(1, ...histogram.map(h => h.count));
+
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">NPS</p>
-        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfação dos hóspedes</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">NPS</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfação dos hóspedes</h2>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={dispatchNow} disabled={dispatching} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 disabled:opacity-60">
+            {dispatching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Disparar agora
+          </button>
+        </div>
       </div>
-      <div className="rounded-2xl border border-dashed border-neutral-300 p-12 text-center">
-        <Award className="w-12 h-12 mx-auto mb-3 text-neutral-300" />
-        <p className="text-base font-semibold text-neutral-700">Nenhuma fonte de NPS conectada ainda</p>
-        <p className="text-sm text-neutral-500 mt-1 max-w-md mx-auto">
-          Quando uma fonte de NPS (ex: pesquisa pós-estadia) estiver integrada, as notas e comentários aparecem aqui.
-        </p>
-      </div>
+
+      {loading ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-12 text-center text-sm text-neutral-400">Carregando...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'NPS Score', value: nps.toString(), sub: '(promotores - detratores) %', color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600' },
+              { label: 'Nota Média', value: avg.toFixed(1), sub: `${responded.length} respostas`, color: 'text-neutral-900' },
+              { label: 'Promotores', value: promoters.toString(), sub: 'nota 9-10', color: 'text-emerald-600' },
+              { label: 'Detratores', value: detractors.toString(), sub: 'nota 0-6', color: 'text-red-600' },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
+                <p className={`text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-neutral-500 font-medium">{s.label}</p>
+                <p className="text-[10px] text-neutral-400">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4">Distribuição de notas</p>
+            <div className="flex items-end gap-2 h-40">
+              {histogram.map(h => (
+                <div key={h.score} className="flex-1 flex flex-col items-center justify-end gap-1">
+                  <span className="text-[10px] font-semibold text-neutral-600">{h.count > 0 ? h.count : ''}</span>
+                  <div className={`w-full rounded-t ${h.score >= 9 ? 'bg-emerald-500' : h.score >= 7 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ height: `${(h.count / maxBar) * 100}%`, minHeight: h.count > 0 ? '4px' : '0' }} />
+                  <span className="text-[10px] text-neutral-400">{h.score}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between mt-2 text-[10px] text-neutral-400">
+              <span>← Detratores (0-6)</span><span>Neutros (7-8)</span><span>Promotores (9-10) →</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Configuração</p>
+              <button onClick={saveConfig} disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 disabled:opacity-60">
+                {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar
+              </button>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-50">
+              <div>
+                <p className="font-bold text-sm text-neutral-900">Envio automático pós-checkout</p>
+                <p className="text-xs text-neutral-500">Dispara via cron diário</p>
+              </div>
+              <button onClick={() => setConfig(p => ({ ...p, enabled: !p.enabled }))} className={`w-10 h-6 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`}>
+                <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${config.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Horas após checkout ({config.send_after_hours}h)</label>
+                <input type="range" min={1} max={168} value={config.send_after_hours} onChange={e => setConfig(p => ({ ...p, send_after_hours: Number(e.target.value) }))} className="w-full" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Nome do hotel (placeholder)</label>
+                <input value={config.hotel_name ?? ''} onChange={e => setConfig(p => ({ ...p, hotel_name: e.target.value }))} placeholder="Royal PMS" className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Template (placeholders <code>{'{{guest_name}}'}</code>, <code>{'{{hotel_name}}'}</code>)</label>
+              <textarea value={config.message_template} onChange={e => setConfig(p => ({ ...p, message_template: e.target.value }))} rows={4} className="w-full px-3 py-2 bg-neutral-50 rounded-lg text-xs border-0 outline-none font-mono" />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+            <div className="px-5 py-3 border-b border-neutral-100"><p className="text-sm font-semibold text-neutral-700">Respostas recentes</p></div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead><tr className="border-b border-neutral-100">{['Hóspede', 'Canal', 'Nota', 'Comentário', 'Enviado', 'Respondido'].map(h => <th key={h} className="text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>)}</tr></thead>
+                <tbody>
+                  {responses.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Nenhuma pesquisa enviada ainda. Configure e clique em "Disparar agora" pra testar.</td></tr>}
+                  {responses.map(r => (
+                    <tr key={r.id} className="border-b border-neutral-50 hover:bg-neutral-50">
+                      <td className="px-5 py-3 text-sm font-semibold text-neutral-900">{r.guest_name || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{r.channel}</td>
+                      <td className="px-5 py-3"><span className={`text-sm font-bold ${r.score == null ? 'text-neutral-300' : r.score >= 9 ? 'text-emerald-600' : r.score >= 7 ? 'text-amber-600' : 'text-red-600'}`}>{r.score ?? '—'}</span></td>
+                      <td className="px-5 py-3 text-xs text-neutral-600 max-w-md truncate">{r.comment || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{new Date(r.sent_at).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-5 py-3 text-xs text-neutral-500">{r.responded_at ? new Date(r.responded_at).toLocaleDateString('pt-BR') : <span className="text-neutral-300">pendente</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

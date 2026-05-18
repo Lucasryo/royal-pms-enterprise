@@ -430,6 +430,27 @@ serve(async (req) => {
     return json({ skipped: "human assigned" });
   }
 
+  // NPS reply capture: se existe nps_responses pendente pra esse contato, extrai score do texto
+  const { data: pendingNps } = await adminClient.from("nps_responses").select("id").eq("contact_id", contact_id).is("responded_at", null).order("sent_at", { ascending: false }).limit(1).maybeSingle();
+  if (pendingNps) {
+    const m = incoming_text.match(/\b(10|[0-9])\s*(?:\/\s*10)?\b/);
+    const score = m ? Number(m[1]) : null;
+    if (score != null && score >= 0 && score <= 10) {
+      await adminClient.from("nps_responses").update({ score, comment: incoming_text.slice(0, 1000), responded_at: new Date().toISOString() }).eq("id", (pendingNps as { id: string }).id);
+      await logInvocation({ contact_id, channel, incoming_text, reply_text: null, decision: "skipped", reason: "nps_captured" });
+      // Resposta de agradecimento curta (sem chamar LLM)
+      const recipient = contact.phone || contact.email;
+      if (recipient) {
+        await fetch(`${SUPABASE_URL}/functions/v1/send-meta-message`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ channel, recipient, text: "Obrigado pelo feedback! 🙌", contact_id }),
+        }).catch(() => {});
+      }
+      return json({ nps_captured: true, score });
+    }
+  }
+
   const lower = incoming_text.toLowerCase();
   if ((cfg.escalation_keywords ?? []).some(kw => lower.includes(kw.toLowerCase()))) {
     await markNeedsHuman(contact_id);
