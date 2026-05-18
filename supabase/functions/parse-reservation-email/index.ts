@@ -473,9 +473,9 @@ function extractVoucherStructuredData(text: string): Partial<Extracted> {
     "empresa", "cliente", "razao social", "razão social", "company", "corporativo",
   ]);
   const costCenter = extractBestLabelValue(text, [
-    "centro de custo", "centro custo", "cost center", "cc", "c.c.", "os", "ordem de servico", "ordem de serviço", "projeto",
+    "centro de custo", "centro custo", "cost center", "cc", "c.c.", "os", "oe", "dv", "ordem de servico", "ordem de serviço", "projeto",
   ], 120) ?? extractFirstByPatterns(normalized, [
-    /\b(?:CC|OS|PROJETO|CENTRO DE CUSTO)\s*[:#-]?\s*([A-Z0-9._/-]{3,40})\b/i,
+    /\b(?:CC|OS|OE|DV|PROJETO|CENTRO DE CUSTO)\s*[:#-]?\s*([A-Z0-9._/-]{3,80})\b/i,
   ]);
   const billingInfo = extractBestLabelValue(text, [
     "faturamento", "instrucoes de faturamento", "instruções de faturamento", "billing", "forma de pagamento", "pagamento",
@@ -591,12 +591,13 @@ function extractFastReservation(args: {
     "voucher", "localizador", "check-in", "check in", "hospede", "guest",
   ].some(token => low.includes(token));
 
+  const stayRequestSubject = args.subject.match(/Hospedagem\s*-\s*(.+?)\s*-\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*a\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
   const externalCode = cleanExternalCode(extractFirstByPatterns(compact, [
     /(?:confirmation number|booking number|reservation number|numero da reserva|n[úu]mero da reserva|reserva|localizador|voucher|codigo|c[óo]digo|referencia|refer[êe]ncia)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,50})/i,
     /(\b(?:BK|BKG|RSV|RES|LOC|VCH|EML|HTL|AIRBNB|EXP)[-_]?\d{4,}[A-Z0-9._/-]*\b)/i,
   ]));
 
-  const guestName = extractFirstByPatterns(compact, [
+  const guestName = stayRequestSubject?.[1]?.trim() ?? extractFirstByPatterns(compact, [
     /(?:hospede|hóspede|guest name|guest|nome do hospede|nome do hóspede|cliente|passageiro)\s*[:#-]\s*([^\n\r|,;]{3,120})/i,
     /(?:reserva para|reservation for|booking for)\s+([A-ZÀ-ÿ][^\n\r|,;]{3,120})/i,
   ]);
@@ -604,8 +605,8 @@ function extractFastReservation(args: {
   const checkIn = pickDateNear(rawText, ["check-in", "check in", "entrada", "arrival", "chegada"]);
   const checkOut = pickDateNear(rawText, ["check-out", "check out", "saida", "saída", "departure", "partida"]);
   const allDates = extractAllDates(rawText).sort();
-  const resolvedCheckIn = checkIn ?? allDates[0];
-  const resolvedCheckOut = checkOut ?? allDates.find(d => resolvedCheckIn && d > resolvedCheckIn);
+  const resolvedCheckIn = parseFastDate(stayRequestSubject?.[2] ?? "") ?? checkIn ?? allDates[0];
+  const resolvedCheckOut = parseFastDate(stayRequestSubject?.[3] ?? "") ?? checkOut ?? allDates.find(d => resolvedCheckIn && d > resolvedCheckIn);
 
   const category = low.includes("suite presidencial")
     ? "suite presidencial"
