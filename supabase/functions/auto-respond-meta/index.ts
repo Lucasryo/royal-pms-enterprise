@@ -244,12 +244,24 @@ async function callOpenAICompatibleWithTools(label: string, baseUrl: string, api
   let inTok = 0, outTok = 0;
   const toolsUsed: string[] = [];
   for (let i = 0; i < 5; i++) {
-    const r = await fetch(baseUrl, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 1024, messages, tools: TOOLS_OPENAI }),
-    });
-    if (!r.ok) throw new Error(`${label} ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const body = JSON.stringify({ model, max_tokens: 1024, messages, tools: TOOLS_OPENAI });
+    let r: Response | null = null;
+    let lastErr = "";
+    for (let attempt = 0; attempt < 4; attempt++) {
+      r = await fetch(baseUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body,
+      });
+      if (r.ok) break;
+      lastErr = `${r.status}: ${(await r.text()).slice(0, 200)}`;
+      if (r.status !== 429 && r.status < 500) throw new Error(`${label} ${lastErr}`);
+      if (attempt === 3) throw new Error(`${label} ${lastErr} (after retries)`);
+      const retryAfter = Number(r.headers.get("retry-after")) || 0;
+      const waitMs = retryAfter > 0 ? Math.min(retryAfter * 1000, 30_000) : 1000 * Math.pow(2, attempt);
+      await new Promise(res => setTimeout(res, waitMs));
+    }
+    if (!r || !r.ok) throw new Error(`${label} ${lastErr}`);
     const j = await r.json() as { choices?: Array<{ message?: Record<string, unknown>; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
     inTok += j.usage?.prompt_tokens ?? 0;
     outTok += j.usage?.completion_tokens ?? 0;
