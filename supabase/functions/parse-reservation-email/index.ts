@@ -793,7 +793,10 @@ serve(async (req) => {
     if (!senderMatch && !subjectMatch) return json({ skipped: "heuristic_no_match" });
   }
 
-  // Vouchers de link (B2B etc): extrai URLs, mas so baixa se o parser rapido precisar.
+  const attRefs = (msg.attachments ?? []) as AttachmentRef[];
+  const hasParseableAttachments = attRefs.some(a => a.size <= 5 * 1024 * 1024 && (a.mime.startsWith("image/") || a.mime === "application/pdf"));
+
+  // Vouchers de link (B2B etc): para empresas, baixa antes do LLM para preservar faturamento/campos corporativos.
   const voucherUrls = extractVoucherUrls(`${msg.body ?? ""}\n${msg.body_html ?? ""}`, cfg.voucher_url_domains ?? []);
   const vouchers: Array<{ url: string; text: string }> = [];
   let fastResult = extractFastReservation({
@@ -805,7 +808,9 @@ serve(async (req) => {
     defaultCategory: cfg.default_category ?? "executivo",
   });
 
-  if (!fastResult.sufficient && voucherUrls.length > 0) {
+  const requiresLlmEnrichment = Boolean(company || hasParseableAttachments);
+
+  if ((!fastResult.sufficient || requiresLlmEnrichment) && voucherUrls.length > 0) {
     for (const url of voucherUrls) {
       const text = await fetchVoucherText(url);
       if (text) vouchers.push({ url, text });
@@ -822,12 +827,11 @@ serve(async (req) => {
     }
   }
 
-  const attRefs = (msg.attachments ?? []) as AttachmentRef[];
   let downloadedAtt: Array<{ name: string; mime: string; base64: string }> = [];
   let extracted: Extracted;
   let extractionMethod: "fast_parser" | "llm_parser" = "fast_parser";
 
-  if (fastResult.sufficient) {
+  if (fastResult.sufficient && !requiresLlmEnrichment) {
     extracted = fastResult.extracted;
     await logImportEvent({
       event_type: "fast_parser",
@@ -843,12 +847,15 @@ serve(async (req) => {
         event_type: "manual_review_required",
         inbox_message_id: msg.id,
         source_message_id: sourceKey,
-        reason: "Parser rapido incompleto e bot_config sem API key para fallback LLM.",
+        reason: requiresLlmEnrichment
+          ? "Email corporativo/com anexo precisa de enriquecimento LLM, mas bot_config esta sem API key."
+          : "Parser rapido incompleto e bot_config sem API key para fallback LLM.",
+        requires_llm_enrichment: requiresLlmEnrichment,
         fast_result: fastResult,
       });
-      return json({ skipped: "no_llm_key", fast_result: fastResult });
+      return json({ skipped: "no_llm_key", requires_llm_enrichment: requiresLlmEnrichment, fast_result: fastResult });
     }
-    if (botCfg.provider !== "claude" && botCfg.provider !== "groq") return json({ skipped: `provider_not_supported: ${botCfg.provider}`, fast_result: fastResult });
+    if (botCfg.provider !== "claude" && botCfg.provider !== "groq") return json({ skipped: `provider_not_supported: ${botCfg.provider}`, requires_llm_enrichment: requiresLlmEnrichment, fast_result: fastResult });
 
     downloadedAtt = await loadAttachments(attRefs);
     extractionMethod = "llm_parser";
@@ -860,6 +867,7 @@ serve(async (req) => {
         source_message_id: sourceKey,
         reason: fastResult.reason,
         provider: botCfg.provider,
+        requires_llm_enrichment: requiresLlmEnrichment,
         fast_result: fastResult,
         extracted,
       });
@@ -872,6 +880,7 @@ serve(async (req) => {
           reason: "Groq atingiu limite de tokens; email nao foi classificado.",
           retry_after_seconds: err.retryAfterSeconds,
           detail: err.detail,
+          requires_llm_enrichment: requiresLlmEnrichment,
           fast_result: fastResult,
         });
         return json({
@@ -879,10 +888,11 @@ serve(async (req) => {
           provider: "groq",
           retry_after_seconds: err.retryAfterSeconds,
           detail: err.detail,
+          requires_llm_enrichment: requiresLlmEnrichment,
           fast_result: fastResult,
         }, 429);
       }
-      return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err), fast_result: fastResult }, 500);
+      return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err), requires_llm_enrichment: requiresLlmEnrichment, fast_result: fastResult }, 500);
     }
   }
 
