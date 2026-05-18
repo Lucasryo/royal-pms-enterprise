@@ -3266,38 +3266,95 @@ function BotTrainingTab() {
 
 // ─── CRM Tab ──────────────────────────────────────────────────────────────────
 
+type CrmLead = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  channel: string;
+  score: number;
+  stage: 'hot' | 'warm' | 'cold';
+  tags: string[] | null;
+  last_message_at: string | null;
+  unread_count: number | null;
+};
+
 function CRMTab() {
-  const leads = [
-    { name: 'Ana Beatriz Costa', score: 92, stage: 'hot', channel: 'whatsapp', lastContact: '2026-05-10', totalConversations: 8, tags: ['VIP', 'Recorrente'] },
-    { name: 'Carlos Eduardo Lima', score: 65, stage: 'warm', channel: 'instagram', lastContact: '2026-05-09', totalConversations: 3, tags: ['Novo'] },
-    { name: 'Marina Souza', score: 41, stage: 'cold', channel: 'whatsapp', lastContact: '2026-05-07', totalConversations: 1, tags: ['Follow-up'] },
-    { name: 'Roberto Ferreira', score: 88, stage: 'hot', channel: 'facebook', lastContact: '2026-05-10', totalConversations: 12, tags: ['VIP', 'Fidelizado'] },
-    { name: 'Juliana Alves', score: 74, stage: 'warm', channel: 'google', lastContact: '2026-05-08', totalConversations: 5, tags: ['Empresa'] },
-  ];
+  const [leads, setLeads] = useState<CrmLead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [recalculating, setRecalculating] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('marketing_contacts')
+      .select('id, name, phone, email, channel, score, stage, tags, last_message_at, unread_count')
+      .order('score', { ascending: false })
+      .limit(100);
+    if (error) toast.error('Falha ao carregar leads: ' + error.message);
+    setLeads((data as CrmLead[] | null) ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function recalcAll() {
+    setRecalculating(true);
+    const results = await Promise.allSettled(
+      leads.map(l => supabase.rpc('recalc_contact_score', { p_contact_id: l.id }))
+    );
+    const failed = results.filter(r => r.status === 'rejected').length;
+    setRecalculating(false);
+    if (failed > 0) toast.error(`${failed} de ${leads.length} falharam`);
+    else toast.success(`${leads.length} contatos recalculados`);
+    load();
+  }
 
   function stageLabel(stage: string) {
     return { hot: { label: 'Quente', cls: 'bg-red-100 text-red-700' }, warm: { label: 'Morno', cls: 'bg-amber-100 text-amber-700' }, cold: { label: 'Frio', cls: 'bg-blue-100 text-blue-700' } }[stage] ?? { label: stage, cls: 'bg-neutral-100 text-neutral-600' };
   }
 
   function scoreColor(score: number) {
-    if (score >= 80) return 'text-emerald-600';
-    if (score >= 60) return 'text-amber-600';
+    if (score >= 75) return 'text-emerald-600';
+    if (score >= 50) return 'text-amber-600';
     return 'text-red-600';
   }
 
+  function timeAgo(iso: string | null): string {
+    if (!iso) return '—';
+    const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (d <= 0) return 'hoje';
+    if (d === 1) return 'ontem';
+    if (d < 30) return `${d}d atrás`;
+    return new Date(iso).toLocaleDateString('pt-BR');
+  }
+
+  const totals = {
+    total: leads.length,
+    hot: leads.filter(l => l.stage === 'hot').length,
+    warm: leads.filter(l => l.stage === 'warm').length,
+    avg: leads.length === 0 ? 0 : Math.round(leads.reduce((a, b) => a + (b.score ?? 0), 0) / leads.length),
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">CRM</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Leads e Scoring</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">CRM</p>
+          <h2 className="text-xl font-semibold text-neutral-950">Leads e Scoring</h2>
+        </div>
+        <button onClick={recalcAll} disabled={recalculating || leads.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60">
+          {recalculating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+          Recalcular score
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Leads', value: leads.length.toString(), color: 'text-neutral-900' },
-          { label: 'Quentes', value: leads.filter(l => l.stage === 'hot').length.toString(), color: 'text-red-600' },
-          { label: 'Mornos', value: leads.filter(l => l.stage === 'warm').length.toString(), color: 'text-amber-600' },
-          { label: 'Score Médio', value: Math.round(leads.reduce((a, b) => a + b.score, 0) / leads.length).toString(), color: 'text-emerald-600' },
+          { label: 'Total Leads', value: totals.total.toString(), color: 'text-neutral-900' },
+          { label: 'Quentes', value: totals.hot.toString(), color: 'text-red-600' },
+          { label: 'Mornos', value: totals.warm.toString(), color: 'text-amber-600' },
+          { label: 'Score Médio', value: totals.avg.toString(), color: 'text-emerald-600' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
             <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
@@ -3317,17 +3374,20 @@ function CRMTab() {
               </tr>
             </thead>
             <tbody>
-              {leads.map((lead, i) => {
+              {loading && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Carregando...</td></tr>}
+              {!loading && leads.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Nenhum lead cadastrado ainda. Conversas no inbox aparecerão aqui.</td></tr>}
+              {!loading && leads.map(lead => {
                 const { label, cls } = stageLabel(lead.stage);
                 const ch = CHANNELS.find(c => c.id === lead.channel);
+                const tags = lead.tags ?? [];
                 return (
-                  <tr key={i} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                  <tr key={lead.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-semibold text-neutral-600">{lead.name[0]}</div>
+                        <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-semibold text-neutral-600">{(lead.name || '?')[0]?.toUpperCase()}</div>
                         <div>
-                          <p className="font-bold text-sm text-neutral-900">{lead.name}</p>
-                          <p className="text-[10px] text-neutral-400">{lead.totalConversations} conversas</p>
+                          <p className="font-bold text-sm text-neutral-900">{lead.name || '(sem nome)'}</p>
+                          <p className="text-[10px] text-neutral-400">{lead.phone || lead.email || '—'}</p>
                         </div>
                       </div>
                     </td>
@@ -3340,11 +3400,11 @@ function CRMTab() {
                       </div>
                     </td>
                     <td className="px-5 py-3"><span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${cls}`}>{label}</span></td>
-                    <td className="px-5 py-3 text-xs" style={{ color: ch?.color }}>{ch?.name}</td>
-                    <td className="px-5 py-3 text-xs text-neutral-500">{lead.lastContact}</td>
+                    <td className="px-5 py-3 text-xs" style={{ color: ch?.color }}>{ch?.name ?? lead.channel}</td>
+                    <td className="px-5 py-3 text-xs text-neutral-500">{timeAgo(lead.last_message_at)}</td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {lead.tags.map(t => <span key={t} className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t}</span>)}
+                        {tags.length === 0 ? <span className="text-[9px] text-neutral-300">—</span> : tags.map(t => <span key={t} className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">{t}</span>)}
                       </div>
                     </td>
                   </tr>
