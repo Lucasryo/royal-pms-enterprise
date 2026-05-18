@@ -316,6 +316,204 @@ function cleanCategory(value: unknown, fallback: string): string {
   return ["executivo", "master", "suite presidencial"].includes(category) ? category : fallback;
 }
 
+function normalizeText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanLabelValue(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;|#-]+/, "")
+    .replace(/[\s;|]+$/, "")
+    .trim();
+}
+
+function parseBrazilianNumber(value: string): number | undefined {
+  const normalized = value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseFastDate(raw: string): string | null {
+  const text = normalizeText(raw).toLowerCase();
+  const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const numeric = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  if (numeric) {
+    const day = numeric[1].padStart(2, "0");
+    const month = numeric[2].padStart(2, "0");
+    const rawYear = numeric[3];
+    const currentYear = new Date().getUTCFullYear();
+    const year = rawYear ? (rawYear.length === 2 ? `20${rawYear}` : rawYear) : String(currentYear);
+    return `${year}-${month}-${day}`;
+  }
+
+  const months: Record<string, string> = {
+    janeiro: "01", jan: "01",
+    fevereiro: "02", fev: "02",
+    marco: "03", mar: "03",
+    abril: "04", abr: "04",
+    maio: "05", mai: "05",
+    junho: "06", jun: "06",
+    julho: "07", jul: "07",
+    agosto: "08", ago: "08",
+    setembro: "09", set: "09",
+    outubro: "10", out: "10",
+    novembro: "11", nov: "11",
+    dezembro: "12", dez: "12",
+  };
+  const named = text.match(/\b(\d{1,2})\s*(?:de\s*)?([a-z]+)\s*(?:de\s*)?(20\d{2})\b/);
+  if (named && months[named[2]]) {
+    return `${named[3]}-${months[named[2]]}-${named[1].padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
+function validIsoDate(value: string | null | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function pickDateNear(text: string, labels: string[]): string | null {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const preferLast = labels.some(label => ["check-out", "check out", "saida", "saída", "departure", "partida"].includes(label));
+  for (const line of lines) {
+    const low = normalizeText(line).toLowerCase();
+    if (labels.some(label => low.includes(label))) {
+      const dates = extractAllDates(line).sort();
+      if (dates.length > 0) return preferLast ? dates[dates.length - 1] : dates[0];
+      const parsed = parseFastDate(line);
+      if (parsed) return parsed;
+    }
+  }
+  return null;
+}
+
+function extractAllDates(text: string): string[] {
+  const found: string[] = [];
+  const patterns = [
+    /\b20\d{2}-\d{2}-\d{2}\b/g,
+    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/g,
+    /\b\d{1,2}\s*(?:de\s*)?(?:janeiro|jan|fevereiro|fev|marco|mar|abril|abr|maio|mai|junho|jun|julho|jul|agosto|ago|setembro|set|outubro|out|novembro|nov|dezembro|dez)\s*(?:de\s*)?20\d{2}\b/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const parsed = parseFastDate(match[0]);
+      if (parsed && !found.includes(parsed)) found.push(parsed);
+    }
+  }
+  return found;
+}
+
+function extractFirstByPatterns(text: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match?.[1] ? cleanLabelValue(match[1]) : "";
+    if (value.length >= 2 && value.length <= 120) return value;
+  }
+  return undefined;
+}
+
+function extractFastReservation(args: {
+  senderEmail: string;
+  subject: string;
+  body: string;
+  bodyHtml: string;
+  vouchers: Array<{ url: string; text: string }>;
+  defaultCategory: string;
+}): { extracted: Extracted; sufficient: boolean; reason: string } {
+  const voucherText = args.vouchers.map(v => v.text).join("\n");
+  const rawText = [args.subject, args.body, htmlToText(args.bodyHtml), voucherText].filter(Boolean).join("\n");
+  const compact = normalizeText(rawText);
+  const low = compact.toLowerCase();
+  const senderLow = args.senderEmail.toLowerCase();
+  const source = senderLow.includes("booking") || low.includes("booking.com")
+    ? "BOOKING_COM"
+    : senderLow.includes("airbnb") || low.includes("airbnb")
+      ? "AIRBNB"
+      : senderLow.includes("expedia") || low.includes("expedia") || senderLow.includes("hoteis")
+        ? "EXPEDIA"
+        : low.includes("voucher") || low.includes("localizador")
+          ? "VOUCHER_EMAIL"
+          : "EMAIL";
+
+  const hasReservationSignal = [
+    "reserva", "reservation", "booking", "confirmation", "confirmacao", "confirmada",
+    "voucher", "localizador", "check-in", "check in", "hospede", "guest",
+  ].some(token => low.includes(token));
+
+  const externalCode = cleanExternalCode(extractFirstByPatterns(compact, [
+    /(?:confirmation number|booking number|reservation number|numero da reserva|n[úu]mero da reserva|reserva|localizador|voucher|codigo|c[óo]digo|referencia|refer[êe]ncia)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,50})/i,
+    /(\b(?:BK|BKG|RSV|RES|LOC|VCH|EML|HTL|AIRBNB|EXP)[-_]?\d{4,}[A-Z0-9._/-]*\b)/i,
+  ]));
+
+  const guestName = extractFirstByPatterns(compact, [
+    /(?:hospede|hóspede|guest name|guest|nome do hospede|nome do hóspede|cliente|passageiro)\s*[:#-]\s*([^\n\r|,;]{3,120})/i,
+    /(?:reserva para|reservation for|booking for)\s+([A-ZÀ-ÿ][^\n\r|,;]{3,120})/i,
+  ]);
+
+  const checkIn = pickDateNear(rawText, ["check-in", "check in", "entrada", "arrival", "chegada"]);
+  const checkOut = pickDateNear(rawText, ["check-out", "check out", "saida", "saída", "departure", "partida"]);
+  const allDates = extractAllDates(rawText).sort();
+  const resolvedCheckIn = checkIn ?? allDates[0];
+  const resolvedCheckOut = checkOut ?? allDates.find(d => resolvedCheckIn && d > resolvedCheckIn);
+
+  const category = low.includes("suite presidencial")
+    ? "suite presidencial"
+    : low.includes("master")
+      ? "master"
+      : low.includes("executivo")
+        ? "executivo"
+        : args.defaultCategory;
+
+  const totalMatch = compact.match(/(?:total|valor total|amount|preco|preço)\s*[:#-]?\s*(?:r\$)?\s*([\d.,]+)/i)
+    ?? compact.match(/R\$\s*([\d.]+,\d{2})/i);
+  const totalAmount = totalMatch?.[1] ? parseBrazilianNumber(totalMatch[1]) : undefined;
+
+  const adultsMatch = compact.match(/(?:adultos|adults?)\s*[:#-]?\s*(\d{1,2})/i);
+  const childrenMatch = compact.match(/(?:criancas|crianças|children|kids)\s*[:#-]?\s*(\d{1,2})/i);
+  const emailMatch = compact.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const phoneMatch = compact.match(/(?:telefone|phone|celular|whatsapp)\s*[:#-]?\s*(\+?\d[\d\s().-]{7,24})/i);
+
+  const isReservation = Boolean(hasReservationSignal && (externalCode || (guestName && resolvedCheckIn && resolvedCheckOut)));
+  const hasRequired = Boolean(guestName && validIsoDate(resolvedCheckIn) && validIsoDate(resolvedCheckOut) && resolvedCheckIn! < resolvedCheckOut!);
+  const sufficient = Boolean(isReservation && hasRequired && externalCode);
+
+  return {
+    sufficient,
+    reason: sufficient
+      ? "fast_parser_complete"
+      : isReservation
+        ? "fast_parser_incomplete"
+        : "fast_parser_no_match",
+    extracted: {
+      is_reservation: isReservation,
+      confidence: sufficient ? "high" : (isReservation ? "medium" : "low"),
+      guest_name: guestName,
+      check_in: resolvedCheckIn,
+      check_out: resolvedCheckOut,
+      adults: adultsMatch?.[1] ? Math.max(1, Number(adultsMatch[1])) : 1,
+      children: childrenMatch?.[1] ? Math.max(0, Number(childrenMatch[1])) : 0,
+      category,
+      contact_email: emailMatch?.[0] ?? args.senderEmail,
+      contact_phone: phoneMatch?.[1] ? cleanLabelValue(phoneMatch[1]) : undefined,
+      total_amount: totalAmount,
+      tariff: undefined,
+      source,
+      external_reservation_code: externalCode ?? undefined,
+      requested_by: "fast-email-parser",
+      notes: "Extraido por parser rapido sem IA.",
+    },
+  };
+}
+
 function iterDates(startISO: string, endISO: string): string[] {
   const out: string[] = [];
   const start = new Date(`${startISO}T12:00:00Z`);
@@ -595,42 +793,97 @@ serve(async (req) => {
     if (!senderMatch && !subjectMatch) return json({ skipped: "heuristic_no_match" });
   }
 
-  const botCfg = await loadBotConfig();
-  if (!botCfg?.api_key) return json({ skipped: "no_llm_key" });
-  if (botCfg.provider !== "claude" && botCfg.provider !== "groq") return json({ skipped: `provider_not_supported: ${botCfg.provider}` });
-
-  const attRefs = (msg.attachments ?? []) as AttachmentRef[];
-  const downloadedAtt = await loadAttachments(attRefs);
-
-  // Vouchers de link (B2B etc): extrai URLs dos dominios configurados, baixa HTML, manda como contexto pro LLM
+  // Vouchers de link (B2B etc): extrai URLs, mas so baixa se o parser rapido precisar.
   const voucherUrls = extractVoucherUrls(`${msg.body ?? ""}\n${msg.body_html ?? ""}`, cfg.voucher_url_domains ?? []);
   const vouchers: Array<{ url: string; text: string }> = [];
-  for (const url of voucherUrls) {
-    const text = await fetchVoucherText(url);
-    if (text) vouchers.push({ url, text });
+  let fastResult = extractFastReservation({
+    senderEmail: msg.contact_identifier ?? "",
+    subject: msg.subject ?? "",
+    body: msg.body ?? "",
+    bodyHtml: msg.body_html ?? "",
+    vouchers,
+    defaultCategory: cfg.default_category ?? "executivo",
+  });
+
+  if (!fastResult.sufficient && voucherUrls.length > 0) {
+    for (const url of voucherUrls) {
+      const text = await fetchVoucherText(url);
+      if (text) vouchers.push({ url, text });
+    }
+    if (vouchers.length > 0) {
+      fastResult = extractFastReservation({
+        senderEmail: msg.contact_identifier ?? "",
+        subject: msg.subject ?? "",
+        body: msg.body ?? "",
+        bodyHtml: msg.body_html ?? "",
+        vouchers,
+        defaultCategory: cfg.default_category ?? "executivo",
+      });
+    }
   }
 
+  const attRefs = (msg.attachments ?? []) as AttachmentRef[];
+  let downloadedAtt: Array<{ name: string; mime: string; base64: string }> = [];
   let extracted: Extracted;
-  try {
-    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies, vouchers);
-  } catch (err) {
-    if (err instanceof GroqRateLimitError) {
+  let extractionMethod: "fast_parser" | "llm_parser" = "fast_parser";
+
+  if (fastResult.sufficient) {
+    extracted = fastResult.extracted;
+    await logImportEvent({
+      event_type: "fast_parser",
+      inbox_message_id: msg.id,
+      source_message_id: sourceKey,
+      reason: fastResult.reason,
+      extracted,
+    });
+  } else {
+    const botCfg = await loadBotConfig();
+    if (!botCfg?.api_key) {
       await logImportEvent({
-        event_type: "llm_rate_limited",
+        event_type: "manual_review_required",
         inbox_message_id: msg.id,
         source_message_id: sourceKey,
-        reason: "Groq atingiu limite de tokens; email nao foi classificado.",
-        retry_after_seconds: err.retryAfterSeconds,
-        detail: err.detail,
+        reason: "Parser rapido incompleto e bot_config sem API key para fallback LLM.",
+        fast_result: fastResult,
       });
-      return json({
-        skipped: "llm_rate_limited",
-        provider: "groq",
-        retry_after_seconds: err.retryAfterSeconds,
-        detail: err.detail,
-      }, 429);
+      return json({ skipped: "no_llm_key", fast_result: fastResult });
     }
-    return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
+    if (botCfg.provider !== "claude" && botCfg.provider !== "groq") return json({ skipped: `provider_not_supported: ${botCfg.provider}`, fast_result: fastResult });
+
+    downloadedAtt = await loadAttachments(attRefs);
+    extractionMethod = "llm_parser";
+    try {
+      extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company, allCompanies, vouchers);
+      await logImportEvent({
+        event_type: "llm_parser",
+        inbox_message_id: msg.id,
+        source_message_id: sourceKey,
+        reason: fastResult.reason,
+        provider: botCfg.provider,
+        fast_result: fastResult,
+        extracted,
+      });
+    } catch (err) {
+      if (err instanceof GroqRateLimitError) {
+        await logImportEvent({
+          event_type: "llm_rate_limited",
+          inbox_message_id: msg.id,
+          source_message_id: sourceKey,
+          reason: "Groq atingiu limite de tokens; email nao foi classificado.",
+          retry_after_seconds: err.retryAfterSeconds,
+          detail: err.detail,
+          fast_result: fastResult,
+        });
+        return json({
+          skipped: "llm_rate_limited",
+          provider: "groq",
+          retry_after_seconds: err.retryAfterSeconds,
+          detail: err.detail,
+          fast_result: fastResult,
+        }, 429);
+      }
+      return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err), fast_result: fastResult }, 500);
+    }
   }
 
   // LLM pode ter identificado a empresa pelo conteudo. CNPJ tem prioridade (mais confiavel que nome).
@@ -656,6 +909,7 @@ serve(async (req) => {
       inbox_message_id: msg.id,
       source_message_id: sourceKey,
       reason: "Dados obrigatorios ausentes.",
+      parser_method: extractionMethod,
       extracted,
     });
     return json({ skipped: "missing_required", extracted });
@@ -666,6 +920,7 @@ serve(async (req) => {
       inbox_message_id: msg.id,
       source_message_id: sourceKey,
       reason: "Datas invalidas.",
+      parser_method: extractionMethod,
       extracted,
     });
     return json({ skipped: "invalid_dates", extracted });
@@ -688,6 +943,7 @@ serve(async (req) => {
         reservation_request_id: (duplicateRequest.data as { id?: string } | null)?.id ?? null,
         reservation_id: (duplicateReservation.data as { id?: string } | null)?.id ?? null,
         reason: "Codigo externo ja importado.",
+        parser_method: extractionMethod,
         extracted,
       });
       return json({
@@ -728,6 +984,7 @@ serve(async (req) => {
         reservation_request_id: requestDuplicateId,
         reservation_id: reservationDuplicateId,
         reason: "Possivel duplicidade por hospede, periodo e categoria sem codigo externo.",
+        parser_method: extractionMethod,
         extracted,
       });
       return json({ skipped: "possible_duplicate", reservation_request_id: requestDuplicateId, reservation_id: reservationDuplicateId });
@@ -796,6 +1053,7 @@ serve(async (req) => {
       reservation_id: (confirmed as { id: string }).id,
       external_reservation_code: externalReservationCode,
       reason: "Reserva confirmada automaticamente por criterios confiaveis.",
+      parser_method: extractionMethod,
       availability,
       extracted,
     });
@@ -806,6 +1064,7 @@ serve(async (req) => {
       code: (confirmed as { reservation_code: string }).reservation_code,
       company: company?.name ?? null,
       external_reservation_code: externalReservationCode,
+      parser_method: extractionMethod,
       availability,
       attachments_processed: downloadedAtt.length,
       vouchers_fetched: vouchers.length,
@@ -828,6 +1087,7 @@ serve(async (req) => {
     reason: hasAvailability
       ? (cfg.auto_confirm_enabled ? "Nao atende todos os criterios de auto-confirmacao." : "Auto-confirmacao desativada.")
       : (availability.reason || "Sem disponibilidade no periodo."),
+    parser_method: extractionMethod,
     availability,
     extracted,
   });
@@ -838,6 +1098,7 @@ serve(async (req) => {
     code: (inserted as { reservation_code: string }).reservation_code,
     company: company?.name ?? null,
     external_reservation_code: externalReservationCode,
+    parser_method: extractionMethod,
     availability,
     auto_confirm_candidate: canAutoConfirm,
     attachments_processed: downloadedAtt.length,
