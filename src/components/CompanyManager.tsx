@@ -18,6 +18,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
     name: '',
     cnpj: '',
     email: '',
+    email_domain: '',
     phone: '',
     address: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
@@ -99,6 +100,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       name: '',
       cnpj: '',
       email: '',
+      email_domain: '',
       phone: '',
       address: '',
       status: 'ACTIVE',
@@ -112,6 +114,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       name: company.name,
       cnpj: company.cnpj || '',
       email: company.email || '',
+      email_domain: (company as Company & { email_domain?: string | null }).email_domain || '',
       phone: company.phone || '',
       address: company.address || '',
       status: normalizeCompanyStatus(company.status),
@@ -303,6 +306,17 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                       placeholder="(00) 0 0000-0000"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-500 uppercase">Domínio de e-mail <span className="text-neutral-400 font-normal normal-case">(usado pelo bot pra vincular reservas automaticamente)</span></label>
+                  <input
+                    value={formData.email_domain}
+                    onChange={(e) => setFormData({ ...formData, email_domain: e.target.value.toLowerCase().trim() })}
+                    className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-neutral-900/10 focus:outline-none font-mono"
+                    placeholder="petrobras.com.br"
+                  />
+                  <p className="text-[10px] text-neutral-500">Emails de @{formData.email_domain || 'domínio'} serão automaticamente vinculados a esta empresa nas reservas criadas pelo parser.</p>
                 </div>
 
                 <div className="space-y-1">

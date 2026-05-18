@@ -34,7 +34,10 @@ type ParsedEmail = {
   bodyHtml: string | null; // text/html sanitizado, com cid: resolvidos como data URLs
   messageId: string | null;
   references: string | null;
+  attachmentParts: MimePart[]; // parts disposition=attachment (PDFs, imagens nao-inline)
 };
+
+type AttachmentRef = { path: string; name: string; size: number; mime: string };
 
 type MimePart = {
   contentType: string;   // ex: "text/html"
@@ -102,6 +105,12 @@ serve(async (req) => {
         }
 
         const contact = await upsertContact(parsed);
+
+        // Upload attachments (PDF/imagem) pro Storage e referencia em inbox_messages.attachments
+        const uploadedAttachments = parsed.attachmentParts.length > 0
+          ? await uploadEmailAttachments(parsed.attachmentParts, uid)
+          : [];
+
         const { data: insertedRow, error } = await adminClient
           .from("inbox_messages")
           .insert([{
@@ -116,6 +125,7 @@ serve(async (req) => {
             email_message_id: parsed.messageId,
             email_references: parsed.references,
             read: false,
+            attachments: uploadedAttachments,
           }])
           .select("id")
           .single();
@@ -474,6 +484,13 @@ function parseEmail(raw: string): ParsedEmail {
   if (bodyHtml) bodyHtml = ensureDecoded(bodyHtml);
   bodyPlain = ensureDecoded(bodyPlain);
 
+  // Attachments verdadeiros (nao inline cid:): PDFs, imagens com filename
+  const attachmentParts = parts.filter(p =>
+    p.filename &&
+    !(p.disposition === "inline" && p.contentId) &&
+    (/^image\//.test(p.contentType) || p.contentType === "application/pdf")
+  );
+
   return {
     fromEmail,
     fromName,
@@ -482,7 +499,26 @@ function parseEmail(raw: string): ParsedEmail {
     bodyHtml,
     messageId,
     references,
+    attachmentParts,
   };
+}
+
+async function uploadEmailAttachments(parts: MimePart[], uid: string): Promise<AttachmentRef[]> {
+  const out: AttachmentRef[] = [];
+  for (const att of parts) {
+    try {
+      const bytes = decodePartToBytes(att);
+      if (bytes.length === 0 || bytes.length > 20 * 1024 * 1024) continue;
+      const safeName = (att.filename ?? "anexo").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `email/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+      const { error } = await adminClient.storage.from("inbox_attachments").upload(path, bytes, { contentType: att.contentType, upsert: false });
+      if (!error) out.push({ path, name: safeName, size: bytes.length, mime: att.contentType });
+      else console.warn(`[email-attachment] upload failed: ${error.message}`);
+    } catch (err) {
+      console.warn(`[email-attachment] error: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return out;
 }
 
 // Última defesa contra base64 residual em qualquer texto. Decodifica se >90% dos chars

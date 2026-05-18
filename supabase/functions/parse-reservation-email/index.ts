@@ -23,6 +23,7 @@ type ParserConfig = {
   default_category: string;
 };
 type BotConfig = { api_key: string; model: string; provider: string };
+type AttachmentRef = { path: string; name: string; size: number; mime: string };
 
 type Extracted = {
   is_reservation: boolean;
@@ -39,6 +40,15 @@ type Extracted = {
   tariff?: number;
   source?: string;
   notes?: string;
+  // Corporativo
+  is_corporate?: boolean;
+  cost_center?: string;
+  billing_obs?: string;
+  fiscal_data?: string;
+  payment_method?: string;
+  billing_info?: string;
+  requested_by?: string;
+  extras?: string;
 };
 
 async function loadConfig(): Promise<ParserConfig> {
@@ -65,10 +75,54 @@ async function loadBotConfig(): Promise<BotConfig | null> {
   } catch { return null; }
 }
 
-async function extractReservation(botCfg: BotConfig, subject: string, body: string, bodyHtml: string): Promise<Extracted> {
+async function lookupCompany(senderEmail: string): Promise<{ id: string; name: string } | null> {
+  const domain = senderEmail.split("@")[1]?.toLowerCase();
+  if (!domain) return null;
+  const { data } = await admin.from("companies")
+    .select("id, name")
+    .ilike("email_domain", domain)
+    .eq("status", "active")
+    .maybeSingle();
+  return data as { id: string; name: string } | null;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function loadAttachments(refs: AttachmentRef[]): Promise<Array<{ name: string; mime: string; base64: string }>> {
+  const out: Array<{ name: string; mime: string; base64: string }> = [];
+  for (const a of refs) {
+    if (a.size > 5 * 1024 * 1024) continue; // Limite Claude vision ~5MB
+    if (!a.mime.startsWith("image/") && a.mime !== "application/pdf") continue;
+    try {
+      const { data } = await admin.storage.from("inbox_attachments").download(a.path);
+      if (!data) continue;
+      const buf = new Uint8Array(await data.arrayBuffer());
+      out.push({ name: a.name, mime: a.mime, base64: bytesToBase64(buf) });
+    } catch (err) {
+      console.warn(`[load-attachment] ${a.path}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return out;
+}
+
+async function extractReservation(
+  botCfg: BotConfig,
+  subject: string,
+  body: string,
+  bodyHtml: string,
+  attachments: Array<{ name: string; mime: string; base64: string }>,
+  companyHint: { id: string; name: string } | null,
+): Promise<Extracted> {
   const tools = [{
     name: "submit_reservation_data",
-    description: "Submita os dados extraidos do email. is_reservation=false se NAO for email de reserva (newsletter, spam, conversa generica).",
+    description: "Submita os dados extraidos do email. is_reservation=false se NAO for email de reserva.",
     input_schema: {
       type: "object",
       properties: {
@@ -79,35 +133,73 @@ async function extractReservation(botCfg: BotConfig, subject: string, body: stri
         check_out: { type: "string", description: "YYYY-MM-DD" },
         adults: { type: "number" },
         children: { type: "number" },
-        category: { type: "string", enum: ["executivo", "master", "suite presidencial"], description: "Mapeie do que o email diz. Se nao mencionar, omita." },
+        category: { type: "string", enum: ["executivo", "master", "suite presidencial"] },
         contact_email: { type: "string" },
         contact_phone: { type: "string" },
         total_amount: { type: "number", description: "Valor total em BRL" },
         tariff: { type: "number", description: "Tarifa por noite em BRL" },
-        source: { type: "string", description: "BOOKING_COM, AIRBNB, EXPEDIA, DIRECT_EMAIL, etc." },
-        notes: { type: "string", description: "Observacoes relevantes pra recepcao" },
+        source: { type: "string", description: "BOOKING_COM, AIRBNB, EXPEDIA, PETROBRAS, DIRECT_EMAIL, etc." },
+        notes: { type: "string" },
+
+        is_corporate: { type: "boolean", description: "true se eh reserva de empresa (Petrobras, etc). OTAs nao contam." },
+        cost_center: { type: "string", description: "Centro de custo / projeto / OS (Petrobras manda tipo CC-12345, OS-67890)" },
+        billing_obs: { type: "string", description: "Observacoes de faturamento" },
+        fiscal_data: { type: "string", description: "Dados fiscais pra NF (CNPJ filial, endereco, etc) se diferentes do default" },
+        payment_method: { type: "string", enum: ["BILLED", "CREDIT_CARD", "PIX", "CASH"], description: "BILLED se faturado pra empresa" },
+        billing_info: { type: "string", description: "Instrucoes: 'faturar diarias separado de extras', 'incluir estacionamento na NF', etc" },
+        requested_by: { type: "string", description: "Nome do solicitante na empresa (quem aprovou/pediu)" },
+        extras: { type: "string", description: "Servicos extras (estacionamento, lavanderia, frigobar, etc) separado por virgula" },
       },
       required: ["is_reservation", "confidence"],
     },
   }];
-  const systemPrompt = `Voce eh um parser de emails de reserva de hotel. Sua tarefa: extrair dados estruturados de emails de confirmacao de reserva (Booking.com, Airbnb, Expedia, OTAs, emails diretos de clientes).
 
-Regras:
-- Se NAO for email de reserva (newsletter, spam, conversa generica, fatura, etc), retorne is_reservation=false com confidence="high".
-- Datas SEMPRE no formato YYYY-MM-DD (converta de "20 de janeiro de 2026" → "2026-01-20").
-- Se nao tiver certeza sobre um campo, omita ele em vez de inventar.
-- confidence="high" se o email tem todos os campos chave (nome, datas, valor). "medium" se faltam alguns. "low" se voce esta adivinhando.
-- Hoje eh ${new Date().toISOString().slice(0, 10)}.`;
-  const userMsg = `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "").slice(0, 8000)}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const companyContext = companyHint ? `\n\nCONTEXTO: O remetente eh de "${companyHint.name}" (empresa cadastrada). Assuma is_corporate=true e payment_method=BILLED.` : "";
+
+  const systemPrompt = `Voce eh um parser de emails de reserva de hotel. Hoje eh ${today}.
+
+Tipos de email que voce processa:
+1. OTA (Booking.com, Airbnb, Expedia) - preencha campos basicos
+2. CORPORATIVA (Petrobras e outras empresas) - preencha is_corporate=true + TODOS os campos de faturamento (cost_center, billing_obs, fiscal_data, payment_method=BILLED, billing_info, requested_by, extras)
+3. Email direto de hospede - basico, payment_method CREDIT_CARD ou PIX
+
+Regras corporativas:
+- "faturar diarias" = cobrar so noites na NF principal
+- "extras a parte" = NF separada pra estacionamento/lavanderia/frigobar - anote em billing_info
+- "OS 12345", "CC-XXXX", "projeto YYYY" = cost_center
+- Se tem PDF/imagem anexada (voucher Petrobras, screenshot interno), leia TUDO o que conseguir
+- Tarifa pode estar so em uma das fontes (corpo ou anexo) - use a mais especifica
+
+Datas SEMPRE YYYY-MM-DD (converta de "20/01/2026" ou "20 de janeiro de 2026"). Se incerto sobre algum campo, OMITA (nao invente).
+confidence="high" se tem nome+datas+valor. "medium" se faltam alguns. "low" se esta adivinhando.
+Se NAO for reserva (newsletter, spam, conversa generica), is_reservation=false com confidence=high.${companyContext}`;
+
+  const contentBlocks: Array<Record<string, unknown>> = [
+    { type: "text", text: `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}` },
+  ];
+  for (const att of attachments) {
+    if (att.mime.startsWith("image/")) {
+      contentBlocks.push({
+        type: "image",
+        source: { type: "base64", media_type: att.mime, data: att.base64 },
+      });
+    } else if (att.mime === "application/pdf") {
+      contentBlocks.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: att.base64 },
+      });
+    }
+  }
 
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": botCfg.api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
       model: botCfg.model,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: systemPrompt,
-      messages: [{ role: "user", content: userMsg }],
+      messages: [{ role: "user", content: contentBlocks }],
       tools,
       tool_choice: { type: "tool", name: "submit_reservation_data" },
     }),
@@ -131,20 +223,21 @@ serve(async (req) => {
   if (!cfg.enabled) return json({ skipped: "parser_disabled" });
 
   const { data: msg } = await admin.from("inbox_messages")
-    .select("id, channel, subject, body, body_html, contact_id, contact_identifier, email_message_id, direction")
+    .select("id, channel, subject, body, body_html, contact_id, contact_identifier, email_message_id, direction, attachments")
     .eq("id", body.inbox_message_id)
     .maybeSingle();
   if (!msg) return json({ skipped: "message_not_found" });
   if (msg.channel !== "email") return json({ skipped: "not_email" });
   if (msg.direction !== "in") return json({ skipped: "not_incoming" });
 
-  // Dedupe
   const sourceKey = `email:${msg.id}`;
   const { data: existing } = await admin.from("reservation_requests").select("id").eq("source_message_id", sourceKey).maybeSingle();
   if (existing) return json({ skipped: "already_processed", reservation_request_id: (existing as { id: string }).id });
 
-  // Heuristica
-  if (!cfg.always_classify) {
+  // Lookup empresa por dominio do sender (decide ANTES da heuristica — empresa cadastrada sempre classifica)
+  const company = await lookupCompany(msg.contact_identifier ?? "");
+
+  if (!cfg.always_classify && !company) {
     const senderLow = (msg.contact_identifier ?? "").toLowerCase();
     const subjectLow = (msg.subject ?? "").toLowerCase();
     const senderMatch = (cfg.sender_whitelist ?? []).some(d => senderLow.includes(d.toLowerCase()));
@@ -156,9 +249,12 @@ serve(async (req) => {
   if (!botCfg?.api_key) return json({ skipped: "no_llm_key" });
   if (botCfg.provider !== "claude") return json({ skipped: `provider_not_supported: ${botCfg.provider}` });
 
+  const attRefs = (msg.attachments ?? []) as AttachmentRef[];
+  const downloadedAtt = await loadAttachments(attRefs);
+
   let extracted: Extracted;
   try {
-    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "");
+    extracted = await extractReservation(botCfg, msg.subject ?? "", msg.body ?? "", msg.body_html ?? "", downloadedAtt, company);
   } catch (err) {
     return json({ error: "llm_failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
@@ -176,12 +272,17 @@ serve(async (req) => {
   if (extracted.check_in >= extracted.check_out) return json({ skipped: "invalid_dates", extracted });
 
   const code = "EML-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  const billingObsCombined = [
+    extracted.billing_obs,
+    extracted.extras ? `Extras: ${extracted.extras}` : null,
+  ].filter(Boolean).join(" | ") || null;
+
   const { data: inserted, error } = await admin.from("reservation_requests").insert([{
     guest_name: extracted.guest_name,
     check_in: extracted.check_in,
     check_out: extracted.check_out,
     status: "REQUESTED",
-    company_id: null,
+    company_id: company?.id ?? null,
     total_amount: extracted.total_amount ?? 0,
     reservation_code: code,
     tariff: extracted.tariff ?? 0,
@@ -191,12 +292,23 @@ serve(async (req) => {
     children: extracted.children ?? 0,
     contact_email: extracted.contact_email ?? msg.contact_identifier,
     contact_phone: extracted.contact_phone ?? null,
-    source: extracted.source ?? "EMAIL",
-    requested_by: "bot-email-parser",
-    billing_obs: extracted.notes ?? null,
+    source: extracted.source ?? (company ? company.name.toUpperCase() : "EMAIL"),
+    requested_by: extracted.requested_by ?? "bot-email-parser",
+    cost_center: extracted.cost_center ?? null,
+    billing_obs: billingObsCombined,
+    fiscal_data: extracted.fiscal_data ?? null,
+    payment_method: extracted.payment_method ?? (company ? "BILLED" : "CREDIT_CARD"),
+    billing_info: extracted.billing_info ?? null,
     source_message_id: sourceKey,
   }]).select("id, reservation_code").single();
   if (error) return json({ error: error.message }, 500);
 
-  return json({ created: true, reservation_request_id: (inserted as { id: string }).id, code: (inserted as { reservation_code: string }).reservation_code, extracted });
+  return json({
+    created: true,
+    reservation_request_id: (inserted as { id: string }).id,
+    code: (inserted as { reservation_code: string }).reservation_code,
+    company: company?.name ?? null,
+    attachments_processed: downloadedAtt.length,
+    extracted,
+  });
 });
