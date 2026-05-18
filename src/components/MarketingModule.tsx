@@ -1670,22 +1670,62 @@ function AnalyticsTab() {
 
 // ─── NPS Tab ──────────────────────────────────────────────────────────────────
 
+type NpsResponseRow = {
+  id: string;
+  guest_name: string | null;
+  channel: string;
+  score: number | null;
+  comment: string | null;
+  sent_at: string;
+  responded_at: string | null;
+};
+
 function NPSTab() {
-  const [scores] = useState([
-    { id: '1', guest: 'Ana Beatriz', score: 9, comment: 'Excelente atendimento, muito rápido!', channel: 'WhatsApp', date: '2026-05-10' },
-    { id: '2', guest: 'Carlos Lima', score: 7, comment: 'Bom, mas poderia melhorar o check-in.', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '3', guest: 'Marina Souza', score: 10, comment: 'Perfeito em todos os aspectos!', channel: 'WhatsApp', date: '2026-05-09' },
-    { id: '4', guest: 'Roberto F.', score: 6, comment: 'Wi-fi um pouco lento.', channel: 'Instagram', date: '2026-05-08' },
-    { id: '5', guest: 'Juliana Alves', score: 8, comment: 'Gostei muito do café da manhã.', channel: 'WhatsApp', date: '2026-05-07' },
-  ]);
+  const [responses, setResponses] = useState<NpsResponseRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dispatching, setDispatching] = useState(false);
 
-  const promoters = scores.filter(s => s.score >= 9).length;
-  const passives = scores.filter(s => s.score >= 7 && s.score <= 8).length;
-  const detractors = scores.filter(s => s.score <= 6).length;
-  const nps = Math.round(((promoters - detractors) / scores.length) * 100);
-  const avg = (scores.reduce((a, b) => a + b.score, 0) / scores.length).toFixed(1);
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('nps_responses')
+      .select('id, guest_name, channel, score, comment, sent_at, responded_at')
+      .order('sent_at', { ascending: false })
+      .limit(200);
+    if (error) toast.error('Falha ao carregar NPS: ' + error.message);
+    setResponses((data as NpsResponseRow[] | null) ?? []);
+    setLoading(false);
+  }
 
-  function scoreColor(s: number) {
+  useEffect(() => { load(); }, []);
+
+  async function dispatchNow() {
+    setDispatching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-nps', { body: { force: true } });
+      if (error) throw error;
+      const result = data as { sent?: number; processed?: number; results?: Array<{ reason?: string }> };
+      const emailSkipped = (result.results ?? []).some(r => String(r.reason ?? '').includes('Email NPS'));
+      toast.success(`NPS enviado: ${result.sent ?? 0} de ${result.processed ?? 0} elegiveis`);
+      if (emailSkipped) toast.info('NPS por e-mail ainda fica registrado como pendente nesta versao.');
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Falha ao disparar NPS');
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  const answered = responses.filter(s => s.score != null);
+  const promoters = answered.filter(s => (s.score ?? 0) >= 9).length;
+  const passives = answered.filter(s => (s.score ?? 0) >= 7 && (s.score ?? 0) <= 8).length;
+  const detractors = answered.filter(s => (s.score ?? 0) <= 6).length;
+  const nps = answered.length === 0 ? 0 : Math.round(((promoters - detractors) / answered.length) * 100);
+  const avg = answered.length === 0 ? '0.0' : (answered.reduce((a, b) => a + (b.score ?? 0), 0) / answered.length).toFixed(1);
+  const denominator = Math.max(1, answered.length);
+
+  function scoreColor(s: number | null) {
+    if (s == null) return 'text-neutral-400 bg-neutral-50';
     if (s >= 9) return 'text-emerald-600 bg-emerald-50';
     if (s >= 7) return 'text-amber-600 bg-amber-50';
     return 'text-red-600 bg-red-50';
@@ -1693,60 +1733,74 @@ function NPSTab() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
-        <h2 className="text-xl font-semibold text-neutral-950">Satisfação dos Hóspedes</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">NPS Engine</p>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Satisfacao dos Hospedes</h2>
+        </div>
+        <button onClick={dispatchNow} disabled={dispatching} className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 disabled:opacity-60">
+          {dispatching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          Disparar agora
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'NPS Score', value: `${nps}`, icon: Award, color: nps >= 50 ? 'text-emerald-600' : nps >= 0 ? 'text-amber-600' : 'text-red-600', bg: 'bg-emerald-50' },
-          { label: 'Nota Média', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Promotores', value: promoters.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Detratores', value: detractors.toString(), icon: Frown, color: 'text-red-600', bg: 'bg-red-50' },
+          { label: 'Nota Media', value: avg, icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-50' },
+          { label: 'Respondidos', value: answered.length.toString(), icon: Smile, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Pendentes', value: responses.filter(r => r.score == null).length.toString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
               <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </div>
-            <p className={`text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
+            <p className={`text-xl sm:text-2xl font-semibold ${stat.color}`}>{stat.value}</p>
             <p className="text-[10px] text-neutral-500 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
-      {/* NPS bar */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuição de Notas</h3>
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
+        <h3 className="font-semibold text-sm text-neutral-900 mb-4">Distribuicao de notas</h3>
         <div className="flex rounded-xl overflow-hidden h-6">
-          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / scores.length) * 100}%` }}>{Math.round((detractors / scores.length) * 100)}%</div>
-          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / scores.length) * 100}%` }}>{Math.round((passives / scores.length) * 100)}%</div>
-          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / scores.length) * 100}%` }}>{Math.round((promoters / scores.length) * 100)}%</div>
+          <div className="bg-red-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(detractors / denominator) * 100}%` }}>{Math.round((detractors / denominator) * 100)}%</div>
+          <div className="bg-amber-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(passives / denominator) * 100}%` }}>{Math.round((passives / denominator) * 100)}%</div>
+          <div className="bg-emerald-400 flex items-center justify-center text-[9px] font-semibold text-white" style={{ width: `${(promoters / denominator) * 100}%` }}>{Math.round((promoters / denominator) * 100)}%</div>
         </div>
-        <div className="flex justify-between mt-2 text-[9px] font-bold text-neutral-500">
-          <span className="text-red-500">Detratores (0-6)</span>
-          <span className="text-amber-500">Neutros (7-8)</span>
-          <span className="text-emerald-500">Promotores (9-10)</span>
+        <div className="flex justify-between gap-2 mt-2 text-[9px] font-bold text-neutral-500">
+          <span className="text-red-500">Detratores</span>
+          <span className="text-amber-500">Neutros</span>
+          <span className="text-emerald-500">Promotores</span>
         </div>
       </div>
 
-      {/* Responses */}
-      <div className="space-y-3">
-        {scores.map(s => (
-          <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl border border-neutral-100 bg-white shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-sm shrink-0 ${scoreColor(s.score)}`}>
-              {s.score}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm text-neutral-900">{s.guest}</p>
-              <p className="text-xs text-neutral-500 mt-0.5">{s.comment}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-[9px] text-neutral-400">{s.date}</p>
-              <p className="text-[9px] font-bold text-neutral-500">{s.channel}</p>
-            </div>
-          </div>
-        ))}
+      <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[650px]">
+            <thead>
+              <tr className="border-b border-neutral-100">
+                {['Hospede', 'Canal', 'Nota', 'Comentario', 'Enviado', 'Respondido'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Carregando...</td></tr>}
+              {!loading && responses.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-400">Nenhuma pesquisa enviada ainda.</td></tr>}
+              {!loading && responses.map(s => (
+                <tr key={s.id} className="border-b border-neutral-50 hover:bg-neutral-50">
+                  <td className="px-5 py-3 text-sm font-bold text-neutral-900">{s.guest_name || 'Hospede'}</td>
+                  <td className="px-5 py-3 text-xs text-neutral-500">{s.channel}</td>
+                  <td className="px-5 py-3"><span className={`w-8 h-8 rounded-xl inline-flex items-center justify-center font-semibold text-sm ${scoreColor(s.score)}`}>{s.score ?? '-'}</span></td>
+                  <td className="px-5 py-3 text-xs text-neutral-500 max-w-md truncate">{s.comment || '-'}</td>
+                  <td className="px-5 py-3 text-xs text-neutral-500">{new Date(s.sent_at).toLocaleDateString('pt-BR')}</td>
+                  <td className="px-5 py-3 text-xs text-neutral-500">{s.responded_at ? new Date(s.responded_at).toLocaleDateString('pt-BR') : 'pendente'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -2086,31 +2140,78 @@ function FlowBuilderTab() {
 // ─── Broadcasts Tab ───────────────────────────────────────────────────────────
 
 function BroadcastsTab() {
-  const [showForm, setShowForm] = useState(false);
-  const [broadcasts] = useState([
-    { id: '1', name: 'Promoção Maio - Hóspedes VIP', sent: 342, delivered: 339, read: 298, replied: 41, date: '2026-05-08', status: 'sent' },
-    { id: '2', name: 'Confirmação Reservas Feriado', sent: 87, delivered: 87, read: 82, replied: 23, date: '2026-05-06', status: 'sent' },
-    { id: '3', name: 'Campanha Aniversariantes Junho', sent: 0, delivered: 0, read: 0, replied: 0, date: '2026-06-01', status: 'scheduled' },
-  ]);
+  const [broadcasts, setBroadcasts] = useState<CampaignRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('marketing_campaigns')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) toast.error('Falha ao carregar disparos: ' + error.message);
+    setBroadcasts((data as CampaignRow[] | null) ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    let alive = true;
+    async function guardedLoad() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('marketing_campaigns')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!alive) return;
+      if (error) toast.error('Falha ao carregar disparos: ' + error.message);
+      setBroadcasts((data as CampaignRow[] | null) ?? []);
+      setLoading(false);
+    }
+    guardedLoad();
+    const ch = supabase
+      .channel('marketing_broadcasts_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_campaigns' }, () => guardedLoad())
+      .subscribe();
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, []);
+
+  const totals = broadcasts.reduce((acc, b) => ({
+    sent: acc.sent + (b.total_recipients || 0),
+    delivered: acc.delivered + (b.delivered_count || 0),
+    read: acc.read + (b.read_count || 0),
+    replied: acc.replied + (b.reply_count || 0),
+    scheduled: acc.scheduled + (b.status === 'scheduled' ? 1 : 0),
+  }), { sent: 0, delivered: 0, read: 0, replied: 0, scheduled: 0 });
+  const readRate = totals.delivered > 0 ? Math.round((totals.read / totals.delivered) * 100) : 0;
+  const replyRate = totals.delivered > 0 ? Math.round((totals.replied / totals.delivered) * 1000) / 10 : 0;
+
+  const statusMap = {
+    draft: { label: 'Rascunho', cls: 'bg-neutral-100 text-neutral-600' },
+    scheduled: { label: 'Agendado', cls: 'bg-amber-100 text-amber-700' },
+    running: { label: 'Em curso', cls: 'bg-blue-100 text-blue-700' },
+    completed: { label: 'Enviado', cls: 'bg-emerald-100 text-emerald-700' },
+    paused: { label: 'Pausado', cls: 'bg-neutral-100 text-neutral-500' },
+    failed: { label: 'Falhou', cls: 'bg-red-100 text-red-700' },
+  } as const;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">Disparos</p>
-          <h2 className="text-xl font-semibold text-neutral-950">Broadcast Manager</h2>
+          <h2 className="text-xl sm:text-2xl font-semibold text-neutral-950">Historico de campanhas</h2>
         </div>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-900 text-white text-sm font-bold hover:bg-neutral-800 transition-colors">
-          <Send className="w-4 h-4" /> Novo disparo
+        <button onClick={load} className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-100 text-neutral-700 text-sm font-bold hover:bg-neutral-200 transition-colors">
+          <RefreshCcw className="w-4 h-4" /> Atualizar
         </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total enviados', value: '429', icon: Send, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Taxa de leitura', value: '88%', icon: Eye, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Taxa de resposta', value: '18.8%', icon: MessageSquare, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Agendados', value: '1', icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { label: 'Total enviados', value: totals.sent.toLocaleString('pt-BR'), icon: Send, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Taxa de leitura', value: `${readRate}%`, icon: Eye, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Taxa de resposta', value: `${replyRate}%`, icon: MessageSquare, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Agendados', value: totals.scheduled.toString(), icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
         ].map(stat => (
           <div key={stat.label} className="rounded-2xl border border-neutral-100 bg-white p-4 shadow-sm">
             <div className={`w-8 h-8 rounded-xl ${stat.bg} flex items-center justify-center mb-2`}>
@@ -2123,32 +2224,32 @@ function BroadcastsTab() {
       </div>
 
       <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
-        {broadcasts.map((b, idx) => (
+        {loading && <div className="p-8 text-center text-sm text-neutral-400">Carregando disparos...</div>}
+        {!loading && broadcasts.length === 0 && <div className="p-8 text-center text-sm text-neutral-400">Nenhuma campanha disparada ainda. Crie uma campanha na aba Campanhas.</div>}
+        {!loading && broadcasts.map((b, idx) => (
           <div key={b.id} className={`p-4 sm:p-5 ${idx < broadcasts.length - 1 ? 'border-b border-neutral-100' : ''}`}>
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="font-bold text-sm text-neutral-900">{b.name}</p>
-                <p className="text-xs text-neutral-500">{b.date}</p>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+              <div className="min-w-0">
+                <p className="font-bold text-sm text-neutral-900 truncate">{b.name}</p>
+                <p className="text-xs text-neutral-500">{b.channel} - {new Date(b.created_at).toLocaleDateString('pt-BR')}</p>
               </div>
-              <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${b.status === 'sent' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                {b.status === 'sent' ? 'Enviado' : 'Agendado'}
+              <span className={`self-start text-[9px] font-semibold uppercase px-2 py-0.5 rounded-full ${statusMap[b.status]?.cls ?? 'bg-neutral-100 text-neutral-600'}`}>
+                {statusMap[b.status]?.label ?? b.status}
               </span>
             </div>
-            {b.sent > 0 && (
-              <div className="grid grid-cols-4 gap-3">
-                {[
-                  { label: 'Enviados', value: b.sent },
-                  { label: 'Entregues', value: b.delivered },
-                  { label: 'Lidos', value: b.read },
-                  { label: 'Respondidos', value: b.replied },
-                ].map(m => (
-                  <div key={m.label} className="text-center p-2 rounded-xl bg-neutral-50">
-                    <p className="font-semibold text-sm text-neutral-900">{m.value}</p>
-                    <p className="text-[9px] text-neutral-400">{m.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Enviados', value: b.total_recipients || 0 },
+                { label: 'Entregues', value: b.delivered_count || 0 },
+                { label: 'Lidos', value: b.read_count || 0 },
+                { label: 'Respondidos', value: b.reply_count || 0 },
+              ].map(m => (
+                <div key={m.label} className="text-center p-2 rounded-xl bg-neutral-50">
+                  <p className="font-semibold text-sm text-neutral-900">{m.value}</p>
+                  <p className="text-[9px] text-neutral-400">{m.label}</p>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
@@ -3312,3 +3413,4 @@ function KpiChip({ label, value, tone }: { label: string; value: number; tone: '
     </div>
   );
 }
+
