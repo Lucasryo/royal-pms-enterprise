@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 type LogStatus = 'sent' | 'edited' | 'deleted' | 'failed' | 'skipped';
 
@@ -55,5 +56,56 @@ const stats = housekeepingStats('staff-1', [
 ]);
 
 assert.deepEqual(stats, { pending: 1, returnPending: 1, approved: 1 });
+
+const source = readFileSync(new URL('../supabase/functions/notify-maintenance-ticket/index.ts', import.meta.url), 'utf8');
+
+function sliceAfter(start: string, length = 1200) {
+  const startIndex = source.indexOf(start);
+  assert.notEqual(startIndex, -1, `missing source marker: ${start}`);
+  return source.slice(startIndex, startIndex + length);
+}
+
+const commandMarkers = [
+  'cmd === "/status"',
+  'cmd === "/listar"',
+  'cmd === "/buscar"',
+  'cmd === "/peças" || cmd === "/pecas"',
+  'cmd === "/sla"',
+  'cmd === "/meus"',
+  'cmd === "/liberar"',
+  'cmd === "/reenviar"',
+  'cmd === "/cancelar"',
+  'cmd === "/reabrir"',
+  'cmd === "/direcionar"',
+  'cmd === "/performance"',
+  'cmd === "/ajuda" || cmd === "/help" || cmd === "/start"',
+];
+for (const marker of commandMarkers) assert.ok(source.includes(marker), `missing Telegram command handler: ${marker}`);
+
+const callbackActionMarkers = [
+  'action === "rate"',
+  'action === "insp_assume"',
+  'action === "insp_ok"',
+  'action === "insp_nok"',
+  'action === "assume"',
+  'action === "parts_ok"',
+  'action === "resolve"',
+  'action === "parts"',
+  'action === "details"',
+  'action === "note"',
+  'action === "transfer"',
+];
+for (const marker of callbackActionMarkers) assert.ok(source.includes(marker), `missing Telegram callback handler: ${marker}`);
+
+const cardRefreshFlows = [
+  'event: "cancelled_by_moderator"',
+  'event: "reopened_by_moderator"',
+  'event: "directed"',
+  'event: "note_added"',
+  'event: "unlocked_by_moderator"',
+];
+for (const marker of cardRefreshFlows) {
+  assert.ok(sliceAfter(marker).includes('updateTicketCard'), `missing card refresh after ${marker}`);
+}
 
 console.log('bot telegram focused tests passed');

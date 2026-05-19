@@ -1935,6 +1935,7 @@ async function handleReply(message: Record<string, unknown>) {
         .from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
       if (tk && tk.status !== "resolved" && tk.status !== "cancelled") {
         await db.from("maintenance_tickets").update({ priority: "urgent", updated_at: new Date().toISOString() }).eq("id", ticketId);
+        await updateTicketCard(ticketId, chatId);
         await tg("sendMessage", {
           chat_id: chatId,
           text: `🔴 *${esc(name)}* marcou como URGENTE:\n*${esc(tk.title)}*`,
@@ -2013,6 +2014,7 @@ async function handleReply(message: Record<string, unknown>) {
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "cancelled_by_moderator", prevStatus: ticket.status, newStatus: "cancelled", notes: userText.slice(0, 500) });
+    await updateTicketCard(ticketId, chatId);
     await tg("sendMessage", {
       chat_id: chatId,
       text: `❌ *${esc(name)}* cancelou: *${esc(ticket.title)}*\n_${esc(userText)}_`,
@@ -2050,6 +2052,7 @@ async function handleReply(message: Record<string, unknown>) {
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "reopened_by_moderator", prevStatus: ticket.status, newStatus: "open", notes: userText.slice(0, 500) });
+    await updateTicketCard(ticketId, chatId);
     await tg("sendMessage", {
       chat_id: chatId,
       text: `🔄 *${esc(name)}* reabriu: *${esc(ticket.title)}*\n_${esc(userText)}_`,
@@ -2098,6 +2101,7 @@ async function handleReply(message: Record<string, unknown>) {
     }).eq("id", ticketId);
     await logEvent({ ticketId, actorType: "telegram_user", actorId: String(fromId), actorName: name,
       event: "directed", prevStatus: ticket.status, newStatus: "in_progress", notes: `Direcionado para: ${tech.name}` });
+    await updateTicketCard(ticketId, chatId);
     await tg("sendMessage", {
       chat_id: chatId,
       text: `📌 *${esc(name)}* direcionou *${esc(ticket.title)}* para *${esc(tech.name)}*`,
@@ -2129,6 +2133,7 @@ async function handleReply(message: Record<string, unknown>) {
       actorId: String(fromId), actorName: name,
       event: "note_added", notes: noteText.slice(0, 500),
     });
+    await updateTicketCard(tId, chatId);
     const uhPart = tk.room_number ? ` — UH ${esc(tk.room_number)}` : "";
     await tg("sendMessage", {
       chat_id: chatId,
@@ -2322,6 +2327,7 @@ async function handleMessage(message: Record<string, unknown>) {
     const { data: tk } = await db.from("maintenance_tickets").select("title,status").eq("id", ticketId).single();
     if (tk && tk.status !== "resolved" && tk.status !== "cancelled") {
       await db.from("maintenance_tickets").update({ priority: "urgent", updated_at: new Date().toISOString() }).eq("id", ticketId);
+      await updateTicketCard(ticketId, chatId);
       await tg("sendMessage", { chat_id: chatId, text: `🔴 *${esc(name)}* marcou como URGENTE:\n*${esc(tk.title)}*`, parse_mode: "MarkdownV2" });
     }
     return { ok: true };
@@ -2549,6 +2555,7 @@ async function handleMessage(message: Record<string, unknown>) {
       event: "unlocked_by_moderator", prevStatus: "in_progress", newStatus: "open",
       notes: `Liberado de: ${tk.status_reason ?? "desconhecido"}`,
     });
+    await updateTicketCard(ticketId, chatId);
     await tg("sendMessage", {
       chat_id: chatId,
       text: `🔓 *${esc(name)}* liberou o chamado *${esc(tk.title)}*\\. Está aberto para assumir novamente\\.`,
