@@ -1817,37 +1817,56 @@ function MaintenancePerformanceTab() {
 }
 
 export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfile }) {
-  const sections = [
-    { id: 'finance',   label: 'Gestao financeira', icon: CreditCard,   tone: 'from-emerald-50 to-white  border-emerald-200 text-emerald-700' },
-    { id: 'documents', label: 'Faturas e arquivos', icon: FileText,    tone: 'from-blue-50 to-white     border-blue-200 text-blue-700' },
-    { id: 'tracking',  label: 'Rastreio e cobranca', icon: ClipboardList, tone: 'from-amber-50 to-white  border-amber-200 text-amber-700' },
-    { id: 'fiscal',    label: 'Fiscal e NFS-e',     icon: ShieldCheck, tone: 'from-violet-50 to-white   border-violet-200 text-violet-700' },
-  ] as const;
+  type FinSection = 'finance' | 'documents' | 'tracking' | 'fiscal';
+  const sections: Array<{ id: FinSection; label: string; icon: ComponentType<{ className?: string }>; tone: string; subtitle: string }> = [
+    { id: 'finance',   label: 'Gestao financeira',   icon: CreditCard,    tone: 'from-emerald-50 to-white border-emerald-200 text-emerald-700', subtitle: 'Folio, pagamentos e baixa' },
+    { id: 'documents', label: 'Faturas e arquivos',  icon: FileText,      tone: 'from-blue-50 to-white border-blue-200 text-blue-700',           subtitle: 'Documentos, NFs e anexos' },
+    { id: 'tracking',  label: 'Rastreio e cobranca', icon: ClipboardList, tone: 'from-amber-50 to-white border-amber-200 text-amber-700',       subtitle: 'AR, vencidos e disputas' },
+    { id: 'fiscal',    label: 'Fiscal e NFS-e',      icon: ShieldCheck,   tone: 'from-violet-50 to-white border-violet-200 text-violet-700',    subtitle: 'Emissao, jobs e auditoria' },
+  ];
+
+  const [active, setActive] = useState<FinSection>('finance');
+  const current = sections.find((s) => s.id === active) || sections[0];
+  const ActiveIcon = current.icon;
+
+  const renderSection = () => {
+    switch (active) {
+      case 'finance':   return <AdminDashboard profile={profile} initialTab="finance" />;
+      case 'documents': return <AdminDashboard profile={profile} initialTab="documents" />;
+      case 'tracking':  return <AdminDashboard profile={profile} initialTab="tracking" />;
+      case 'fiscal':    return <FiscalPanelDashboard profile={profile} />;
+    }
+  };
 
   return (
     <div className={moduleShellClass}>
-      {/* Hero editorial */}
       <div className="relative overflow-hidden rounded-[2rem] border border-neutral-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-emerald-950 p-5 sm:p-8 text-white shadow-sm">
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-emerald-300">Modulo Financeiro / Faturamento</p>
             <h1 className="mt-2 text-2xl sm:text-3xl font-black tracking-tight">Tudo num lugar so</h1>
             <p className="mt-2 text-xs sm:text-sm leading-6 sm:leading-7 text-white/60">
-              Sem abas: role a pagina ou use a navegacao lateral para alternar entre financeiro, faturas, rastreio de cobranca e fiscal.
+              Sem abas: use a navegacao lateral para alternar entre financeiro, faturas, rastreio e fiscal. Cada secao carrega apenas quando selecionada.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {sections.map((s) => {
               const Icon = s.icon;
+              const selected = active === s.id;
               return (
-                <a
+                <button
                   key={s.id}
-                  href={`#fin-${s.id}`}
-                  className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold backdrop-blur transition hover:bg-white/10"
+                  type="button"
+                  onClick={() => setActive(s.id)}
+                  className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-bold backdrop-blur transition ${
+                    selected
+                      ? 'border-emerald-300 bg-white/15 text-white'
+                      : 'border-white/15 bg-white/5 text-white/80 hover:bg-white/10'
+                  }`}
                 >
                   <Icon className="h-4 w-4" />
                   {s.label}
-                </a>
+                </button>
               );
             })}
           </div>
@@ -1856,67 +1875,48 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
         <div aria-hidden className="pointer-events-none absolute -bottom-24 -left-10 h-72 w-72 rounded-full bg-amber-500/15 blur-3xl" />
       </div>
 
-      {/* Layout em coluna unica com nav grudada para desktop */}
-      <div className="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden lg:block">
           <nav className="sticky top-6 space-y-1 rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
             {sections.map((s) => {
               const Icon = s.icon;
+              const selected = active === s.id;
               return (
-                <a
+                <button
                   key={s.id}
-                  href={`#fin-${s.id}`}
-                  className="flex items-center gap-2 rounded-2xl px-3 py-2.5 text-xs font-black text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+                  type="button"
+                  onClick={() => setActive(s.id)}
+                  className={`flex w-full items-start gap-2 rounded-2xl px-3 py-2.5 text-left text-xs font-black transition ${
+                    selected
+                      ? 'bg-neutral-950 text-white shadow-sm'
+                      : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+                  }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  {s.label}
-                </a>
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div>{s.label}</div>
+                    <div className={`mt-0.5 text-[10px] font-bold uppercase tracking-wider ${selected ? 'text-emerald-300' : 'text-neutral-400'}`}>
+                      {s.subtitle}
+                    </div>
+                  </div>
+                </button>
               );
             })}
           </nav>
         </aside>
 
-        <div className="space-y-6 min-w-0">
-          <section id="fin-finance" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[0].tone}`}>
-            <header className="mb-4 flex items-center gap-2">
-              <CreditCard className="h-5 w-5" />
-              <h2 className="text-lg sm:text-xl font-black tracking-tight">Gestao financeira</h2>
-            </header>
-            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
-              <AdminDashboard profile={profile} initialTab="finance" />
+        <section className={`min-w-0 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${current.tone}`}>
+          <header className="mb-4 flex items-center gap-2">
+            <ActiveIcon className="h-5 w-5" />
+            <div>
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">{current.label}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{current.subtitle}</p>
             </div>
-          </section>
-
-          <section id="fin-documents" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[1].tone}`}>
-            <header className="mb-4 flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              <h2 className="text-lg sm:text-xl font-black tracking-tight">Faturas e arquivos</h2>
-            </header>
-            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
-              <AdminDashboard profile={profile} initialTab="documents" />
-            </div>
-          </section>
-
-          <section id="fin-tracking" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[2].tone}`}>
-            <header className="mb-4 flex items-center gap-2">
-              <ClipboardList className="h-5 w-5" />
-              <h2 className="text-lg sm:text-xl font-black tracking-tight">Rastreio e cobranca</h2>
-            </header>
-            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
-              <AdminDashboard profile={profile} initialTab="tracking" />
-            </div>
-          </section>
-
-          <section id="fin-fiscal" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[3].tone}`}>
-            <header className="mb-4 flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5" />
-              <h2 className="text-lg sm:text-xl font-black tracking-tight">Fiscal e NFS-e</h2>
-            </header>
-            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
-              <FiscalPanelDashboard profile={profile} />
-            </div>
-          </section>
-        </div>
+          </header>
+          <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+            {renderSection()}
+          </div>
+        </section>
       </div>
     </div>
   );

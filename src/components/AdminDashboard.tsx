@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useId, useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { Company, FiscalFile, UserProfile, UserRole, UserPermissions, AuditLog, Notification } from '../types';
 import { PDFDocument } from 'pdf-lib';
@@ -62,6 +62,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
   const [isDetecting, setIsDetecting] = useState(false);
   const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab);
+  const instanceId = useId();
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -144,7 +145,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
     fetchMonthlyGoal();
 
     const channel = supabase
-      .channel('notifications-changes')
+      .channel(`notifications-changes:${profile.id}:${instanceId}`)
       .on(
         'postgres_changes',
         {
@@ -165,7 +166,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile.id]);
+  }, [profile.id, instanceId]);
 
   const fetchMonthlyGoal = async () => {
     try {
