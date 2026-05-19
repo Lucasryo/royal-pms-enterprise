@@ -13,6 +13,10 @@ import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
 import FiscalPanelDashboard from './FiscalPanelDashboard';
+import FinanceOverview from './finance/FinanceOverview';
+import FinanceDocuments from './finance/FinanceDocuments';
+import FinanceTracking from './finance/FinanceTracking';
+import FinanceFiscal from './finance/FinanceFiscal';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
 import OccupancyChart from './OccupancyChart';
@@ -1831,10 +1835,10 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
 
   const renderSection = () => {
     switch (active) {
-      case 'finance':   return <AdminDashboard profile={profile} initialTab="finance" />;
-      case 'documents': return <AdminDashboard profile={profile} initialTab="documents" />;
-      case 'tracking':  return <AdminDashboard profile={profile} initialTab="tracking" />;
-      case 'fiscal':    return <FiscalPanelDashboard profile={profile} />;
+      case 'finance':   return <FinanceOverview profile={profile} />;
+      case 'documents': return <FinanceDocuments profile={profile} />;
+      case 'tracking':  return <FinanceTracking profile={profile} />;
+      case 'fiscal':    return <FinanceFiscal profile={profile} />;
     }
   };
 
@@ -1913,7 +1917,7 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
               <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{current.subtitle}</p>
             </div>
           </header>
-          <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+          <div className="rounded-2xl bg-white/60 p-3 sm:p-4 backdrop-blur">
             {renderSection()}
           </div>
         </section>
