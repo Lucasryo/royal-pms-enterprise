@@ -4,7 +4,7 @@
  */
 
 import { ComponentType, useEffect, useState, useMemo } from 'react';
-import { supabase } from './supabase';
+import { isSupabaseConfigured, supabase } from './supabase';
 import { UserProfile, UserRole, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
@@ -254,6 +254,11 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+
     const timer = setTimeout(() => setLoading(false), 8000);
 
     supabase.auth.getSession()
@@ -434,6 +439,23 @@ export default function App() {
       );
     }
     return <MaintenanceQueueBoard />;
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center p-6">
+        <Toaster position="top-right" richColors />
+        <div className="w-full max-w-lg rounded-3xl border border-amber-200 bg-white p-8 shadow-xl">
+          <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+            <ShieldCheck className="h-6 w-6" />
+          </div>
+          <h1 className="text-center text-2xl font-black text-gray-950">Configuração local incompleta</h1>
+          <p className="mt-3 text-center text-sm leading-6 text-gray-500">
+            Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY em .env.local e reinicie o servidor de desenvolvimento.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (loading) {
