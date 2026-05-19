@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import RoomCubes3D from './three/RoomCubes3D';
 
 const STATUS_LABELS: Record<Room['status'], string> = {
   available: 'Disponivel',
@@ -213,6 +214,8 @@ export default function HousekeepingDashboard({ profile }: { profile: UserProfil
           </button>
         )}
       </div>
+
+      <RoomCubes3D rooms={rooms} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
         <StatCard label="UHs" value={stats.total} icon={BedDouble} tone="neutral" />

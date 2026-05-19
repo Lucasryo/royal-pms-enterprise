@@ -9,6 +9,7 @@ import { format, addDays, startOfToday, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { logAudit, sendNotification } from '../lib/audit';
 import { hasPermission } from '../lib/permissions';
+import ReservationsCalendar3D from './three/ReservationsCalendar3D';
 
 const slugifySegment = (value: string) =>
   value
@@ -1099,6 +1100,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           Nova Reserva
         </button>
       </div>
+
+      <ReservationsCalendar3D reservations={reservations} />
 
       <div className="flex bg-neutral-100 p-1 rounded-xl max-w-full overflow-x-auto">
         <button

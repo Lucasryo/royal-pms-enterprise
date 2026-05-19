@@ -8,6 +8,7 @@ import { format, differenceInCalendarDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { logAudit } from '../lib/audit';
 import { hasPermission } from '../lib/permissions';
+import CheckInCards3D from './three/CheckInCards3D';
 
 type SubTab = 'checkin' | 'contas' | 'historico' | 'configuracoes';
 
@@ -636,6 +637,32 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
           Walk-in / Passante
         </button>
       </div>
+
+      <CheckInCards3D
+        arrivals={arrivalsToday}
+        departures={departuresToday}
+        inhouse={filteredByStatus.contas.length}
+        sample={[
+          ...filteredByStatus.checkin.slice(0, 1).map((r) => ({
+            guest: r.guest_name,
+            room: r.room_number,
+            eta: r.check_in?.slice(11, 16) || '14:00',
+            status: 'arrival' as const,
+          })),
+          ...filteredByStatus.contas.slice(0, 1).map((r) => ({
+            guest: r.guest_name,
+            room: r.room_number,
+            eta: r.check_out?.slice(11, 16) || '12:00',
+            status: 'inhouse' as const,
+          })),
+          ...filteredByStatus.contas.slice(1, 2).map((r) => ({
+            guest: r.guest_name,
+            room: r.room_number,
+            eta: r.check_out?.slice(11, 16) || '11:00',
+            status: 'departure' as const,
+          })),
+        ]}
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
