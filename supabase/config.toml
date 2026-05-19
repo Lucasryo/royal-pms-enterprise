@@ -1,3 +1,24 @@
+[auth]
+site_url = "https://royal.app.br"
+additional_redirect_urls = [
+  "https://royal.app.br",
+  "https://royal.app.br/**",
+  "https://royal-pms-enterprise.vercel.app/**",
+  "https://royal-pms-enterprise-lucaszhunters-projects.vercel.app/**",
+  "https://royal-pms-enterprise-git-main-lucaszhunters-projects.vercel.app/**",
+  "http://localhost:5173/**",
+  "http://127.0.0.1:5173/**",
+]
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
 [functions.notify-maintenance-ticket]
 verify_jwt = false
 
