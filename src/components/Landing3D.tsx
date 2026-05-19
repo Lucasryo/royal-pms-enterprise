@@ -883,6 +883,14 @@ export default function Landing3D() {
   const [menuOpen, setMenuOpen]   = useState(false);
   const [scrolled, setScrolled]   = useState(false);
 
+  const openLogin = () => {
+    setMenuOpen(false);
+    setLoginOpen(true);
+    if (window.location.hash !== '#login') {
+      window.history.replaceState(null, '', '#login');
+    }
+  };
+
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 12);
     on();
@@ -930,7 +938,7 @@ export default function Landing3D() {
           </nav>
 
           <div className="flex items-center gap-2">
-            <button onClick={() => setLoginOpen(true)} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
+            <button onClick={openLogin} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
               Acessar
             </button>
             <a href="#contato" className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3">
@@ -962,7 +970,7 @@ export default function Landing3D() {
                     className="py-3 text-base font-medium text-ink/80 border-b border-ink/5 last:border-0">{l.label}</a>
                 ))}
                 <button
-                  onClick={() => { setMenuOpen(false); setLoginOpen(true); }}
+                  onClick={openLogin}
                   className="mt-3 w-full rounded-full border border-ink/20 py-3 text-sm font-medium text-ink/70"
                 >
                   Já tenho acesso — entrar
@@ -1020,7 +1028,7 @@ export default function Landing3D() {
                     <ArrowRight className="h-3.5 w-3.5" />
                   </span>
                 </a>
-                <button onClick={() => setLoginOpen(true)} className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink">
+                <button onClick={openLogin} className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink">
                   <span className="border-b border-ink/30 pb-0.5 transition group-hover:border-ink">Já tenho acesso</span>
                 </button>
               </motion.div>
@@ -1224,7 +1232,7 @@ export default function Landing3D() {
                   <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </a>
-              <button onClick={() => setLoginOpen(true)} className="group inline-flex items-center gap-2 text-sm font-medium text-ink">
+              <button onClick={openLogin} className="group inline-flex items-center gap-2 text-sm font-medium text-ink">
                 <span className="border-b border-ink/30 pb-0.5 group-hover:border-ink">Já sou cliente — entrar</span>
               </button>
             </div>
