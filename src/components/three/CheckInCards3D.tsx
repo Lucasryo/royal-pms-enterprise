@@ -84,14 +84,16 @@ export default function CheckInCards3D({
   inhouse?: number;
   sample?: CardData[];
 }) {
-  const cards: CardData[] =
-    sample.length > 0
-      ? sample.slice(0, 3)
-      : [
-          { guest: 'Sra. Andrade', room: '402', eta: '14:30', status: 'arrival' },
-          { guest: 'PRIO · J. Lopes', room: '208', eta: '23:00', status: 'inhouse' },
-          { guest: 'Sr. Tavares', room: '115', eta: '11:00', status: 'departure' },
-        ];
+  const fallback: CardData[] = [
+    { guest: 'Sra. Andrade', room: '402', eta: '14:30', status: 'arrival' },
+    { guest: 'PRIO · J. Lopes', room: '208', eta: '23:00', status: 'inhouse' },
+    { guest: 'Sr. Tavares', room: '115', eta: '11:00', status: 'departure' },
+  ];
+  const cards: CardData[] = [
+    sample[0] ?? fallback[0],
+    sample[1] ?? fallback[1],
+    sample[2] ?? fallback[2],
+  ];
 
   const { ref, rx, ry } = useTilt(10);
   const tx = useTransform(ry, [-10, 10], [-10, 10]);
