@@ -53,6 +53,10 @@ async function send(channel: RecipientChannel, subject: string, html: string) {
       body: { to, subject, html, from: cfg.from },
     });
     if (error) throw error;
+    if (data && (data as any).ok === false) {
+      console.error(`[notify] resend rejeitou ${channel}:`, (data as any).error, (data as any).detail);
+      return { error: (data as any).error };
+    }
     return data;
   } catch (e) {
     console.error('[notify] falha em', channel, e);

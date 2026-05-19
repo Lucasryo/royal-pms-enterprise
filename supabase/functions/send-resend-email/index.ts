@@ -57,9 +57,17 @@ serve(async (req) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.error("Resend error", res.status, data);
-      return json({ error: data?.message || `Resend HTTP ${res.status}`, detail: data }, 502);
+      // Retorna 200 com ok:false pra que supabase.functions.invoke nao engula a mensagem.
+      // O cliente verifica data.ok.
+      return json({
+        ok: false,
+        error: data?.message || data?.name || `Resend HTTP ${res.status}`,
+        resend_status: res.status,
+        detail: data,
+        from_used: payload.from,
+      }, 200);
     }
-    return json({ sent: true, id: data?.id, recipients });
+    return json({ ok: true, sent: true, id: data?.id, recipients });
   } catch (e) {
     console.error("send-resend-email", e);
     return json({ error: e instanceof Error ? e.message : "Erro desconhecido" }, 500);

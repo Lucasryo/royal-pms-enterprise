@@ -82,8 +82,14 @@ export default function NotificationSettingsModal({ onClose }: { onClose: () => 
         from: from.trim() || undefined,
       },
     });
-    if (error || (data as any)?.error) {
-      toast.error('Falha: ' + (error?.message || (data as any)?.error), { id: tid });
+    if (error) {
+      toast.error('Falha: ' + error.message, { id: tid });
+    } else if (data && (data as any).ok === false) {
+      const d = data as any;
+      toast.error(`Resend rejeitou: ${d.error}${d.from_used ? ` (from: ${d.from_used})` : ''}`, { id: tid, duration: 8000 });
+      console.error('Resend detail:', d.detail);
+    } else if ((data as any)?.error) {
+      toast.error('Falha: ' + (data as any).error, { id: tid });
     } else {
       toast.success('Teste enviado', { id: tid });
     }
