@@ -109,15 +109,57 @@ function normalizeCnpj(s: string): string {
   return s.replace(/\D/g, "");
 }
 
+function normalizeText(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function scoreCompanyCandidate(c: CompanyRow, senderDomain: string, haystack: string, companyNameHint = ""): number {
+  let score = 0;
+  const normalizedHaystack = normalizeText(haystack);
+  const normalizedHint = normalizeText(companyNameHint);
+  const aliases = (c.parser_aliases ?? []).map(a => a.trim()).filter(Boolean);
+
+  if (c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain) score += 100;
+
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeText(alias);
+    if (normalizedAlias.length >= 3 && normalizedHaystack.includes(normalizedAlias)) score += Math.min(70, normalizedAlias.length);
+    if (normalizedHint && normalizedAlias === normalizedHint) score += 90;
+  }
+
+  const normalizedName = normalizeText(c.name);
+  if (normalizedName && normalizedHaystack.includes(normalizedName)) score += 60;
+  if (normalizedHint && normalizedName === normalizedHint) score += 90;
+
+  return score;
+}
+
+function pickBestCompany(candidates: CompanyRow[], senderDomain: string, haystack: string, companyNameHint = ""): CompanyRow | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+  const ranked = candidates
+    .map(c => ({ c, score: scoreCompanyCandidate(c, senderDomain, haystack, companyNameHint) }))
+    .sort((a, b) => b.score - a.score);
+  return ranked[0].score > 0 ? ranked[0].c : candidates[0];
+}
+
 function matchCompanyHeuristic(companies: CompanyRow[], senderEmail: string, subject: string, body: string): CompanyRow | null {
   const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
   const haystack = `${senderEmail}\n${subject}\n${body}`.toLowerCase();
   const haystackDigits = normalizeCnpj(haystack);
-  // 1) CNPJ bate (mais confiavel)
-  for (const c of companies) {
+  // 1) CNPJ bate (mais confiavel); se houver centros de custo com o mesmo CNPJ,
+  // desempata por domínio, aliases ou nome mencionado no e-mail.
+  const byCnpj = companies.filter(c => {
     const cnpjDigits = c.cnpj ? normalizeCnpj(c.cnpj) : "";
-    if (cnpjDigits.length === 14 && haystackDigits.includes(cnpjDigits)) return c;
-  }
+    return cnpjDigits.length === 14 && haystackDigits.includes(cnpjDigits);
+  });
+  const bestByCnpj = pickBestCompany(byCnpj, senderDomain, haystack);
+  if (bestByCnpj) return bestByCnpj;
   // 2) dominio bate exato
   const byDomain = companies.find(c => c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain);
   if (byDomain) return byDomain;
@@ -144,10 +186,13 @@ function matchCompanyByName(companies: CompanyRow[], name: string): CompanyRow |
   ) ?? null;
 }
 
-function matchCompanyByCnpj(companies: CompanyRow[], cnpj: string): CompanyRow | null {
+function matchCompanyByCnpj(companies: CompanyRow[], cnpj: string, senderEmail = "", subject = "", body = "", companyNameHint = ""): CompanyRow | null {
   const digits = normalizeCnpj(cnpj);
   if (digits.length !== 14) return null;
-  return companies.find(c => c.cnpj && normalizeCnpj(c.cnpj) === digits) ?? null;
+  const senderDomain = senderEmail.split("@")[1]?.toLowerCase() ?? "";
+  const haystack = `${senderEmail}\n${subject}\n${body}`;
+  const candidates = companies.filter(c => c.cnpj && normalizeCnpj(c.cnpj) === digits);
+  return pickBestCompany(candidates, senderDomain, haystack, companyNameHint);
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -1076,7 +1121,14 @@ serve(async (req) => {
 
   // LLM pode ter identificado a empresa pelo conteudo. CNPJ tem prioridade (mais confiavel que nome).
   if (extracted.company_cnpj) {
-    const byCnpj = matchCompanyByCnpj(allCompanies, extracted.company_cnpj);
+    const byCnpj = matchCompanyByCnpj(
+      allCompanies,
+      extracted.company_cnpj,
+      msg.contact_identifier ?? "",
+      msg.subject ?? "",
+      `${msg.body ?? ""}\n${msg.body_html ?? ""}`,
+      extracted.company_name ?? "",
+    );
     if (byCnpj) company = byCnpj;
   }
   if (!company && extracted.company_name) {

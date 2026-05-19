@@ -8,7 +8,7 @@ create table if not exists public.companies (
   id uuid default gen_random_uuid() primary key,
   name text not null,
   slug text unique,
-  cnpj text unique,
+  cnpj text,
   email text,
   phone text,
   address text,
