@@ -5,9 +5,9 @@ import { Stage3D, useTilt, ShaderCanvas } from './primitives3d';
 import { Sparkles, ShieldCheck, Paintbrush, AlertTriangle } from 'lucide-react';
 
 /* ============================================================
- * RoomCubes3D — grid de cubos 3D representando UHs
+ * RoomCubes3D - grid de cubos isométricos representando UHs
  *   - cores por housekeeping_status
- *   - altura proporcional ao status (suja levanta, limpa baixa)
+ *   - altura proporcional ao status
  *   - parallax suave no mouse
  * ============================================================ */
 
@@ -28,63 +28,80 @@ const STATUS_HEIGHT: Record<Status, number> = {
 };
 
 type CubeProps = { status: Status; label: string; sub: string; key?: string };
+
 function Cube({ status, label, sub }: CubeProps) {
   const c = FACE_COLORS[status];
-  const h = STATUS_HEIGHT[status];
+  const height = STATUS_HEIGHT[status];
+  const topY = 64 - height;
+  const bottomY = 92;
+  const idSafe = `${status}-${label}`.replace(/[^a-zA-Z0-9_-]/g, '-');
 
   return (
     <div
-      className="relative"
-      style={{ width: 78, height: 78, transformStyle: 'preserve-3d' }}
-      title={`${label} · ${c.label}`}
+      className="relative flex flex-col items-center"
+      style={{ width: 72, height: 112 }}
+      title={`${label} - ${c.label}`}
     >
-      {/* glow base */}
       <div
         aria-hidden
-        className="absolute left-1/2 top-full -translate-x-1/2 rounded-full blur-xl"
-        style={{ width: 78, height: 18, background: c.glow, transform: 'translateY(-6px)' }}
+        className="absolute left-1/2 top-[86px] -translate-x-1/2 rounded-full blur-xl"
+        style={{ width: 64, height: 18, background: c.glow }}
       />
-      {/* TOP face */}
-      <div
-        className="absolute inset-0 rounded-md border border-black/10"
-        style={{
-          background: `linear-gradient(135deg, ${c.top}, #ffffff)`,
-          transform: `rotateX(60deg) rotateZ(-45deg) translateZ(${h}px)`,
-          boxShadow: `0 0 0 1px ${c.glow} inset`,
-        }}
+
+      <svg
+        aria-hidden
+        viewBox="0 0 72 112"
+        className="absolute inset-0 h-full w-full overflow-visible"
+        style={{ filter: `drop-shadow(0 12px 14px ${c.glow})` }}
       >
-        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-neutral-700">
+        <defs>
+          <linearGradient id={`room-cube-top-${idSafe}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="100%" stopColor={c.top} />
+          </linearGradient>
+          <linearGradient id={`room-cube-left-${idSafe}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor={c.side} stopOpacity="0.88" />
+            <stop offset="100%" stopColor={c.side} stopOpacity="0.55" />
+          </linearGradient>
+          <linearGradient id={`room-cube-right-${idSafe}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor={c.side} stopOpacity="0.98" />
+            <stop offset="100%" stopColor={c.side} stopOpacity="0.72" />
+          </linearGradient>
+        </defs>
+
+        <polygon
+          points={`36,${topY + 34} 66,${topY + 17} 66,${bottomY - 18} 36,${bottomY}`}
+          fill={`url(#room-cube-right-${idSafe})`}
+          stroke="rgba(15,23,42,0.12)"
+          strokeWidth="1"
+          strokeLinejoin="round"
+        />
+        <polygon
+          points={`36,${topY + 34} 6,${topY + 17} 6,${bottomY - 18} 36,${bottomY}`}
+          fill={`url(#room-cube-left-${idSafe})`}
+          stroke="rgba(15,23,42,0.12)"
+          strokeWidth="1"
+          strokeLinejoin="round"
+        />
+        <polygon
+          points={`36,${topY} 66,${topY + 17} 36,${topY + 34} 6,${topY + 17}`}
+          fill={`url(#room-cube-top-${idSafe})`}
+          stroke="rgba(15,23,42,0.14)"
+          strokeWidth="1"
+          strokeLinejoin="round"
+        />
+        <text
+          x="36"
+          y={topY + 20}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="fill-neutral-700 text-[9px] font-black"
+        >
           {label}
-        </div>
-      </div>
-      {/* RIGHT face */}
-      <div
-        className="absolute inset-0 rounded-md"
-        style={{
-          background: `linear-gradient(180deg, ${c.side}, ${c.side}cc)`,
-          transform: `rotateX(60deg) rotateZ(-45deg) translateX(${h * 0.71}px) translateY(${h * 0.71}px) rotateY(90deg) translateZ(${h * 0.5}px)`,
-          width: h,
-          height: 78,
-          left: 'auto',
-          right: 0,
-          opacity: 0.95,
-        }}
-      />
-      {/* FRONT face */}
-      <div
-        className="absolute inset-0 rounded-md"
-        style={{
-          background: `linear-gradient(180deg, ${c.side}f0, ${c.side})`,
-          transform: `rotateX(60deg) rotateZ(-45deg) translateY(${h * 0.71}px) translateX(-${h * 0.71}px) rotateX(-90deg) translateZ(${h * 0.5}px)`,
-          width: 78,
-          height: h,
-          opacity: 0.9,
-        }}
-      />
-      <div
-        className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-bold uppercase tracking-wider text-neutral-500"
-        style={{ transform: 'translate(-50%, 0) translateZ(80px)' }}
-      >
+        </text>
+      </svg>
+
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[9px] font-bold uppercase tracking-wider text-neutral-500">
         {sub}
       </div>
     </div>
@@ -116,7 +133,7 @@ export default function RoomCubes3D({ rooms }: { rooms: Room[] }) {
       <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-md">
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-700">Mapa volumétrico</span>
-          <h3 className="mt-2 text-lg sm:text-xl font-black text-neutral-900">UHs em volume — leitura instantânea do status</h3>
+          <h3 className="mt-2 text-lg sm:text-xl font-black text-neutral-900">UHs em volume - leitura instantânea do status</h3>
           <p className="mt-2 text-sm text-neutral-500">Cada cubo representa uma unidade. Altura e cor indicam o status de governança. Passe o mouse para inclinar a cena.</p>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(Object.keys(FACE_COLORS) as Status[]).map((k) => {
@@ -138,7 +155,7 @@ export default function RoomCubes3D({ rooms }: { rooms: Room[] }) {
           <motion.div
             ref={ref}
             style={{ rotateX: tx, rotateY: ty, transformStyle: 'preserve-3d' }}
-            className="mx-auto grid grid-cols-4 gap-6 sm:grid-cols-6 sm:gap-7 max-w-md lg:max-w-xl py-8"
+            className="mx-auto grid max-w-md grid-cols-4 gap-x-3 gap-y-1 py-6 sm:max-w-xl sm:grid-cols-6 sm:gap-x-4"
           >
             {sample.map((r) => (
               <Cube
