@@ -160,8 +160,12 @@ function matchCompanyHeuristic(companies: CompanyRow[], senderEmail: string, sub
   });
   const bestByCnpj = pickBestCompany(byCnpj, senderDomain, haystack);
   if (bestByCnpj) return bestByCnpj;
-  // 2) dominio bate exato
-  const byDomain = companies.find(c => c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain);
+  // 2) dominio bate exato; se houver mais de um card no mesmo domínio, desempata.
+  const byDomain = pickBestCompany(
+    companies.filter(c => c.email_domain && senderDomain && c.email_domain.toLowerCase() === senderDomain),
+    senderDomain,
+    haystack,
+  );
   if (byDomain) return byDomain;
   // 3) algum alias aparece no remetente/assunto/corpo
   for (const c of companies) {

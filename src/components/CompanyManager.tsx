@@ -58,7 +58,18 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
         .split(',')
         .map(s => s.trim().toLowerCase())
         .filter(Boolean);
-      const payload = { ...formData, parser_aliases: aliasesArray };
+      const cleanDomain = formData.email_domain.trim().toLowerCase();
+      const payload = {
+        name: formData.name.trim(),
+        cnpj: formData.cnpj.trim() || null,
+        email: formData.email.trim() || null,
+        email_domain: cleanDomain || null,
+        phone: formData.phone.trim() || null,
+        address: formData.address.trim() || null,
+        status: normalizeCompanyStatus(formData.status) === 'ACTIVE' ? 'active' : 'inactive',
+        slug: formData.slug.trim() || null,
+        parser_aliases: aliasesArray,
+      };
       if (editingCompany) {
         const { error } = await supabase
           .from('companies')
@@ -93,8 +104,8 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       setEditingCompany(null);
       resetForm();
       fetchCompanies();
-    } catch (error) {
-      toast.error('Erro ao salvar empresa');
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao salvar empresa');
       console.error(error);
     } finally {
       setLoading(false);
