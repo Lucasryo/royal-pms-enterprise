@@ -1,9 +1,8 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, TrendingUp, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
-import SharedHotelCalendar from './SharedHotelCalendar';
 import ReservationsDashboard from './ReservationsDashboard';
 import CheckInOutDashboard from './CheckInOutDashboard';
 import HousekeepingDashboard from './HousekeepingDashboard';
@@ -14,7 +13,6 @@ import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
 import FiscalPanelDashboard from './FiscalPanelDashboard';
-import OperationalWorkQueue, { OperationalDepartment } from './OperationalWorkQueue';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
 import OccupancyChart from './OccupancyChart';
@@ -36,7 +34,6 @@ export function ReservationsModuleDashboard({ profile }: { profile: UserProfile 
       title="Reservas, tarifas e demanda"
       description="Central unica para solicitacoes, reservas internas, tarifas, rate shopper e leitura do calendario do hotel."
       profile={profile}
-      queueDepartment="reservations"
       tabs={[
         { id: 'central', label: 'Central de reservas', icon: CalendarDays, render: () => <ReservationsDashboard profile={profile} /> },
         { id: 'occupancy', label: 'Ocupação', icon: Activity, render: () => <OccupancyChart /> },
@@ -56,7 +53,6 @@ export function ReceptionModuleDashboard({ profile }: { profile: UserProfile }) 
       title="Recepcao, hospedagem e governanca"
       description="Check-in/out, walk-in, folio operacional, governanca, UHs, achados e perdidos e passagem de turno no mesmo lugar."
       profile={profile}
-      queueDepartment="reception"
       tabs={[
         { id: 'checkin', label: 'Check-in/out', icon: KeyRound, render: () => <CheckInOutDashboard profile={profile} /> },
         { id: 'housekeeping', label: 'Governanca e UHs', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
@@ -73,10 +69,7 @@ export function MaintenanceModuleDashboard({ profile }: { profile: UserProfile }
       title="Chamados, UHs interditadas e preventiva"
       description="Fila de chamados, tratamento, justificativa, notificacao, acesso as UHs e plano preventivo para manutencao."
       profile={profile}
-      queueDepartment="maintenance"
-      hideTopQueue
       tabs={[
-        { id: 'tickets', label: 'Chamados internos', icon: Wrench, render: () => <OperationalWorkQueue profile={profile} department="maintenance" /> },
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
         { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
@@ -1824,20 +1817,108 @@ function MaintenancePerformanceTab() {
 }
 
 export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfile }) {
+  const sections = [
+    { id: 'finance',   label: 'Gestao financeira', icon: CreditCard,   tone: 'from-emerald-50 to-white  border-emerald-200 text-emerald-700' },
+    { id: 'documents', label: 'Faturas e arquivos', icon: FileText,    tone: 'from-blue-50 to-white     border-blue-200 text-blue-700' },
+    { id: 'tracking',  label: 'Rastreio e cobranca', icon: ClipboardList, tone: 'from-amber-50 to-white  border-amber-200 text-amber-700' },
+    { id: 'fiscal',    label: 'Fiscal e NFS-e',     icon: ShieldCheck, tone: 'from-violet-50 to-white   border-violet-200 text-violet-700' },
+  ] as const;
+
   return (
-    <ModuleShell
-      eyebrow="Modulo Financeiro/Faturamento"
-      title="Faturamento, financeiro, fiscal e conciliacao"
-      description="Um unico modo para faturas, documentos, baixa, extratos, rastreio financeiro, fiscal, AR e controles de pagamento."
-      profile={profile}
-      queueDepartment="finance"
-      tabs={[
-        { id: 'finance', label: 'Financeiro', icon: CreditCard, render: () => <AdminDashboard profile={profile} initialTab="finance" /> },
-        { id: 'documents', label: 'Faturas e documentos', icon: FileText, render: () => <AdminDashboard profile={profile} initialTab="documents" /> },
-        { id: 'tracking', label: 'Rastreio e cobranca', icon: ClipboardList, render: () => <AdminDashboard profile={profile} initialTab="tracking" /> },
-        { id: 'fiscal', label: 'Fiscal/NFS-e', icon: ShieldCheck, render: () => <FiscalPanelDashboard profile={profile} /> },
-      ]}
-    />
+    <div className={moduleShellClass}>
+      {/* Hero editorial */}
+      <div className="relative overflow-hidden rounded-[2rem] border border-neutral-200 bg-gradient-to-br from-neutral-950 via-neutral-900 to-emerald-950 p-5 sm:p-8 text-white shadow-sm">
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-emerald-300">Modulo Financeiro / Faturamento</p>
+            <h1 className="mt-2 text-2xl sm:text-3xl font-black tracking-tight">Tudo num lugar so</h1>
+            <p className="mt-2 text-xs sm:text-sm leading-6 sm:leading-7 text-white/60">
+              Sem abas: role a pagina ou use a navegacao lateral para alternar entre financeiro, faturas, rastreio de cobranca e fiscal.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sections.map((s) => {
+              const Icon = s.icon;
+              return (
+                <a
+                  key={s.id}
+                  href={`#fin-${s.id}`}
+                  className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-bold backdrop-blur transition hover:bg-white/10"
+                >
+                  <Icon className="h-4 w-4" />
+                  {s.label}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-24 -left-10 h-72 w-72 rounded-full bg-amber-500/15 blur-3xl" />
+      </div>
+
+      {/* Layout em coluna unica com nav grudada para desktop */}
+      <div className="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
+        <aside className="hidden lg:block">
+          <nav className="sticky top-6 space-y-1 rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
+            {sections.map((s) => {
+              const Icon = s.icon;
+              return (
+                <a
+                  key={s.id}
+                  href={`#fin-${s.id}`}
+                  className="flex items-center gap-2 rounded-2xl px-3 py-2.5 text-xs font-black text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+                >
+                  <Icon className="h-4 w-4" />
+                  {s.label}
+                </a>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <div className="space-y-6 min-w-0">
+          <section id="fin-finance" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[0].tone}`}>
+            <header className="mb-4 flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">Gestao financeira</h2>
+            </header>
+            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+              <AdminDashboard profile={profile} initialTab="finance" />
+            </div>
+          </section>
+
+          <section id="fin-documents" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[1].tone}`}>
+            <header className="mb-4 flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">Faturas e arquivos</h2>
+            </header>
+            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+              <AdminDashboard profile={profile} initialTab="documents" />
+            </div>
+          </section>
+
+          <section id="fin-tracking" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[2].tone}`}>
+            <header className="mb-4 flex items-center gap-2">
+              <ClipboardList className="h-5 w-5" />
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">Rastreio e cobranca</h2>
+            </header>
+            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+              <AdminDashboard profile={profile} initialTab="tracking" />
+            </div>
+          </section>
+
+          <section id="fin-fiscal" className={`scroll-mt-24 rounded-[2rem] border bg-gradient-to-br p-4 sm:p-6 shadow-sm ${sections[3].tone}`}>
+            <header className="mb-4 flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5" />
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">Fiscal e NFS-e</h2>
+            </header>
+            <div className="rounded-2xl bg-white/80 p-3 sm:p-4 backdrop-blur">
+              <FiscalPanelDashboard profile={profile} />
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1848,7 +1929,6 @@ export function RestaurantModuleDashboard({ profile }: { profile: UserProfile })
       title="POS, folio e lancamentos"
       description="Operacao do restaurante, consumo em quarto, venda direta, consulta/transferencia de folio e visao do calendario."
       profile={profile}
-      queueDepartment="restaurant"
       tabs={[
         { id: 'pos', label: 'POS Restaurante', icon: Utensils, render: () => <POSDashboard profile={profile} /> },
       ]}
@@ -1863,7 +1943,6 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
       title="Eventos, O.S. e agenda"
       description="Eventos continuam em modulo proprio, mas o calendario e espelhado para todos os demais setores."
       profile={profile}
-      queueDepartment="events"
       tabs={[
         { id: 'events', label: 'Eventos', icon: Hotel, render: () => <EventsDashboard profile={profile} /> },
       ]}
@@ -1878,8 +1957,6 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
       title="Controle geral do PMS"
       description="Admin controla tudo: usuarios, permissoes, empresas e auditoria."
       profile={profile}
-      queueDepartment="admin"
-      adminQueue
       tabs={[
         { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
         { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
@@ -1895,19 +1972,12 @@ function ModuleShell<T extends string>({
   title,
   description,
   tabs,
-  profile,
-  queueDepartment,
-  adminQueue = false,
-  hideTopQueue = false,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   tabs: Array<ModuleTab<T>>;
   profile: UserProfile;
-  queueDepartment: OperationalDepartment;
-  adminQueue?: boolean;
-  hideTopQueue?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<T>(tabs[0].id);
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
@@ -1919,9 +1989,6 @@ function ModuleShell<T extends string>({
         <h1 className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-neutral-950">{title}</h1>
         <p className="mt-2 max-w-4xl text-xs sm:text-sm leading-6 sm:leading-7 text-neutral-500">{description}</p>
       </div>
-
-      <SharedHotelCalendar compact />
-      {!hideTopQueue && <OperationalWorkQueue profile={profile} department={queueDepartment} adminView={adminQueue} />}
 
       <div className="flex gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
         {tabs.map((tab) => {
