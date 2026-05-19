@@ -707,6 +707,10 @@ function extractTelegramLogReason(payload: unknown): string | null {
   const value = payload as Record<string, unknown> | null;
   if (!value) return null;
   const error = value.telegram_error as Record<string, unknown> | undefined;
+  const parameters = error?.parameters as Record<string, unknown> | undefined;
+  if (parameters?.migrate_to_chat_id) {
+    return `group chat was upgraded to a supergroup chat; novo TELEGRAM_CHAT_ID: ${parameters.migrate_to_chat_id}`;
+  }
   const description = error?.description ?? value.error ?? value.reason;
   if (description) return String(description).slice(0, 180);
   if (Array.isArray(value.failed_ticket_ids) && value.failed_ticket_ids.length > 0) {
