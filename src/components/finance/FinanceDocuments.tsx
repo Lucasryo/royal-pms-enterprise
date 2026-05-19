@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabase';
 import { Company, FiscalFile, UserProfile } from '../../types';
 import { hasPermission } from '../../lib/permissions';
@@ -7,9 +7,10 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Archive, ArrowLeft, CheckSquare, Download, FileText, Filter, Folder, Loader2,
-  Search, Square, Trash2, Upload, X as CloseIcon,
+  Printer, Search, Square, Trash2, X as CloseIcon,
 } from 'lucide-react';
-import { FINANCIAL_TYPES, fileStatus, fmtDate, fmtDateTime, isFinancialFile, money, STATUS_TONE } from './shared';
+import { fileStatus, fmtDate, fmtDateTime, isFinancialFile, money, STATUS_TONE } from './shared';
+import InvoicePrintModal from './InvoicePrintModal';
 
 /* ============================================================
  * FinanceDocuments — Faturas e arquivos reformulado
@@ -22,15 +23,6 @@ import { FINANCIAL_TYPES, fileStatus, fmtDate, fmtDateTime, isFinancialFile, mon
 type Group = 'company' | 'month';
 type View = 'active' | 'trash';
 
-type Staged = {
-  id: string;
-  file: File;
-  companyId?: string;
-  type: string;
-  dueDate?: string;
-  amount?: string;
-};
-
 export default function FinanceDocuments({ profile }: { profile: UserProfile }) {
   const canManage = hasPermission(profile, 'canManageFinance' as any, ['admin', 'finance', 'faturamento', 'manager']);
   const [loading, setLoading] = useState(true);
@@ -42,12 +34,7 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
   const [companyFilter, setCompanyFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<FiscalFile | null>(null);
-
-  // Upload staging
-  const [staged, setStaged] = useState<Staged[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [printing, setPrinting] = useState<FiscalFile | null>(null);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -114,68 +101,6 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
     setSelected(next);
   }
 
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault(); setDragOver(false);
-    const list = Array.from(e.dataTransfer.files) as File[];
-    addStaged(list);
-  }
-
-  function addStaged(list: File[]) {
-    const next: Staged[] = list.map((file) => {
-      // smart guess company by filename
-      const lower = file.name.toLowerCase();
-      const matched = companies.find((c) => c.name && lower.includes(c.name.toLowerCase().split(' ')[0]));
-      return {
-        id: `${file.name}-${file.size}-${Math.random().toString(36).slice(2, 7)}`,
-        file,
-        companyId: matched?.id,
-        type: 'FATURA',
-      };
-    });
-    setStaged((prev) => [...prev, ...next]);
-  }
-
-  async function commitStaged() {
-    if (staged.length === 0) return;
-    const missing = staged.find((s) => !s.companyId);
-    if (missing) { toast.error('Selecione a empresa de todos os arquivos'); return; }
-    setUploading(true);
-    try {
-      for (const item of staged) {
-        const now = new Date();
-        const year = String(now.getFullYear());
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const ts = Date.now();
-        const rand = Math.random().toString(36).slice(2, 8);
-        const storagePath = `empresas/${item.companyId}/${year}/${month}/${item.type.toLowerCase()}s/${ts}_${rand}_${item.file.name}`;
-        const { error: upErr } = await supabase.storage.from('files').upload(storagePath, item.file);
-        if (upErr) throw upErr;
-        const { error: dbErr } = await supabase.from('files').insert({
-          company_id: item.companyId,
-          type: item.type,
-          period: '',
-          due_date: item.dueDate || null,
-          amount: item.amount ? Number(item.amount) : null,
-          category: item.type === 'FATURA' ? 'Hospedagem' : item.type,
-          status: 'PENDING',
-          original_name: item.file.name,
-          storage_path: storagePath,
-          uploader_id: profile.id,
-          upload_date: new Date().toISOString(),
-        });
-        if (dbErr) throw dbErr;
-      }
-      await logAudit({ user_id: profile.id, user_name: profile.name, action: 'Upload', details: `${staged.length} arquivo(s)`, type: 'upload' });
-      toast.success(`${staged.length} arquivo(s) enviados`);
-      setStaged([]);
-      fetchAll();
-    } catch (err: any) {
-      toast.error('Falha no upload: ' + (err?.message || err));
-    } finally {
-      setUploading(false);
-    }
-  }
-
   async function moveToTrash(ids: string[]) {
     if (ids.length === 0) return;
     const { error } = await supabase.from('files').update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: profile.id }).in('id', ids);
@@ -202,9 +127,39 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
     fetchAll();
   }
 
+  function isVirtualStorage(f: FiscalFile) {
+    // Faturas geradas por evento sao virtuais: storage_path tipo "eventos/OS-..."
+    return !f.storage_path || f.storage_path.startsWith('eventos/');
+  }
+
   async function downloadFile(f: FiscalFile) {
-    const { data } = supabase.storage.from('files').getPublicUrl(f.storage_path);
-    window.open(data.publicUrl, '_blank');
+    if (isVirtualStorage(f)) {
+      setPrinting(f);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.storage.from('files').download(f.storage_path);
+      if (error || !data) throw error || new Error('Arquivo nao encontrado');
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url; a.download = f.original_name || 'fatura';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      // Fallback: arquivo nao existe no storage → abre o modal de impressao
+      toast.message('Sem arquivo fisico — abrindo gerador de PDF');
+      setPrinting(f);
+    }
+  }
+
+  async function updateDue(f: FiscalFile, newDate: string) {
+    const { error } = await supabase.from('files').update({ due_date: newDate }).eq('id', f.id);
+    if (error) { toast.error('Erro: ' + error.message); throw error; }
+    await logAudit({ user_id: profile.id, user_name: profile.name, action: 'Vencimento alterado', details: `${f.original_name} -> ${newDate}`, type: 'update' });
+    setFiles((prev) => prev.map((x) => (x.id === f.id ? { ...x, due_date: newDate } : x)));
+    if (detail?.id === f.id) setDetail({ ...detail!, due_date: newDate });
+    if (printing?.id === f.id) setPrinting({ ...printing!, due_date: newDate });
+    toast.success('Vencimento atualizado');
   }
 
   if (loading) {
@@ -213,74 +168,6 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
 
   return (
     <div className="space-y-5">
-      {/* === HERO DROPZONE === */}
-      {canManage && (
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={onDrop}
-          className={`relative overflow-hidden rounded-3xl border-2 border-dashed p-6 transition ${
-            dragOver ? 'border-emerald-400 bg-emerald-50' : 'border-neutral-300 bg-gradient-to-br from-neutral-50 to-white'
-          }`}
-        >
-          <div className="flex flex-col items-center justify-center gap-3 text-center">
-            <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${dragOver ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
-              <Upload className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="font-black text-neutral-900">Arraste arquivos ou clique para enviar</p>
-              <p className="text-xs text-neutral-500">PDF, imagens, planilhas — a gente detecta a empresa pelo nome do arquivo</p>
-            </div>
-            <button
-              onClick={() => inputRef.current?.click()}
-              className="rounded-2xl bg-neutral-950 px-4 py-2 text-xs font-black text-white"
-            >
-              Selecionar arquivos
-            </button>
-            <input ref={inputRef} type="file" multiple className="hidden"
-              onChange={(e) => { if (e.target.files) addStaged(Array.from(e.target.files)); e.target.value = ''; }} />
-          </div>
-
-          {staged.length > 0 && (
-            <div className="mt-5 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-wider text-neutral-500">Para enviar ({staged.length})</p>
-                <button onClick={() => setStaged([])} className="text-[11px] font-bold text-neutral-400 hover:text-red-600">Limpar tudo</button>
-              </div>
-              <div className="max-h-64 space-y-1.5 overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-2">
-                {staged.map((s) => (
-                  <div key={s.id} className="grid grid-cols-1 gap-2 rounded-xl bg-neutral-50 p-2 md:grid-cols-[1.5fr_1fr_1fr_120px_auto]">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-bold text-neutral-800">{s.file.name}</p>
-                      <p className="text-[10px] text-neutral-400">{(s.file.size / 1024).toFixed(0)} KB</p>
-                    </div>
-                    <select value={s.companyId || ''} onChange={(e) => setStaged((p) => p.map((x) => x.id === s.id ? { ...x, companyId: e.target.value } : x))}
-                      className={`rounded-lg border bg-white px-2 py-1 text-xs ${s.companyId ? 'border-neutral-200' : 'border-red-300'}`}>
-                      <option value="">Empresa…</option>
-                      {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <select value={s.type} onChange={(e) => setStaged((p) => p.map((x) => x.id === s.id ? { ...x, type: e.target.value } : x))}
-                      className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs">
-                      {FINANCIAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <input type="date" value={s.dueDate || ''} onChange={(e) => setStaged((p) => p.map((x) => x.id === s.id ? { ...x, dueDate: e.target.value } : x))}
-                      className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs" />
-                    <input type="number" placeholder="Valor" value={s.amount || ''} onChange={(e) => setStaged((p) => p.map((x) => x.id === s.id ? { ...x, amount: e.target.value } : x))}
-                      className="w-24 rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs tabular-nums" />
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-end gap-2">
-                <button onClick={commitStaged} disabled={uploading}
-                  className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">
-                  {uploading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Enviando…</span> : `Enviar ${staged.length} arquivo(s)`}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* === TOOLBAR === */}
       <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div className="relative flex-1">
@@ -407,10 +294,24 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
             file={detail}
             company={companies.find((c) => c.id === detail.company_id)?.name || 'Sem empresa'}
             onClose={() => setDetail(null)}
+            onPrint={() => { setPrinting(detail); }}
             onDownload={() => downloadFile(detail)}
             onTrash={() => { moveToTrash([detail.id]); setDetail(null); }}
             isTrash={view === 'trash'}
             onRestore={() => { restore([detail.id]); setDetail(null); }}
+            isVirtual={isVirtualStorage(detail)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* === MODAL IMPRESSAO/PDF === */}
+      <AnimatePresence>
+        {printing && (
+          <InvoicePrintModal
+            file={printing}
+            company={companies.find((c) => c.id === printing.company_id)}
+            onClose={() => setPrinting(null)}
+            onDueChange={(d) => updateDue(printing, d)}
           />
         )}
       </AnimatePresence>
@@ -419,9 +320,9 @@ export default function FinanceDocuments({ profile }: { profile: UserProfile }) 
 }
 
 function DetailPanel({
-  file, company, onClose, onDownload, onTrash, isTrash, onRestore,
+  file, company, onClose, onPrint, onDownload, onTrash, isTrash, onRestore, isVirtual,
 }: {
-  file: FiscalFile; company: string; onClose: () => void; onDownload: () => void; onTrash: () => void; isTrash: boolean; onRestore: () => void;
+  file: FiscalFile; company: string; onClose: () => void; onPrint: () => void; onDownload: () => void; onTrash: () => void; isTrash: boolean; onRestore: () => void; isVirtual: boolean;
 }) {
   const tone = STATUS_TONE[fileStatus(file)];
   return (
@@ -455,19 +356,26 @@ function DetailPanel({
           {file.dispute_reason && <div className="col-span-2"><dt className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Disputa</dt><dd className="text-neutral-700">{file.dispute_reason}</dd></div>}
         </dl>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <button onClick={onDownload} className="flex items-center justify-center gap-2 rounded-2xl border border-neutral-200 bg-white py-2.5 text-xs font-black text-neutral-800 hover:bg-neutral-50">
-            <Download className="h-4 w-4" /> Baixar
+        <div className="mt-5 space-y-2">
+          <button onClick={onPrint} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 py-2.5 text-xs font-black text-white">
+            <Printer className="h-4 w-4" /> Imprimir / PDF
           </button>
-          {isTrash ? (
-            <button onClick={onRestore} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-xs font-black text-white">
-              <ArrowLeft className="h-4 w-4" /> Restaurar
-            </button>
-          ) : (
-            <button onClick={onTrash} className="flex items-center justify-center gap-2 rounded-2xl bg-red-50 py-2.5 text-xs font-black text-red-700">
-              <Archive className="h-4 w-4" /> Mover p/ Lixeira
-            </button>
-          )}
+          <div className="grid grid-cols-2 gap-2">
+            {!isVirtual && (
+              <button onClick={onDownload} className="flex items-center justify-center gap-2 rounded-2xl border border-neutral-200 bg-white py-2.5 text-xs font-black text-neutral-800 hover:bg-neutral-50">
+                <Download className="h-4 w-4" /> Baixar
+              </button>
+            )}
+            {isTrash ? (
+              <button onClick={onRestore} className={`flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-xs font-black text-white ${isVirtual ? 'col-span-2' : ''}`}>
+                <ArrowLeft className="h-4 w-4" /> Restaurar
+              </button>
+            ) : (
+              <button onClick={onTrash} className={`flex items-center justify-center gap-2 rounded-2xl bg-red-50 py-2.5 text-xs font-black text-red-700 ${isVirtual ? 'col-span-2' : ''}`}>
+                <Archive className="h-4 w-4" /> Mover p/ Lixeira
+              </button>
+            )}
+          </div>
         </div>
       </motion.aside>
     </motion.div>
