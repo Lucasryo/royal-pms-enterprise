@@ -6,8 +6,14 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { logAudit } from '../lib/audit';
 
+const PAGE_SIZE = 60;
+
 export default function CompanyManager({ profile }: { profile: UserProfile }) {
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [activeCount, setActiveCount] = useState(0);
+  const [parserReadyCount, setParserReadyCount] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
@@ -32,19 +38,48 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     fetchCompanies();
-  }, []);
+  }, [page, searchTerm]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchTerm]);
 
   async function fetchCompanies() {
     setLoading(true);
-    const { data, error } = await supabase
+    const cleanSearch = searchTerm.trim();
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let query = supabase
       .from('companies')
-      .select('*')
-      .order('name');
-    
+      .select('*', { count: 'exact' })
+      .order('name')
+      .range(from, to);
+
+    if (cleanSearch) {
+      const term = cleanSearch.replace(/[%_]/g, '\\$&');
+      query = query.or(`name.ilike.%${term}%,cnpj.ilike.%${term}%`);
+    }
+
+    const [{ data, error, count }, activeRes, parserRes] = await Promise.all([
+      query,
+      supabase
+        .from('companies')
+        .select('id', { count: 'exact', head: true })
+        .or('status.eq.active,status.eq.ACTIVE'),
+      supabase
+        .from('companies')
+        .select('id', { count: 'exact', head: true })
+        .not('email_domain', 'is', null),
+    ]);
+
     if (error) {
       toast.error('Erro ao carregar empresas');
     } else {
       setCompanies(data || []);
+      setTotalCount(count || 0);
+      setActiveCount(activeRes.count || 0);
+      setParserReadyCount(parserRes.count || 0);
     }
     setLoading(false);
   }
@@ -103,7 +138,8 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
       setIsModalOpen(false);
       setEditingCompany(null);
       resetForm();
-      fetchCompanies();
+      if (page === 0) fetchCompanies();
+      else setPage(0);
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao salvar empresa');
       console.error(error);
@@ -162,17 +198,14 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
         details: `Empresa: ${name}`,
         type: 'delete'
       });
-      fetchCompanies();
+      if (page === 0) fetchCompanies();
+      else setPage(0);
     }
   }
 
-  const filteredCompanies = companies.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.cnpj?.includes(searchTerm)
-  );
-
-  const activeCount = companies.filter(c => normalizeCompanyStatus(c.status) === 'ACTIVE').length;
-  const parserReadyCount = companies.filter(c => Boolean((c as Company & { email_domain?: string | null }).email_domain)).length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const canGoBack = page > 0;
+  const canGoNext = page + 1 < totalPages;
 
   return (
     <div className="space-y-5 overflow-x-clip">
@@ -193,10 +226,10 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <CompanyKpi label="Total" value={companies.length} />
+          <CompanyKpi label="Total" value={totalCount} />
           <CompanyKpi label="Ativas" value={activeCount} />
           <CompanyKpi label="Parser" value={parserReadyCount} />
-          <CompanyKpi label="Exibidas" value={filteredCompanies.length} />
+          <CompanyKpi label="Na página" value={companies.length} />
         </div>
       </div>
 
@@ -217,9 +250,37 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
         </div>
       </div>
 
+      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-bold text-neutral-500">
+          Exibindo {companies.length} de {totalCount} empresas
+          {searchTerm.trim() ? ' encontradas na busca' : ''}.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!canGoBack || loading}
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black uppercase tracking-widest text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+          >
+            Anterior
+          </button>
+          <span className="shrink-0 px-2 text-xs font-black text-neutral-400">
+            {page + 1}/{totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={!canGoNext || loading}
+            onClick={() => setPage(p => p + 1)}
+            className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black uppercase tracking-widest text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+          >
+            Próxima
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <AnimatePresence>
-          {filteredCompanies.map(company => (
+          {companies.map(company => (
             <motion.div
               layout
               key={company.id}
