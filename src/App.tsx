@@ -728,18 +728,15 @@ export default function App() {
 
         {/* ── Page content ── */}
         <div className={`flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8 scrollbar-none ${isMobile ? 'mb-bottom-nav' : ''}`}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentView}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
-              className={currentView === 'marketing' ? 'w-full' : 'max-w-7xl mx-auto'}
-            >
-              <ErrorBoundary key={currentView}>{renderContent()}</ErrorBoundary>
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={currentView}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.12 }}
+            className={currentView === 'marketing' ? 'w-full' : 'max-w-7xl mx-auto'}
+          >
+            <ErrorBoundary key={currentView}>{renderContent()}</ErrorBoundary>
+          </motion.div>
         </div>
       </main>
 
