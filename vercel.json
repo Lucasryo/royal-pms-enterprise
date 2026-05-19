@@ -1,14 +1,14 @@
 {
   "redirects": [
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "has": [
         {
           "type": "host",
           "value": "www.royal.app.br"
         }
       ],
-      "destination": "https://royal.app.br/:path*",
+      "destination": "https://royal.app.br/$1",
       "permanent": true
     }
   ],
