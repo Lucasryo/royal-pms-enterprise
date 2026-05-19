@@ -12,6 +12,8 @@ import {
 import {
   FINANCIAL_TYPES, fileStatus, fmtDate, isFinancialFile, money, moneyShort, startOfToday, STATUS_TONE,
 } from './shared';
+import { triggerOverdueDigest } from '../../lib/notify';
+import { Send } from 'lucide-react';
 
 /* ============================================================
  * FinanceOverview — Gestao Financeira reformulada
@@ -196,6 +198,26 @@ export default function FinanceOverview({ profile }: { profile: UserProfile }) {
         <div aria-hidden className="pointer-events-none absolute -right-20 -top-16 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
         <div aria-hidden className="pointer-events-none absolute -bottom-24 -left-10 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
       </div>
+
+      {/* === ACAO RAPIDA: DISPARAR DIGEST === */}
+      {kpis.overdueCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/50 px-4 py-3">
+          <div className="text-xs text-amber-900">
+            <span className="font-black">{kpis.overdueCount}</span> fatura(s) vencida(s) totalizando <span className="font-black">{money(kpis.overdueTotal)}</span>
+          </div>
+          <button
+            onClick={async () => {
+              const tid = toast.loading('Enviando digest de vencidos…');
+              const r = await triggerOverdueDigest();
+              if ((r as any)?.error) toast.error('Falha: ' + (r as any).error, { id: tid });
+              else if ((r as any)?.skipped) toast.message('Configure destinatários no canal "Digest de vencidos"', { id: tid });
+              else toast.success(`Digest enviado para ${(r as any)?.recipients?.length || 0} email(s)`, { id: tid });
+            }}
+            className="flex items-center gap-1.5 rounded-xl bg-amber-700 px-3 py-1.5 text-xs font-black text-white">
+            <Send className="h-3.5 w-3.5" /> Enviar digest agora
+          </button>
+        </div>
+      )}
 
       {/* === CARDS DE ACAO === */}
       <div className="grid gap-3 sm:grid-cols-3">

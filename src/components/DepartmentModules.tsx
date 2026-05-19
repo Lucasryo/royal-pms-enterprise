@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, TrendingUp, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, TrendingUp, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -15,6 +15,7 @@ import RevenuePanelDashboard from './RevenuePanelDashboard';
 import FinanceOverview from './finance/FinanceOverview';
 import FinanceDocuments from './finance/FinanceDocuments';
 import FinanceTracking from './finance/FinanceTracking';
+import NotificationSettingsModal from './finance/NotificationSettingsModal';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
 import OccupancyChart from './OccupancyChart';
@@ -1827,6 +1828,7 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
   ];
 
   const [active, setActive] = useState<FinSection>('finance');
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const renderSection = () => {
     switch (active) {
@@ -1863,12 +1865,18 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
             );
           })}
         </div>
+        <button onClick={() => setNotifOpen(true)} title="Notificações"
+          className="rounded-xl border border-neutral-200 bg-white p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
+          <Bell className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* Conteudo direto, sem moldura extra — o componente cuida do proprio visual */}
       <div className="min-w-0">
         {renderSection()}
       </div>
+
+      {notifOpen && <NotificationSettingsModal onClose={() => setNotifOpen(false)} />}
     </div>
   );
 }

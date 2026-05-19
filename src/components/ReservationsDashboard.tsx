@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { format, addDays, startOfToday, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { logAudit, sendNotification } from '../lib/audit';
+import { notifyReservationCreated } from '../lib/notify';
 import { hasPermission } from '../lib/permissions';
 import ReservationsCalendar3D from './three/ReservationsCalendar3D';
 
@@ -407,6 +408,14 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         type: 'create'
       });
       toast.success('Reserva cadastrada com sucesso');
+      // fire-and-forget email
+      const company = companies.find((c) => c.id === formData.company_id);
+      notifyReservationCreated({
+        ...(formData as any),
+        reservation_code: resCode,
+        status: formData.status || 'CONFIRMED',
+        total_amount: totalAmount,
+      } as Reservation, company);
       setIsModalOpen(false);
       resetForm();
       fetchData();

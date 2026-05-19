@@ -10,6 +10,7 @@ import {
   Loader2, Lock, Receipt, Search, Unlock, User,
 } from 'lucide-react';
 import { fmtDateTime, money } from './shared';
+import { notifyStageAdvanced } from '../../lib/notify';
 
 /* ============================================================
  * FinanceTracking — Kanban de rastreio de notas
@@ -94,6 +95,7 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
   async function moveTo(file: FiscalFile, target: Stage) {
     if (!canManage) { toast.error('Sem permissao'); return; }
     if (file.tracking_stage === target) return;
+    const previous = file.tracking_stage;
     const { error } = await supabase.from('files').update({
       tracking_stage: target,
       tracking_status: target === 'completed' ? 'ok' : (file.tracking_status || 'pending'),
@@ -104,6 +106,9 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
     await logAudit({ user_id: profile.id, user_name: profile.name, action: 'Rastreio movido', details: `${file.original_name} -> ${target}`, type: 'update' });
     setFiles((prev) => prev.map((f) => f.id === file.id ? { ...f, tracking_stage: target, tracking_updated_at: new Date().toISOString(), tracking_updated_by: profile.id } : f));
     toast.success('Etapa atualizada');
+    // fire-and-forget: notifica o novo setor (nao bloqueia UI)
+    const companyName = companies.find((c) => c.id === file.company_id)?.name;
+    notifyStageAdvanced(file, target, previous, companyName, profile.name);
   }
   async function toggleBlock(file: FiscalFile) {
     if (!canManage) return;
