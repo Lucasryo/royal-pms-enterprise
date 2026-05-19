@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import {
   AlertOctagon, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Hotel,
-  Loader2, Lock, Receipt, Search, Unlock, User,
+  Loader2, Lock, Plus, Receipt, Search, Unlock, Upload, User,
 } from 'lucide-react';
 import { fmtDateTime, money } from './shared';
 import { notifyStageAdvanced } from '../../lib/notify';
@@ -33,8 +33,16 @@ const STAGES: Array<{ id: Stage; label: string; icon: any; tone: string; bar: st
 const STATUS_LABEL: Record<Status, string> = { ok: 'Liberado', blocked: 'Travado', pending: 'Pendente' };
 
 export default function FinanceTracking({ profile }: { profile: UserProfile }) {
-  const canManage = hasPermission(profile, 'canManageFinance' as any, ['admin', 'finance', 'faturamento', 'manager', 'reception', 'reservations']);
+  const canManage = (
+    hasPermission(profile, 'canManageProfessionalTools', ['admin', 'finance', 'faturamento', 'manager'])
+    || (
+      hasPermission(profile, 'canViewFinance', ['admin', 'finance', 'faturamento', 'manager'])
+      && hasPermission(profile, 'canUploadFiles', ['admin', 'finance', 'faturamento', 'manager', 'reservations'])
+    )
+    || ['admin', 'manager', 'finance', 'faturamento', 'reservations'].includes(profile.role)
+  );
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [files, setFiles] = useState<FiscalFile[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [search, setSearch] = useState('');
@@ -42,6 +50,24 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
   const [statusFilter, setStatusFilter] = useState<'all' | Status>('all');
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [hoverStage, setHoverStage] = useState<Stage | null>(null);
+  const [addBoxOpen, setAddBoxOpen] = useState(true);
+  const [newTracking, setNewTracking] = useState<{
+    nh: string;
+    companyName: string;
+    startStage: Exclude<Stage, 'completed'>;
+    status: Status;
+    reason: string;
+    billingMethod: 'BILLED' | 'CARD';
+    file: File | null;
+  }>({
+    nh: '',
+    companyName: '',
+    startStage: 'finance',
+    status: 'pending',
+    reason: '',
+    billingMethod: 'BILLED',
+    file: null,
+  });
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -119,14 +145,222 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
     toast.success(next === 'blocked' ? 'Travado' : 'Destravado');
   }
 
+  async function createTrackingFile() {
+    if (!canManage) { toast.error('Sem permissao'); return; }
+    if (!newTracking.nh.trim()) { toast.error('Informe a nota de hospedagem'); return; }
+    if (!newTracking.companyName.trim()) { toast.error('Informe a empresa'); return; }
+    if (!newTracking.reason.trim()) { toast.error('Informe o motivo'); return; }
+
+    setCreating(true);
+    try {
+      const billingLabel = newTracking.billingMethod === 'BILLED' ? 'Faturado' : 'Cartao';
+      const companyName = newTracking.companyName.trim();
+      let companyId = companies.find((company) => company.name.trim().toLowerCase() === companyName.toLowerCase())?.id || '';
+
+      if (!companyId) {
+        const slugBase = companyName
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'empresa';
+
+        const { data: companyData, error: companyError } = await supabase
+          .from('companies')
+          .insert([{ name: companyName, slug: `${slugBase}-${crypto.randomUUID().slice(0, 8)}` }])
+          .select()
+          .single();
+
+        if (companyError) throw companyError;
+        companyId = companyData.id;
+        setCompanies((prev) => [...prev, companyData as Company].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+
+      let storagePath = '';
+      let originalName = `NH ${newTracking.nh.trim()} - ${billingLabel}`;
+
+      if (newTracking.file) {
+        const fileExt = newTracking.file.name.split('.').pop() || 'pdf';
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        storagePath = `${companyId}/${fileName}`;
+        originalName = newTracking.file.name;
+        const { error: uploadError } = await supabase.storage.from('files').upload(storagePath, newTracking.file);
+        if (uploadError) throw uploadError;
+      }
+
+      const payload = {
+        company_id: companyId,
+        type: 'Hospedagem',
+        original_name: originalName,
+        storage_path: storagePath,
+        nh: newTracking.nh.trim(),
+        category: billingLabel,
+        status: newTracking.status === 'ok' ? 'PAID' : 'PENDING',
+        uploader_id: profile.id,
+        tracking_stage: newTracking.startStage,
+        tracking_status: newTracking.status,
+        tracking_notes: [
+          `Forma: ${billingLabel}`,
+          `Travada em: ${STAGES.find((stage) => stage.id === newTracking.startStage)?.label || newTracking.startStage}`,
+          `Situacao: ${STATUS_LABEL[newTracking.status]}`,
+          `Motivo: ${newTracking.reason.trim()}`,
+        ].join(' | '),
+        tracking_updated_at: new Date().toISOString(),
+        tracking_updated_by: profile.name,
+        period: new Date().toISOString().slice(0, 7),
+        upload_date: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase.from('files').insert([payload]).select().single();
+      if (error) throw error;
+
+      setFiles((prev) => [data as FiscalFile, ...prev]);
+      setNewTracking({ nh: '', companyName: '', startStage: 'finance', status: 'pending', reason: '', billingMethod: 'BILLED', file: null });
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Nota adicionada ao rastreio',
+        details: JSON.stringify({ nh: payload.nh, company: companyName, company_id: payload.company_id, etapa_inicial: payload.tracking_stage, forma: billingLabel, status: payload.tracking_status }),
+        type: 'upload',
+      });
+      toast.success('Nota adicionada ao rastreio');
+    } catch (error: any) {
+      toast.error('Erro ao adicionar nota: ' + (error.message || 'erro desconhecido'));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   if (loading) {
     return <div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-neutral-300" /></div>;
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 overflow-x-clip">
+      {canManage && (
+        <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Nova cobranca</p>
+              <h2 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">Adicionar nota de hospedagem</h2>
+            </div>
+            <button
+              onClick={() => setAddBoxOpen((open) => !open)}
+              className="flex w-fit shrink-0 items-center gap-2 rounded-xl bg-neutral-950 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-neutral-800"
+            >
+              <Plus className="h-4 w-4" />
+              {addBoxOpen ? 'Ocultar box' : 'Adicionar'}
+            </button>
+          </div>
+
+          {addBoxOpen && (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Nota de hospedagem</label>
+                  <input
+                    value={newTracking.nh}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, nh: e.target.value }))}
+                    placeholder="NH..."
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm outline-none focus:border-neutral-900 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Travada em</label>
+                  <select
+                    value={newTracking.startStage}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, startStage: e.target.value as Exclude<Stage, 'completed'> }))}
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm font-medium outline-none focus:border-neutral-900 focus:bg-white"
+                  >
+                    {STAGES.filter((stage) => stage.id !== 'completed').map((stage) => (
+                      <option key={stage.id} value={stage.id}>{stage.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Situacao</label>
+                  <select
+                    value={newTracking.status}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, status: e.target.value as Status }))}
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm font-medium outline-none focus:border-neutral-900 focus:bg-white"
+                  >
+                    <option value="pending">Pendente</option>
+                    <option value="blocked">Travada</option>
+                    <option value="ok">Liberada</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Empresa</label>
+                  <input
+                    value={newTracking.companyName}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, companyName: e.target.value }))}
+                    placeholder="Digite a empresa..."
+                    list="finance-tracking-companies"
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm outline-none focus:border-neutral-900 focus:bg-white"
+                  />
+                  <datalist id="finance-tracking-companies">
+                    {companies.map((c) => <option key={c.id} value={c.name} />)}
+                  </datalist>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Cobranca</label>
+                  <select
+                    value={newTracking.billingMethod}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, billingMethod: e.target.value as 'BILLED' | 'CARD' }))}
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm font-medium outline-none focus:border-neutral-900 focus:bg-white"
+                  >
+                    <option value="BILLED">Faturado</option>
+                    <option value="CARD">Cartao</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Anexo</label>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      onChange={(e) => setNewTracking((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
+                      className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                    />
+                    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm font-bold text-neutral-500">
+                      <Upload className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{newTracking.file ? newTracking.file.name : 'Opcional'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
+                <div className="min-w-0 space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Motivo</label>
+                  <textarea
+                    rows={3}
+                    value={newTracking.reason}
+                    onChange={(e) => setNewTracking((prev) => ({ ...prev, reason: e.target.value }))}
+                    placeholder="Descreva o motivo da cobranca ou pendencia..."
+                    className="w-full resize-none rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm outline-none focus:border-neutral-900 focus:bg-white"
+                  />
+                </div>
+                <button
+                  onClick={createTrackingFile}
+                  disabled={creating || !newTracking.nh.trim() || !newTracking.companyName.trim() || !newTracking.reason.trim()}
+                  className="flex w-full items-center justify-center gap-2 self-end rounded-xl bg-neutral-950 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-neutral-900/10 transition hover:bg-neutral-800 disabled:opacity-50 lg:w-auto"
+                >
+                  {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Adicionar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* === HEADER FILTROS === */}
-      <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
+      <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6 md:flex-row md:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar nota, NH ou empresa"
@@ -137,10 +371,10 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
           <option value="">Todas as empresas</option>
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <div className="flex gap-1 rounded-xl bg-neutral-100 p-1">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-neutral-100 p-1">
           {(['all', 'ok', 'pending', 'blocked'] as const).map((k) => (
             <button key={k} onClick={() => setStatusFilter(k)}
-              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${statusFilter === k ? 'bg-neutral-950 text-white' : 'text-neutral-500'}`}>
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${statusFilter === k ? 'bg-neutral-950 text-white' : 'text-neutral-500'}`}>
               {k === 'all' ? 'Todos' : STATUS_LABEL[k as Status]}
             </button>
           ))}
@@ -187,6 +421,7 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
                   const company = companies.find((c) => c.id === f.company_id)?.name || '—';
                   const blocked = f.tracking_status === 'blocked';
                   const ok = f.tracking_status === 'ok';
+                  const billingLabel = f.category || (f.tracking_notes?.toLowerCase().includes('cartao') ? 'Cartao' : '');
                   return (
                     <motion.div
                       layout
@@ -202,7 +437,10 @@ export default function FinanceTracking({ profile }: { profile: UserProfile }) {
                         <div className="min-w-0">
                           <div className="truncate text-xs font-black text-neutral-900">{f.original_name}</div>
                           <div className="mt-0.5 truncate text-[10px] text-neutral-500">{company}</div>
-                          {f.nh && <div className="mt-0.5 inline-block rounded bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-700">NH {f.nh}</div>}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {f.nh && <span className="inline-block rounded bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-700">NH {f.nh}</span>}
+                            {billingLabel && <span className="inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">{billingLabel}</span>}
+                          </div>
                         </div>
                         {blocked && <Lock className="h-3.5 w-3.5 shrink-0 text-red-500" />}
                       </div>
