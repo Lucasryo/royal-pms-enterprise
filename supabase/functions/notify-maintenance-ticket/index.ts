@@ -617,7 +617,6 @@ async function runBotSelfTest(authHeader: string | null) {
       status: "open",
       status_reason: null,
       reported_by: null,
-      housekeeping_reported_by: null,
     }).select("*").single();
     if (insertError || !ticket) {
       errors.push(`create_ticket: ${insertError?.message ?? "ticket not returned"}`);

@@ -307,7 +307,12 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || data?.ok === false) throw new Error(data?.error ?? 'Falha ao chamar bot.');
+    if (!res.ok || data?.ok === false) {
+      const details = Array.isArray(data?.errors) && data.errors.length
+        ? data.errors[0]
+        : data?.error;
+      throw new Error(details ?? `Falha ao chamar bot (${res.status}).`);
+    }
     return data;
   }
 
