@@ -443,6 +443,20 @@ async function sendTicketCard(
   return result?.ok === true;
 }
 
+async function latestTelegramFailureReason(ticketId: string | null): Promise<string | null> {
+  if (!ticketId) return null;
+  const { data } = await db
+    .from("maintenance_notification_logs")
+    .select("payload")
+    .eq("ticket_id", ticketId)
+    .eq("channel", "telegram")
+    .eq("status", "failed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return extractTelegramLogReason(data?.payload) ?? null;
+}
+
 async function updateTicketCard(ticketId: string, fallbackChatId: unknown = CHAT_ID): Promise<boolean> {
   const record = await fetchTicket(ticketId);
   if (!record) return false;
@@ -625,7 +639,10 @@ async function runBotSelfTest(authHeader: string | null) {
 
     ticketId = ticket.id as string;
     sentCard = await sendTicketCard(ticket as Record<string, unknown>, CHAT_ID, { notifyNew: true, source: "bot_self_test" });
-    if (!sentCard) errors.push("send_card: Telegram nao confirmou o envio do card");
+    if (!sentCard) {
+      const reason = await latestTelegramFailureReason(ticketId);
+      errors.push(`send_card: ${reason ?? "Telegram nao confirmou o envio do card"}`);
+    }
 
     const { error: updateError } = await db.from("maintenance_tickets").update({
       description: `Chamado temporario editado pelo teste do bot em ${new Date().toISOString()}`,
