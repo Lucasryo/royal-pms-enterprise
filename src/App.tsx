@@ -11,6 +11,7 @@ import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import Landing3D from './components/Landing3D';
+import ResetPassword from './components/ResetPassword';
 import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
@@ -98,6 +99,11 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const searchParams = new URLSearchParams(window.location.search);
+    return hashParams.get('type') === 'recovery' || searchParams.get('type') === 'recovery';
+  });
 
   const { status: pushStatus, subscribe: subscribePush } = usePushNotifications(profile?.id);
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
@@ -266,6 +272,9 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[App] onAuthStateChange:', event, session ? 'has session' : 'no session');
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+      }
       setUser(session?.user ?? null);
       if (event === 'SIGNED_OUT') {
         setProfile(null);
@@ -430,6 +439,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#F8F9FA]">
+        <Toaster position="top-right" richColors />
         <motion.div 
           animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
           transition={{ repeat: Infinity, duration: 2 }}
@@ -449,7 +459,28 @@ export default function App() {
     );
   }
 
-  if (!user || !profile) return <Landing3D />;
+  if (isPasswordRecovery && user) {
+    return (
+      <>
+        <Toaster position="top-right" richColors />
+        <ResetPassword
+          onDone={() => {
+            setIsPasswordRecovery(false);
+            window.history.replaceState(null, '', window.location.pathname);
+          }}
+        />
+      </>
+    );
+  }
+
+  if (!user || !profile) {
+    return (
+      <>
+        <Toaster position="top-right" richColors />
+        <Landing3D />
+      </>
+    );
+  }
 
   const activeNavigationItem = navigationItems.find(i => i.id === currentView);
   const activeMeta = NAV_META[currentView];
