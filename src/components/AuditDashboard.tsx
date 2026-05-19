@@ -47,7 +47,7 @@ const TYPE_LABELS: Record<string, string> = {
   delete:         'Exclusão',
   create:         'Criação',
   update:         'Atualização',
-  company_create: 'Nova Empresa',
+  company_create: 'Nova empresa',
   user_create:    'Novo Usuário',
   login:          'Login',
 };
@@ -121,37 +121,40 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
   const activeTabInfo = TABS.find(t => t.id === activeTab)!;
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-5 overflow-x-clip pb-12">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-gray-900">Log de Auditoria</h1>
-          <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-600">Auditoria</p>
+          <h1 className="mt-1 text-xl font-black tracking-tight text-gray-900 sm:text-2xl">Log de auditoria</h1>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
             Histórico completo de ações por módulo
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Buscar por ação, usuário..."
-              className="pl-9 pr-4 py-2 bg-white border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-neutral-900/5 w-64"
+              className="w-full rounded-xl border border-neutral-200 bg-neutral-50 py-2 pl-9 pr-4 text-sm outline-none focus:border-neutral-900 focus:bg-white"
             />
           </div>
           <button
             onClick={fetchLogs}
-            className="p-2 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-all"
+            className="rounded-xl border border-neutral-200 bg-white p-2 transition-all hover:bg-neutral-50"
             title="Atualizar"
           >
             <RefreshCw className="w-4 h-4 text-neutral-500" />
           </button>
         </div>
       </div>
+      </div>
 
       {/* Tab Navigation */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex max-w-full gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
         {TABS.map(tab => {
           const Icon = tab.icon;
           const count = countFor(tab.id);
@@ -160,7 +163,7 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+              className={`flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
                 isActive
                   ? 'bg-neutral-900 text-white border-neutral-900 shadow-lg shadow-neutral-900/10'
                   : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'

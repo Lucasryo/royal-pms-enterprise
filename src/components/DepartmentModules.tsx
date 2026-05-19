@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, Settings, ShieldCheck, TrendingUp, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, ShieldCheck, TrendingUp, Users, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -9,6 +9,8 @@ import HousekeepingDashboard from './HousekeepingDashboard';
 import OperationsDashboard from './OperationsDashboard';
 import AdminDashboard from './AdminDashboard';
 import AuditDashboard from './AuditDashboard';
+import CompanyManager from './CompanyManager';
+import StaffManager from './StaffManager';
 import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
@@ -1910,18 +1912,115 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
 }
 
 export function AdminControlModuleDashboard({ profile }: { profile: UserProfile }) {
+  type AdminSection = 'companies' | 'staff' | 'audit';
+  const sections: Array<{ id: AdminSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
+    { id: 'companies', label: 'Empresas', icon: Building2, subtitle: 'Clientes, aliases e vínculos' },
+    { id: 'staff', label: 'Equipe e acesso', icon: Users, subtitle: 'Perfis, permissões e papéis' },
+    { id: 'audit', label: 'Auditoria', icon: ShieldCheck, subtitle: 'Trilha de ações do PMS' },
+  ];
+  const [active, setActive] = useState<AdminSection>('companies');
+  const [stats, setStats] = useState({ companies: 0, users: 0, audit: 0 });
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchAdminStats() {
+      const [companiesRes, usersRes, auditRes] = await Promise.all([
+        supabase.from('companies').select('id', { count: 'exact', head: true }),
+        supabase.from('profiles').select('id', { count: 'exact', head: true }),
+        supabase.from('audit_logs').select('id', { count: 'exact', head: true }),
+      ]);
+      if (!mounted) return;
+      setStats({
+        companies: companiesRes.count || 0,
+        users: usersRes.count || 0,
+        audit: auditRes.count || 0,
+      });
+    }
+    fetchAdminStats();
+    return () => { mounted = false; };
+  }, []);
+
+  const renderSection = () => {
+    switch (active) {
+      case 'companies':
+        return <CompanyManager profile={profile} />;
+      case 'staff':
+        return <StaffManager currentUser={profile} />;
+      case 'audit':
+        return <AuditDashboard profile={profile} />;
+    }
+  };
+
   return (
-    <ModuleShell
-      eyebrow="Modulo Admin"
-      title="Controle geral do PMS"
-      description="Admin controla tudo: usuarios, permissoes, empresas e auditoria."
-      profile={profile}
-      tabs={[
-        { id: 'companies', label: 'Empresas', icon: Building2, render: () => <AdminDashboard profile={profile} initialTab="companies" /> },
-        { id: 'staff', label: 'Equipe e acesso', icon: Settings, render: () => <AdminDashboard profile={profile} initialTab="registration" /> },
-        { id: 'audit', label: 'Auditoria', icon: ShieldCheck, render: () => <AuditDashboard profile={profile} /> },
-      ]}
-    />
+    <div className={moduleShellClass}>
+      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Módulo Admin</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Controle, acesso e governança</h1>
+            <p className="mt-2 max-w-3xl text-xs leading-6 text-neutral-500 sm:text-sm sm:leading-7">
+              Central para empresas, usuários, permissões e auditoria. Use esta área para manter o PMS organizado, rastreável e pronto para operação.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+            <AdminStat label="Empresas" value={stats.companies} icon={Building2} />
+            <AdminStat label="Usuários" value={stats.users} icon={Users} />
+            <AdminStat label="Eventos" value={stats.audit} icon={ShieldCheck} />
+          </div>
+        </div>
+      </div>
+
+      <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur sm:mx-0">
+        <span className="hidden pl-1 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400 sm:inline">Admin</span>
+        <span className="hidden h-4 w-px bg-neutral-200 sm:inline" />
+        <div className="flex max-w-full flex-1 gap-1 overflow-x-auto">
+          {sections.map((section) => {
+            const Icon = section.icon;
+            const selected = active === section.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => setActive(section.id)}
+                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition ${
+                  selected
+                    ? 'bg-neutral-950 text-white shadow-sm'
+                    : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+                }`}
+                title={section.subtitle}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span>{section.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        {renderSection()}
+      </div>
+    </div>
+  );
+}
+
+function AdminStat({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: number;
+  icon: ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
+        <Icon className="h-3.5 w-3.5 text-neutral-400" />
+      </div>
+      <p className="mt-2 text-xl font-black tabular-nums text-neutral-950 sm:text-2xl">{value}</p>
+    </div>
   );
 }
 

@@ -62,7 +62,7 @@ type NavItem = {
 const NAV_SECTION_LABELS: Record<NavItem['section'], string> = {
   hotel: 'Hotel',
   revenue: 'Receita',
-  management: 'Gestao',
+  management: 'Gestão',
   channels: 'Canais',
 };
 
@@ -70,29 +70,29 @@ const NAV_SECTION_ORDER: NavItem['section'][] = ['hotel', 'revenue', 'management
 
 const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   dashboard: { section: 'hotel', description: 'Resumo executivo e atalhos do dia' },
-  reservations: { section: 'hotel', description: 'Reservas, tarifas e calendario' },
+  reservations: { section: 'hotel', description: 'Reservas, tarifas e calendário' },
   reception: { section: 'hotel', description: 'Check-in, UHs e turno' },
   maintenance: { section: 'hotel', description: 'Chamados e preventiva' },
-  checkin: { section: 'hotel', description: 'Entradas, saidas e walk-in' },
-  housekeeping: { section: 'hotel', description: 'Limpeza, bloqueios e liberacao' },
-  operations: { section: 'hotel', description: 'Passagem de turno e pendencias' },
+  checkin: { section: 'hotel', description: 'Entradas, saídas e walk-in' },
+  housekeeping: { section: 'hotel', description: 'Limpeza, bloqueios e liberação' },
+  operations: { section: 'hotel', description: 'Passagem de turno e pendências' },
   pos: { section: 'hotel', description: 'Consumo, comandas e caixa' },
-  events: { section: 'hotel', description: 'Agenda, orcamentos e saloes' },
-  finance: { section: 'revenue', description: 'Faturas, bancos e cobranca' },
-  'prio-billing': { section: 'revenue', description: 'Geracao e conferencia Prio' },
-  tariffs: { section: 'revenue', description: 'Tarifario corporativo' },
-  reports: { section: 'revenue', description: 'Indicadores e exportacoes' },
-  'admin-control': { section: 'management', description: 'Usuarios, permissoes e cadastros' },
+  events: { section: 'hotel', description: 'Agenda, orçamentos e salões' },
+  finance: { section: 'revenue', description: 'Faturas, bancos e cobrança' },
+  'prio-billing': { section: 'revenue', description: 'Geração e conferência Prio' },
+  tariffs: { section: 'revenue', description: 'Tarifário corporativo' },
+  reports: { section: 'revenue', description: 'Indicadores e exportações' },
+  'admin-control': { section: 'management', description: 'Usuários, permissões e cadastros' },
   companies: { section: 'management', description: 'Clientes corporativos' },
-  guests: { section: 'management', description: 'Perfis e historico' },
+  guests: { section: 'management', description: 'Perfis e histórico' },
   tracking: { section: 'management', description: 'Fluxo operacional e financeiro' },
-  registration: { section: 'management', description: 'Usuarios e acessos' },
-  staff: { section: 'management', description: 'Colaboradores e permissoes' },
-  audit: { section: 'management', description: 'Logs e trilha de acoes' },
-  'maintenance-qr': { section: 'management', description: 'Impressao de QR por UH' },
-  'housekeeping-staff': { section: 'management', description: 'Equipe de governanca' },
+  registration: { section: 'management', description: 'Usuários e acessos' },
+  staff: { section: 'management', description: 'Colaboradores e permissões' },
+  audit: { section: 'management', description: 'Logs e trilha de ações' },
+  'maintenance-qr': { section: 'management', description: 'Impressão de QR por UH' },
+  'housekeeping-staff': { section: 'management', description: 'Equipe de governança' },
   marketing: { section: 'channels', description: 'Omni-inbox e campanhas' },
-  profile: { section: 'management', description: 'Preferencias e seguranca da conta' },
+  profile: { section: 'management', description: 'Preferências e segurança da conta' },
 };
 
 export default function App() {
@@ -428,7 +428,7 @@ export default function App() {
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
           <div className="text-center bg-white/5 border border-white/10 rounded-3xl p-8 max-w-sm">
             <h1 className="text-xl font-black text-white">Acesso restrito</h1>
-            <p className="mt-2 text-sm text-neutral-400">Faca login para visualizar o quadro de manutencao.</p>
+            <p className="mt-2 text-sm text-neutral-400">Faça login para visualizar o quadro de manutenção.</p>
           </div>
         </div>
       );
@@ -887,7 +887,7 @@ export default function App() {
                 {isSearching ? (
                   <div className="py-20 flex flex-col items-center justify-center gap-4">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="text-xs font-black uppercase tracking-widest text-gray-400">Vasculhando rede...</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-gray-400">Buscando no sistema...</p>
                   </div>
                 ) : globalSearchTerm.length < 2 ? (
                   <div className="py-20 text-center">

@@ -1,4 +1,4 @@
-﻿import React, { useId, useState, useEffect } from 'react';
+import React, { useId, useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { Company, FiscalFile, UserProfile, UserRole, UserPermissions, AuditLog, Notification } from '../types';
 import { PDFDocument } from 'pdf-lib';
@@ -21,7 +21,7 @@ import { DEFAULT_PERMISSIONS } from '../lib/defaultPermissions';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658'];
 
-const FINANCIAL_TYPES = ['FATURA', 'Hospedagem', 'AlimentaÃ§Ã£o', 'Lavanderia', 'Eventos', 'Transporte', 'Fatura Evento'];
+const FINANCIAL_TYPES = ['FATURA', 'Hospedagem', 'Alimentação', 'Lavanderia', 'Eventos', 'Transporte', 'Fatura Evento'];
 
 const formatAuditDetails = (details: unknown) => {
   if (typeof details === 'string') {
@@ -178,7 +178,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
   const handleSaveMonthlyGoal = async () => {
     const valueNum = parseFloat(monthlyGoalInput.replace(/\./g, '').replace(',', '.'));
     if (isNaN(valueNum) || valueNum < 0) {
-      toast.error('Valor invÃ¡lido. Informe um nÃºmero positivo.');
+      toast.error('Valor inválido. Informe um número positivo.');
       return;
     }
     setSavingGoal(true);
@@ -197,7 +197,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'AtualizaÃ§Ã£o de Meta Mensal',
+        action: 'Atualização de Meta Mensal',
         details: JSON.stringify({ novo_valor: valueNum }),
         type: 'update'
       });
@@ -276,26 +276,26 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       for (const user of companyUsers) {
         await sendNotification({
           user_id: user.id,
-          title: 'ContestaÃ§Ã£o Respondida',
-          message: `A contestaÃ§Ã£o da fatura ${viewingFileDetails.original_name} foi respondida.`,
+          title: 'Contestação Respondida',
+          message: `A contestação da fatura ${viewingFileDetails.original_name} foi respondida.`,
           link: '/dashboard'
         });
       }
 
-      toast.success('ContestaÃ§Ã£o respondida com sucesso!');
+      toast.success('Contestação respondida com sucesso!');
       setViewingFileDetails(null);
       setDisputeResponse('');
       
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'ResoluÃ§Ã£o de ContestaÃ§Ã£o',
+        action: 'Resolução de Contestação',
         details: `Arquivo ID: ${viewingFileDetails.id}, Resposta: ${disputeResponse}`,
         type: 'update'
       });
     } catch (error) {
       console.error("Error resolving dispute:", error);
-      toast.error('Erro ao responder contestaÃ§Ã£o.');
+      toast.error('Erro ao responder contestação.');
     } finally {
       setResolvingDispute(false);
     }
@@ -305,7 +305,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
     if (itauExtractedData.length === 0) return;
     try {
       const statement = {
-        name: `Extrato ItaÃº - ${new Date().toLocaleDateString('pt-BR')}`,
+        name: `Extrato Itaú - ${new Date().toLocaleDateString('pt-BR')}`,
         transactions: itauExtractedData,
         created_by: profile.name
       };
@@ -330,9 +330,9 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       const data = await parseItauStatement(itauRawText);
       if (data && data.length > 0) {
         setItauExtractedData(data);
-        toast.success(`${data.length} transaÃ§Ãµes identificadas!`);
+        toast.success(`${data.length} transações identificadas!`);
       } else {
-        toast.error('Nenhuma transaÃ§Ã£o identificada. Verifique o texto colado.');
+        toast.error('Nenhuma transação identificada. Verifique o texto colado.');
       }
     } catch (error) {
       toast.error('Erro ao processar dados.');
@@ -343,11 +343,11 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
 
   const downloadStatementAsCSV = (stmt: any) => {
     if (!stmt.transactions || stmt.transactions.length === 0) {
-      toast.error('Nenhuma transaÃ§Ã£o para baixar.');
+      toast.error('Nenhuma transação para baixar.');
       return;
     }
 
-    const headers = ['Data', 'DescriÃ§Ã£o', 'Documento', 'Valor'];
+    const headers = ['Data', 'Descrição', 'Documento', 'Valor'];
     const rows = stmt.transactions.map((t: any) => [
       new Date(t.date).toLocaleDateString('pt-BR'),
       t.description.replace(/;/g, ','),
@@ -531,10 +531,10 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         setDueDate(firstDate);
         toast.success(`${successCount} vencimento(s) identificado(s).`);
       } else {
-        toast.error('NÃ£o foi possÃ­vel identificar o vencimento automaticamente nos arquivos selecionados.');
+        toast.error('Não foi possível identificar o vencimento automaticamente nos arquivos selecionados.');
       }
     } catch (error) {
-      console.error("Erro na detecÃ§Ã£o:", error);
+      console.error("Erro na detecção:", error);
       toast.error('Erro ao tentar detectar o vencimento.');
     } finally {
       setIsDetecting(false);
@@ -574,7 +574,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
     try {
       const company = companies.find(c => c.id === selectedCompanyId);
       if (!company) {
-        toast.error('Empresa nÃ£o encontrada.');
+        toast.error('Empresa não encontrada.');
         setUploading(false);
         return;
       }
@@ -635,7 +635,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         for (const u of companyUsers) {
           sendNotification({
             user_id: u.id,
-            title: 'Novo Documento DisponÃ­vel',
+            title: 'Novo Documento disponível',
             message: `Um novo documento (${fileType}) ${isFinancial ? `com vencimento em ${new Date(fileDueDate + 'T12:00:00').toLocaleDateString('pt-BR')}` : `de ${period}`} foi enviado para sua empresa: ${file.name}`,
             link: '/dashboard'
           });
@@ -665,11 +665,11 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
         .eq('id', userId);
       
       fetchData();
-      toast.success('UsuÃ¡rio vinculado com sucesso!');
+      toast.success('Usuário vinculado com sucesso!');
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'VÃ­nculo de UsuÃ¡rio',
+        action: 'Vínculo de Usuário',
         details: JSON.stringify({ 
           user: users.find(u => u.id === userId)?.name, 
           company: companies.find(c => c.id === companyId)?.name 
@@ -678,7 +678,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       });
     } catch (error) {
       console.error("Error updating user company:", error);
-      toast.error('Erro ao vincular usuÃ¡rio.');
+      toast.error('Erro ao vincular usuário.');
     }
   };
 
@@ -704,7 +704,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       console.log('PDF mesclado criado. Tamanho:', blob.size, 'bytes');
 
       if (blob.size === 0) {
-        throw new Error('O PDF mesclado estÃ¡ vazio.');
+        throw new Error('O PDF mesclado está vazio.');
       }
 
       const finalFileName = assemblyFileName.trim() 
@@ -846,7 +846,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
   };
 
   const handlePermanentDeleteFile = async (fileId: string, storagePath: string, originalName: string) => {
-    if (!window.confirm(`ATENÃ‡ÃƒO: Deseja excluir PERMANENTEMENTE o arquivo "${originalName}"? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`)) return;
+    if (!window.confirm(`ATENÇÃO: Deseja excluir PERMANENTEMENTE o arquivo "${originalName}"? Esta ação não pode ser desfeita.`)) return;
     try {
       // Delete from Storage
       await supabase.storage.from('files').remove([storagePath]);
@@ -856,11 +856,11 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       
       setFiles(prev => prev.filter(f => f.id !== fileId));
       setSelectedFileIds(prev => prev.filter(id => id !== fileId));
-      toast.success('Arquivo excluÃ­do permanentemente!');
+      toast.success('Arquivo excluído permanentemente!');
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'ExclusÃ£o Permanente',
+        action: 'Exclusão Permanente',
         details: JSON.stringify({ name: originalName, path: storagePath }),
         type: 'delete'
       });
@@ -884,7 +884,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'AtualizaÃ§Ã£o de Vencimento',
+        action: 'Atualização de Vencimento',
         details: JSON.stringify({ id: fileId, date: newDate }),
         type: 'update'
       });
@@ -909,7 +909,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'AtualizaÃ§Ã£o de Valor',
+        action: 'Atualização de Valor',
         details: JSON.stringify({ id: fileId, amount: parsedAmount }),
         type: 'update'
       });
@@ -1104,7 +1104,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       ));
       const failed = results.filter((r: any) => r?.error).length;
       if (failed > 0) {
-        throw new Error(`${failed} arquivo(s) nÃ£o puderam ser atualizados`);
+        throw new Error(`${failed} arquivo(s) não puderam ser atualizados`);
       }
 
       setFiles(prev => prev.map(f => selectedFileIds.includes(f.id) ? { 
@@ -1118,7 +1118,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'ExclusÃ£o em Lote (Lixeira)',
+        action: 'Exclusão em Lote (Lixeira)',
         details: JSON.stringify({ count: selectedFileIds.length }),
         type: 'delete'
       });
@@ -1170,7 +1170,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       });
 
       if (invokeError) {
-        throw new Error((invokeError as any)?.context?.error || invokeError.message || 'Erro ao cadastrar usuÃ¡rio');
+        throw new Error((invokeError as any)?.context?.error || invokeError.message || 'Erro ao cadastrar usuário');
       }
       if (invokeData && (invokeData as any).error) {
         throw new Error((invokeData as any).error);
@@ -1184,17 +1184,17 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
       setNewUserCompanyId('');
       setNewUserPermissions(DEFAULT_PERMISSIONS['client']);
       fetchData();
-      toast.success('UsuÃ¡rio cadastrado com sucesso!');
+      toast.success('Usuário cadastrado com sucesso!');
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'Cadastro de UsuÃ¡rio',
+        action: 'Cadastro de Usuário',
         details: JSON.stringify({ name: newUserName, email: newUserEmail, role: newUserRole }),
         type: 'user_create'
       });
     } catch (error: any) {
       console.error("Error adding user:", error);
-      toast.error(error.message || 'Erro ao cadastrar usuÃ¡rio.');
+      toast.error(error.message || 'Erro ao cadastrar usuário.');
     } finally {
       setUploading(false);
     }
@@ -1360,7 +1360,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-neutral-100 z-50 overflow-hidden"
               >
                 <div className="p-4 border-b border-neutral-100 flex justify-between items-center">
-                  <h3 className="font-bold text-sm">NotificaÃ§Ãµes</h3>
+                  <h3 className="font-bold text-sm">Notificações</h3>
                   <span className="text-[10px] bg-neutral-100 px-2 py-0.5 rounded-full font-bold">
                     {notifications.filter(n => !n.read).length} Novas
                   </span>
@@ -1383,7 +1383,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   ) : (
                     <div className="p-8 text-center text-neutral-400">
                       <BellOff className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                      <p className="text-xs">Nenhuma notificaÃ§Ã£o</p>
+                      <p className="text-xs">Nenhuma notificação</p>
                     </div>
                   )}
                 </div>
@@ -1399,7 +1399,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
             { label: 'Empresas', value: companies.length, icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50' },
             { label: 'Documentos', value: files.length, icon: FileText, color: 'text-purple-600', bg: 'bg-purple-50' },
             { label: 'Clientes', value: users.filter(u => u.role === 'client' || u.role === 'external_client').length, icon: Users, color: 'text-green-600', bg: 'bg-green-50' },
-            { label: 'ContestaÃ§Ãµes', value: financeStats.disputeCount, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
+            { label: 'Contestações', value: financeStats.disputeCount, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' },
             { label: 'Visualizados', value: files.filter(f => f.viewed_by_client).length, icon: CheckCircle2, color: 'text-amber-600', bg: 'bg-amber-50' },
           ].map((stat, i) => (
             <motion.div
@@ -1433,7 +1433,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
-            Gestao Financeira
+            Gestão Financeira
           </button>
         )}
 
@@ -1585,7 +1585,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 <option value="EXTRATO">EXTRATO</option>
                 <option value="FATURA">FATURA</option>
                 <option value="Hospedagem">Hospedagem</option>
-                <option value="AlimentaÃ§Ã£o">AlimentaÃ§Ã£o</option>
+                <option value="Alimentação">Alimentação</option>
                 <option value="Lavanderia">Lavanderia</option>
                 <option value="Eventos">Eventos</option>
                 <option value="Transporte">Transporte</option>
@@ -1600,7 +1600,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                       className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-neutral-900"
                     >
                       <option value="Hospedagem">Hospedagem</option>
-                      <option value="AlimentaÃ§Ã£o">AlimentaÃ§Ã£o</option>
+                      <option value="Alimentação">Alimentação</option>
                       <option value="Lavanderia">Lavanderia</option>
                       <option value="Eventos">Eventos</option>
                       <option value="Transporte">Transporte</option>
@@ -1795,7 +1795,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 onChange={(e) => setFilterCompanyId(e.target.value)}
                 className="px-3 py-2 border border-neutral-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-neutral-900 bg-neutral-50"
               >
-                <option value="">Todas as Empresas</option>
+                <option value="">Todas as empresas</option>
                 {companies.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -1811,7 +1811,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 <option value="EXTRATO">EXTRATO</option>
                 <option value="FATURA">FATURA</option>
                 <option value="Hospedagem">Hospedagem</option>
-                <option value="AlimentaÃ§Ã£o">AlimentaÃ§Ã£o</option>
+                <option value="Alimentação">Alimentação</option>
                 <option value="Lavanderia">Lavanderia</option>
                 <option value="Eventos">Eventos</option>
                 <option value="Fatura Evento">Fatura Evento</option>
@@ -1862,7 +1862,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   <th className="px-6 py-3 font-medium">Vencimento/Comp.</th>
                   <th className="px-6 py-3 font-medium text-center">Valor</th>
                   <th className="px-6 py-3 font-medium text-center">Status</th>
-                  <th className="px-6 py-3 font-medium text-right">AÃ§Ãµes</th>
+                  <th className="px-6 py-3 font-medium text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
@@ -2004,7 +2004,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     <td className="px-6 py-4 text-sm">
                       {file.is_deleted ? (
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-red-600 uppercase">ExcluÃ­do</span>
+                          <span className="text-xs font-bold text-red-600 uppercase">Excluído</span>
                           <span className="text-[9px] text-neutral-400">Por: {file.deletedBy || 'N/A'}</span>
                           <span className="text-[9px] text-neutral-400">Em: {file.deletedAt ? new Date(file.deletedAt).toLocaleDateString('pt-BR') : 'N/A'}</span>
                         </div>
@@ -2150,7 +2150,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 className="w-full bg-neutral-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                Adicionar Empresa
+                Adicionar empresa
               </button>
             </form>
           </motion.section>
@@ -2164,12 +2164,12 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           >
             <div className="flex items-center gap-2 mb-4">
               <Plus className="w-5 h-5 text-neutral-900" />
-              <h2 className="font-bold text-neutral-900">Cadastrar UsuÃ¡rio</h2>
+              <h2 className="font-bold text-neutral-900">Cadastrar usuário</h2>
             </div>
             <form onSubmit={handleAddUser} className="space-y-4">
               <input
                 type="text"
-                placeholder="Nome Completo"
+                placeholder="Nome completo"
                 value={newUserName}
                 onChange={(e) => setNewUserName(e.target.value)}
                 className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
@@ -2206,15 +2206,15 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
                 >
                   <option value="client">Cliente</option>
-                  <option value="external_client">Cliente Externo</option>
+                  <option value="external_client">Cliente externo</option>
                   <option value="reservations">Reservas</option>
                   <option value="faturamento">Faturamento</option>
                   <option value="finance">Financeiro</option>
-                  <option value="reception">Recepcao</option>
+                  <option value="reception">Recepção</option>
                   <option value="eventos">Eventos</option>
                   <option value="restaurant">Restaurante</option>
-                  <option value="housekeeping">Governanca</option>
-                  <option value="maintenance">Manutencao</option>
+                  <option value="housekeeping">Governança</option>
+                  <option value="maintenance">Manutenção</option>
                   <option value="manager">Gerente</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -2224,7 +2224,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     onChange={(e) => setNewUserCompanyId(e.target.value)}
                     className="w-full px-4 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900"
                   >
-                    <option value="">Sem Empresa</option>
+                    <option value="">Sem empresa</option>
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -2243,7 +2243,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 className="w-full bg-neutral-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                Cadastrar UsuÃ¡rio
+                Cadastrar usuário
               </button>
             </form>
           </motion.section>
@@ -2289,7 +2289,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     onChange={(e) => handleUpdateUserCompany(user.id, e.target.value)}
                     className="w-full px-3 py-1.5 border border-neutral-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-neutral-900"
                   >
-                    <option value="">Sem Empresa</option>
+                    <option value="">Sem empresa</option>
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -2511,7 +2511,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
               <div className="p-2 bg-blue-50 rounded-lg">
                 <TrendingUp className="w-5 h-5 text-blue-600" />
               </div>
-              <span className="text-xs font-bold text-neutral-500 uppercase">ProjeÃ§Ã£o Mensal</span>
+              <span className="text-xs font-bold text-neutral-500 uppercase">Projeção Mensal</span>
             </div>
             <p className="text-2xl font-bold text-neutral-900">
               {(financeStats.totalPending + financeStats.totalPaid).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -2550,7 +2550,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
             <div className="flex items-center gap-2 mb-6">
               <PieChartIcon className="w-5 h-5 text-neutral-900" />
-              <h3 className="font-bold text-neutral-900">DistribuiÃ§Ã£o por Status</h3>
+              <h3 className="font-bold text-neutral-900">Distribuição por Status</h3>
             </div>
             <div className="h-64 flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
@@ -2665,7 +2665,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                 onChange={(e) => setFinanceCompanyFilter(e.target.value)}
                 className="px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
               >
-                <option value="">Todas as Empresas</option>
+                <option value="">Todas as empresas</option>
                 {companies.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -2677,7 +2677,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
               >
                 <option value="">Todas as Categorias</option>
                 <option value="Hospedagem">Hospedagem</option>
-                <option value="AlimentaÃ§Ã£o">AlimentaÃ§Ã£o</option>
+                <option value="Alimentação">Alimentação</option>
                 <option value="Lavanderia">Lavanderia</option>
                 <option value="Eventos">Eventos</option>
                 <option value="Fatura Evento">Fatura Evento</option>
@@ -2697,8 +2697,8 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   <th className="px-6 py-3">Vencimento</th>
                   <th className="px-6 py-3 text-right">Valor</th>
                   <th className="px-6 py-3 text-center">Status</th>
-                  <th className="px-6 py-3 text-center">RÃ©gua</th>
-                  <th className="px-6 py-3 text-right">AÃ§Ãµes</th>
+                  <th className="px-6 py-3 text-center">Régua</th>
+                  <th className="px-6 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
@@ -2767,7 +2767,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     <td className="px-6 py-4">
                       {file.is_deleted ? (
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-red-600">ExcluÃ­do</span>
+                          <span className="text-xs font-bold text-red-600">Excluído</span>
                           <span className="text-[10px] text-neutral-400">Por: {file.deletedBy || 'N/A'}</span>
                           <span className="text-[10px] text-neutral-400">Em: {file.deletedAt ? new Date(file.deletedAt).toLocaleDateString('pt-BR') : 'N/A'}</span>
                         </div>
@@ -2827,7 +2827,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                               className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
                                 sent ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-neutral-100 text-neutral-400'
                               }`}
-                              title={sent ? `NotificaÃ§Ã£o ${rule} enviada` : `NotificaÃ§Ã£o ${rule} pendente`}
+                              title={sent ? `Notificação ${rule} enviada` : `Notificação ${rule} pendente`}
                             >
                               {rule}
                             </span>
@@ -2943,7 +2943,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     <th className="px-6 py-3">Arquivo / Fatura</th>
                     <th className="px-6 py-3">Vencimento</th>
                     <th className="px-6 py-3 text-right">Valor</th>
-                    <th className="px-6 py-3 text-right">AÃ§Ã£o</th>
+                    <th className="px-6 py-3 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
@@ -3001,7 +3001,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
               <textarea
                 value={itauRawText}
                 onChange={(e) => setItauRawText(e.target.value)}
-                placeholder="Cole aqui os dados do extrato do ItaÃº..."
+                placeholder="Cole aqui os dados do extrato do Itaú..."
                 className="w-full h-48 p-4 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-neutral-900/5 focus:outline-none font-mono"
               />
 
@@ -3047,7 +3047,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => downloadStatementAsCSV({ name: `Extrato_ItaÃº_${new Date().toLocaleDateString('pt-BR')}`, transactions: itauExtractedData })}
+                      onClick={() => downloadStatementAsCSV({ name: `Extrato_Itaú_${new Date().toLocaleDateString('pt-BR')}`, transactions: itauExtractedData })}
                       className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-900 rounded-lg text-sm font-bold hover:bg-neutral-200 transition-colors"
                     >
                       <Download className="w-4 h-4" />
@@ -3114,7 +3114,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                     </span>
                   </div>
                   <h4 className="font-bold text-neutral-900 mb-1">{stmt.name}</h4>
-                  <p className="text-xs text-neutral-500 mb-4">{stmt.transactions?.length || 0} transaÃ§Ãµes identificadas</p>
+                  <p className="text-xs text-neutral-500 mb-4">{stmt.transactions?.length || 0} transações identificadas</p>
                   
                   <div className="pt-4 border-t border-neutral-100 flex justify-between items-center">
                     <span className="text-[10px] text-neutral-400">Por: {stmt.created_by}</span>
@@ -3130,7 +3130,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                         onClick={() => {
                           setItauExtractedData(stmt.transactions);
                           setFinanceMainTab('itau');
-                          toast.success('Extrato carregado para visualizaÃ§Ã£o!');
+                          toast.success('Extrato carregado para visualização!');
                         }}
                         className="text-xs font-bold text-neutral-900 hover:underline"
                       >
@@ -3214,7 +3214,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            {/* ConfiguraÃ§Ã£o */}
+            {/* Configuração */}
             <div className="space-y-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Empresa Destinataria</label>
@@ -3298,7 +3298,7 @@ export default function AdminDashboard({ profile, initialTab = 'documents' }: {
                   <div className="w-full py-8 border-2 border-dashed border-neutral-200 rounded-2xl flex flex-col items-center justify-center gap-2 bg-neutral-50 group-hover:bg-neutral-100 group-hover:border-neutral-300 transition-all">
                     <FilePlus className="w-8 h-8 text-neutral-400" />
                     <p className="text-sm font-medium text-neutral-600">Clique ou arraste PDFs aqui</p>
-                    <p className="text-[10px] text-neutral-400 uppercase font-bold">Apenas arquivos PDF sÃ£o aceitos</p>
+                    <p className="text-[10px] text-neutral-400 uppercase font-bold">Apenas arquivos PDF são aceitos</p>
                   </div>
                 </div>
               </div>

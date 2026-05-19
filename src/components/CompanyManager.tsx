@@ -160,31 +160,50 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
     c.cnpj?.includes(searchTerm)
   );
 
+  const activeCount = companies.filter(c => normalizeCompanyStatus(c.status) === 'ACTIVE').length;
+  const parserReadyCount = companies.filter(c => Boolean((c as Company & { email_domain?: string | null }).email_domain)).length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold text-neutral-900">Gestão de Empresas</h2>
-          <p className="text-sm text-neutral-500">Cadastre e gerencie faturamentos diretos e parceiros.</p>
+    <div className="space-y-5 overflow-x-clip">
+      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-600">Empresas</p>
+            <h2 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">Carteira corporativa</h2>
+            <p className="mt-1 text-sm text-neutral-500">Cadastre clientes, aliases do parser e dados usados no faturamento direto.</p>
+          </div>
+          <button
+            onClick={() => { resetForm(); setEditingCompany(null); setIsModalOpen(true); }}
+            className="flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-neutral-950 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-sm transition-all hover:bg-neutral-800 sm:w-auto"
+          >
+            <Plus className="h-4 w-4" />
+            Nova empresa
+          </button>
         </div>
-        <button
-          onClick={() => { resetForm(); setEditingCompany(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 bg-neutral-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-neutral-800 transition-all shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Nova Empresa
-        </button>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <CompanyKpi label="Total" value={companies.length} />
+          <CompanyKpi label="Ativas" value={activeCount} />
+          <CompanyKpi label="Parser" value={parserReadyCount} />
+          <CompanyKpi label="Exibidas" value={filteredCompanies.length} />
+        </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-        <input
-          type="text"
-          placeholder="Buscar empresa por nome ou CNPJ..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
-        />
+      <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Busca</p>
+          <h3 className="mt-1 text-base font-black text-neutral-950">Localizar empresa</h3>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou CNPJ..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-xl border border-neutral-200 bg-neutral-50 py-3 pl-10 pr-4 text-sm outline-none transition-all focus:border-neutral-900 focus:bg-white"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -197,11 +216,11 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm hover:shadow-md transition-all group"
+              className="group rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition-all hover:shadow-md sm:p-6"
             >
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-neutral-100 rounded-xl group-hover:bg-neutral-900 group-hover:text-white transition-colors">
-                  <Building2 className="w-6 h-6" />
+                <div className="rounded-xl bg-neutral-100 p-3 transition-colors group-hover:bg-neutral-900 group-hover:text-white">
+                  <Building2 className="h-5 w-5" />
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => handleEdit(company)} className="p-2 text-neutral-400 hover:text-neutral-900 hover:bg-neutral-50 rounded-lg transition-all">
@@ -222,23 +241,23 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-xs text-neutral-500">
                     <Mail className="w-3 h-3" />
-                    <span className="truncate">{company.email || 'N/A'}</span>
+                    <span className="truncate">{company.email || 'Não informado'}</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-neutral-500">
                     <Phone className="w-3 h-3" />
-                    <span>{company.phone || 'N/A'}</span>
+                    <span>{company.phone || 'Não informado'}</span>
                   </div>
                 </div>
 
                 <div className="pt-3 border-t border-neutral-100 flex justify-between items-center">
                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                    company.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    normalizeCompanyStatus(company.status) === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {company.status === 'ACTIVE' ? 'Ativo' : 'Inativo'}
+                    {normalizeCompanyStatus(company.status) === 'ACTIVE' ? 'Ativo' : 'Inativo'}
                   </span>
                   <div className="flex items-center gap-1 text-[10px] text-neutral-400">
                     <Globe className="w-3 h-3" />
-                    <span>{company.slug || 'N/A'}</span>
+                    <span>{company.slug || 'Sem slug'}</span>
                   </div>
                 </div>
               </div>
@@ -255,13 +274,13 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
             className="bg-white w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl"
           >
             <div className="p-6 border-b border-neutral-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-neutral-900">{editingCompany ? 'Editar Empresa' : 'Nova Empresa'}</h3>
+              <h3 className="text-lg font-bold text-neutral-900">{editingCompany ? 'Editar Empresa' : 'Nova empresa'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
                 <CloseIcon className="w-5 h-5" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="max-h-[78vh] space-y-4 overflow-y-auto p-4 sm:p-6">
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-neutral-500 uppercase">Nome da Empresa</label>
@@ -274,7 +293,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                   />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-neutral-500 uppercase">CNPJ</label>
                     <input
@@ -295,7 +314,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-neutral-500 uppercase">E-mail</label>
                     <input
@@ -325,7 +344,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                     className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-neutral-900/10 focus:outline-none font-mono"
                     placeholder="petrobras.com.br"
                   />
-                  <p className="text-[10px] text-neutral-500">Emails de @{formData.email_domain || 'domínio'} serão automaticamente vinculados a esta empresa nas reservas criadas pelo parser.</p>
+                  <p className="text-[10px] text-neutral-500">E-mails de @{formData.email_domain || 'domínio'} serão automaticamente vinculados a esta empresa nas reservas criadas pelo parser.</p>
                 </div>
 
                 <div className="space-y-1">
@@ -345,7 +364,7 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:ring-2 focus:ring-neutral-900/10 focus:outline-none"
-                    placeholder="Rua, Número, Bairro, Cidade - UF"
+                    placeholder="Rua, número, Bairro, Cidade - UF"
                   />
                 </div>
 
@@ -376,13 +395,22 @@ export default function CompanyManager({ profile }: { profile: UserProfile }) {
                   className="flex-1 px-4 py-2 bg-neutral-900 text-white text-sm font-bold rounded-xl hover:bg-neutral-800 shadow-lg shadow-neutral-900/20 transition-all flex items-center justify-center gap-2"
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-                  {editingCompany ? 'Salvar Alterações' : 'Cadastrar Empresa'}
+                  {editingCompany ? 'Salvar alterações' : 'Cadastrar empresa'}
                 </button>
               </div>
             </form>
           </motion.div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CompanyKpi({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
+      <p className="mt-2 text-xl font-black tabular-nums text-neutral-950 sm:text-2xl">{value}</p>
     </div>
   );
 }
