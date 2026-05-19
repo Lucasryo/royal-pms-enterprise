@@ -4771,7 +4771,7 @@ function IntegracoesTab() {
     signatureName: 'Royal Macaé Palace Hotel',
     signatureRole: 'Reservas',
     signaturePhone: '',
-    signatureWebsite: 'https://royalmacae.com.br',
+    signatureWebsite: 'https://royal.app.br',
     signatureAddress: '',
     signatureLogoUrl: '',
   });
@@ -5084,7 +5084,7 @@ function IntegracoesTab() {
                     </div>
                     <div>
                       <label className="text-[10px] font-semibold uppercase text-neutral-400 mb-1 block">Site</label>
-                      <input value={smtpConfig.signatureWebsite ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureWebsite: e.target.value }))} placeholder="https://royalmacae.com.br" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
+                      <input value={smtpConfig.signatureWebsite ?? ''} onChange={e => setSmtpConfig(c => ({ ...c, signatureWebsite: e.target.value }))} placeholder="https://royal.app.br" className="w-full px-4 py-3 bg-neutral-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                   </div>
                   <div>
