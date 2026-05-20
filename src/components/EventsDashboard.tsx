@@ -32,9 +32,155 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, startOfToday, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { RoyalDocumentTable } from './documents/RoyalDocument';
 
 const EVENT_TYPES = ['Corporativo', 'Social', 'Casamento', 'Batizado', 'Formatura', 'Exposição', 'Outro'];
 const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop'];
+
+const eventMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const eventDate = (value?: string) => value ? format(parseISO(value), 'dd/MM/yyyy') : '-';
+
+function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
+  const rows: React.ReactNode[][] = [];
+  if (totals.hallPrice > 0) rows.push([eventDate(data.start_date), 'Locacao do salao', eventMoney(totals.hallPrice)]);
+  (data.quote_items || []).forEach((item: QuoteItem) => {
+    rows.push([
+      eventDate(data.start_date),
+      `${item.name} - ${String(item.unit || '').replace('por_', '/')} - Qtd ${item.quantity}`,
+      data.is_quote ? eventMoney(Number(item.subtotal || 0)) : String(item.quantity || 0),
+    ]);
+  });
+  if (!rows.length && data.items_included) {
+    data.items_included.split(',').map((item: string) => item.trim()).filter(Boolean).forEach((item: string) => {
+      rows.push([eventDate(data.start_date), item, '-']);
+    });
+  }
+  if (!rows.length) rows.push([eventDate(data.start_date), data.name || 'Evento', data.is_quote ? eventMoney(totals.total) : '-']);
+  return rows;
+}
+
+function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number } }) {
+  const docTitle = data.is_quote ? 'Cotacao de Evento' : 'Ordem de Servico';
+  const code = data.is_quote ? (data.quote_number || 'Pendente') : (data.os_number || 'Pendente');
+  const halls = data.halls?.length ? data.halls.join(' / ') : data.hall_name;
+  const rows = buildEventDocumentRows(data, totals);
+
+  return (
+    <section
+      className="nota-printable relative mx-auto overflow-hidden bg-white text-neutral-950 shadow-sm"
+      style={{ width: '210mm', minHeight: '297mm', padding: '12mm', fontFamily: 'Arial, Helvetica, sans-serif' }}
+    >
+      <img src="/logo.png" alt="" className="pointer-events-none absolute bottom-24 right-4 w-[96mm] opacity-[0.055]" />
+
+      <header className="grid grid-cols-[38mm_1fr_50mm] gap-4 border-b-4 border-neutral-900 pb-5">
+        <div className="flex items-start justify-center pt-1">
+          <img src="/logo.png" alt="Royal Macae" className="max-h-16 max-w-[34mm] object-contain" />
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Eventos Royal Macae</p>
+          <h1 className="mt-1 text-[25px] font-black uppercase leading-none tracking-tight">{docTitle}</h1>
+          <p className="mt-2 text-[11px] leading-4 text-neutral-600">
+            Royal Macae Palace Hotel - AV. ATLANTICA, 1642 - PR. DOS CAVALEIROS<br />
+            CNPJ 07.116.901/0001-92 - (22)2123-9650 - eventos@royalmacae.com.br
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{data.is_quote ? 'Cotacao' : 'O.S.'}</p>
+          <p className="mt-1 text-lg font-black">{code}</p>
+          <p className="mt-2 text-[10px] font-bold text-neutral-500">Emissao</p>
+          <p className="text-[12px] font-bold">{format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
+          <span className="mt-3 inline-flex rounded-full border border-neutral-900 px-3 py-1 text-[9px] font-black uppercase tracking-widest">
+            {data.is_quote ? 'Proposta' : 'Execucao'}
+          </span>
+        </div>
+      </header>
+
+      <section className="mt-5 grid grid-cols-[1.25fr_0.75fr] gap-4">
+        <div className="rounded-xl border-2 border-neutral-900 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Briefing do evento</p>
+          <h2 className="mt-2 text-2xl font-black leading-tight">{data.name || 'Evento sem nome'}</h2>
+          <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
+            <EventDocField label="Tipo" value={data.event_type || '-'} />
+            <EventDocField label="Contratante" value={data.client_category || '-'} />
+            <EventDocField label="Local" value={halls || '-'} />
+            <EventDocField label="Participantes" value={data.attendees_count ? `${data.attendees_count} pessoas` : '-'} />
+            <EventDocField label="Inicio" value={`${eventDate(data.start_date)} ${data.start_time || ''}`} />
+            <EventDocField label="Termino" value={`${eventDate(data.end_date)} ${data.end_time || ''}`} />
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-neutral-900 p-4 text-white">
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-400">Controle operacional</p>
+          <div className="mt-4 space-y-3 text-[12px]">
+            <EventDocCheck label="Montagem do salao" />
+            <EventDocCheck label="A&B / itens conferidos" />
+            <EventDocCheck label="Responsavel alinhado" />
+            <EventDocCheck label="Financeiro provisionado" checked={data.is_quote} />
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 grid grid-cols-[1fr_1fr_1fr] gap-3">
+        <EventDocMetric label="Salao" value={halls || '-'} />
+        <EventDocMetric label="Horario" value={data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'} />
+        <EventDocMetric label={data.is_quote ? 'Valor proposto' : 'Status'} value={data.is_quote ? eventMoney(totals.total) : (data.status || 'planned')} />
+      </section>
+
+      <section className="mt-5">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-500">{data.is_quote ? 'Itens da cotacao' : 'Servicos da O.S.'}</h3>
+          <span className="text-[10px] font-bold text-neutral-400">Page 1 of 1</span>
+        </div>
+        <RoyalDocumentTable headers={['Data', 'Descricao', data.is_quote ? 'Valor' : 'Qtd/Status']} rows={rows} />
+      </section>
+
+      <section className="mt-6 grid grid-cols-[1fr_72mm] gap-5">
+        <div className="space-y-3">
+          <EventDocNote title="Observacoes importantes" text={data.important_notes || 'Sem observacoes registradas.'} />
+          <EventDocNote title="Passo a passo da equipe" text={data.staff_roadmap || 'Nenhum cronograma definido.'} />
+        </div>
+        <div className="rounded-xl border border-neutral-300 p-4">
+          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Resumo financeiro</p>
+          <EventDocTotal label="Locacao" value={eventMoney(totals.hallPrice)} />
+          <EventDocTotal label="Itens" value={eventMoney(totals.itemsTotal)} />
+          {data.iss_enabled && <EventDocTotal label={`ISS ${data.iss_rate || 0}%`} value={eventMoney(totals.iss)} />}
+          <div className="mt-3 border-t-2 border-neutral-900 pt-3">
+            <EventDocTotal label="Total" value={eventMoney(totals.total)} strong />
+          </div>
+        </div>
+      </section>
+
+      <footer className="absolute bottom-5 left-12 right-12">
+        <div className="grid grid-cols-2 gap-12">
+          <EventDocSignature label="Responsavel pelo evento" />
+          <EventDocSignature label="Contratante" />
+        </div>
+        <div className="mt-5 border-t border-neutral-900 pt-2 text-center text-[11px]">
+          www.royalmacae.com.br - reservas@royalmacae.com.br
+        </div>
+      </footer>
+    </section>
+  );
+}
+
+function EventDocField({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="font-bold">{value}</p></div>;
+}
+function EventDocCheck({ label, checked = false }: { label: string; checked?: boolean }) {
+  return <div className="flex items-center gap-2"><span className="flex h-4 w-4 items-center justify-center border border-white text-[10px]">{checked ? 'X' : ''}</span><span>{label}</span></div>;
+}
+function EventDocMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="rounded-xl bg-neutral-100 p-3"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 truncate text-sm font-black">{value}</p></div>;
+}
+function EventDocNote({ title, text }: { title: string; text: string }) {
+  return <div className="rounded-xl border border-neutral-300 p-3"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{title}</p><p className="mt-2 whitespace-pre-line text-[11px] leading-5">{text}</p></div>;
+}
+function EventDocTotal({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <div className={`mt-2 flex justify-between text-xs ${strong ? 'text-base font-black' : 'font-bold'}`}><span>{label}</span><span className="tabular-nums">{value}</span></div>;
+}
+function EventDocSignature({ label }: { label: string }) {
+  return <div className="border-t border-neutral-900 pt-2"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 text-[10px] text-neutral-500">Data: ____/____/________</p></div>;
+}
 
 export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   const [activeTab, setActiveTab] = useState<'calendar' | 'quotes' | 'register' | 'items'>('calendar');
@@ -1182,8 +1328,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                      </div>
 
+                     <div className="mx-auto max-h-[680px] max-w-full overflow-auto rounded-xl bg-neutral-100 p-4">
+                       <div className="origin-top scale-[0.42] sm:scale-[0.55] lg:scale-[0.68]" style={{ width: '210mm', height: '297mm' }}>
+                         <EventRoyalDocument data={formData} totals={totals} />
+                       </div>
+                     </div>
+
                      {/* ── A4 Live Preview ── */}
-                     <div className="mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Georgia, serif', backgroundColor: '#FAF8F2', color: '#1E1912', boxShadow: '0 4px 32px rgba(20,15,10,0.10), 0 0 0 1px rgba(20,15,10,0.06)' }}>
+                     <div className="hidden mx-auto max-w-[794px] overflow-y-auto" style={{ fontFamily: 'Georgia, serif', backgroundColor: '#FAF8F2', color: '#1E1912', boxShadow: '0 4px 32px rgba(20,15,10,0.10), 0 0 0 1px rgba(20,15,10,0.06)' }}>
 
                        {/* HEADER */}
                        <div style={{ borderBottom: '1px solid rgba(30,25,18,0.08)' }}>
@@ -1685,7 +1837,19 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
-            <div id="contract-pdf-template" style={{ backgroundColor: '#FAF8F2', color: '#1E1912', fontFamily: 'Georgia, "Times New Roman", serif', width: '794px', minHeight: '1123px' }}>
+            <div id="contract-pdf-template">
+              <EventRoyalDocument
+                data={d}
+                totals={{
+                  hallPrice: Number(d.hall_price || 0),
+                  itemsTotal: Number((d.quote_items || []).reduce((sum: number, item: QuoteItem) => sum + Number(item.subtotal || 0), 0)),
+                  subtotal: Number(pdfSubtotal || 0),
+                  iss: Number(pdfIss || 0),
+                  total: Number(pdfTotal || 0),
+                }}
+              />
+            </div>
+            <div id="legacy-contract-pdf-template" style={{ backgroundColor: '#FAF8F2', color: '#1E1912', fontFamily: 'Georgia, "Times New Roman", serif', width: '794px', minHeight: '1123px' }}>
 
               {/* HEADER */}
               <div style={{ borderBottom: '1px solid rgba(30,25,18,0.08)' }}>
