@@ -9,8 +9,7 @@ import HousekeepingDashboard from './HousekeepingDashboard';
 import OperationsDashboard from './OperationsDashboard';
 import AdminDashboard from './AdminDashboard';
 import AuditDashboard from './AuditDashboard';
-import CompanyManager from './CompanyManager';
-import StaffManager from './StaffManager';
+import AdminRegistrationCenter from './AdminRegistrationCenter';
 import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
@@ -2099,13 +2098,12 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
 }
 
 export function AdminControlModuleDashboard({ profile }: { profile: UserProfile }) {
-  type AdminSection = 'companies' | 'staff' | 'audit';
+  type AdminSection = 'registration' | 'audit';
   const sections: Array<{ id: AdminSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
-    { id: 'companies', label: 'Empresas', icon: Building2, subtitle: 'Clientes, aliases e vínculos' },
-    { id: 'staff', label: 'Equipe e acesso', icon: Users, subtitle: 'Perfis, permissões e papéis' },
-    { id: 'audit', label: 'Auditoria', icon: ShieldCheck, subtitle: 'Trilha de ações do PMS' },
+    { id: 'registration', label: 'Cadastro', icon: Building2, subtitle: 'Usuarios, empresas, vinculos e Telegram' },
+    { id: 'audit', label: 'Auditoria', icon: ShieldCheck, subtitle: 'Trilha de acoes do PMS' },
   ];
-  const [active, setActive] = useState<AdminSection>('companies');
+  const [active, setActive] = useState<AdminSection>('registration');
   const [stats, setStats] = useState({ companies: 0, users: 0, audit: 0 });
 
   useEffect(() => {
@@ -2129,10 +2127,8 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
 
   const renderSection = () => {
     switch (active) {
-      case 'companies':
-        return <CompanyManager profile={profile} />;
-      case 'staff':
-        return <StaffManager currentUser={profile} />;
+      case 'registration':
+        return <AdminRegistrationCenter profile={profile} />;
       case 'audit':
         return <AuditDashboard profile={profile} />;
     }
@@ -2143,15 +2139,15 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
       <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Módulo Admin</p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Controle, acesso e governança</h1>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Modulo Admin</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Controle, acesso e governanca</h1>
             <p className="mt-2 max-w-3xl text-xs leading-6 text-neutral-500 sm:text-sm sm:leading-7">
-              Central para empresas, usuários, permissões e auditoria. Use esta área para manter o PMS organizado, rastreável e pronto para operação.
+              Central para cadastros, usuarios, permissoes, Telegram e auditoria. Use esta area para manter o PMS organizado, rastreavel e pronto para operacao.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
             <AdminStat label="Empresas" value={stats.companies} icon={Building2} />
-            <AdminStat label="Usuários" value={stats.users} icon={Users} />
+            <AdminStat label="Usuarios" value={stats.users} icon={Users} />
             <AdminStat label="Eventos" value={stats.audit} icon={ShieldCheck} />
           </div>
         </div>
@@ -2210,7 +2206,6 @@ function AdminStat({
     </div>
   );
 }
-
 
 function ModuleShell<T extends string>({
   eyebrow,
