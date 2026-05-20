@@ -355,7 +355,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                   </label>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
+                <div className="mt-5 min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
                   <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Permissoes granulares</p>
@@ -365,7 +365,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                       Restaurar perfil
                     </button>
                   </div>
-                  <div className="max-h-[360px] overflow-y-auto rounded-xl border border-neutral-200 bg-white p-3">
+                  <div className="min-w-0 rounded-xl bg-white">
                     <PermissionsSelector permissions={draft.permissions} onChange={permissions => updateDraft({ permissions })} role={draft.role} />
                   </div>
                 </div>

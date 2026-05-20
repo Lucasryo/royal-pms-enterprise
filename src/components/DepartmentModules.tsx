@@ -1972,7 +1972,7 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
         </div>
       </div>
 
-      <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur sm:mx-0">
+      <div className="-mx-2 flex flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-sm sm:mx-0">
         <span className="hidden pl-1 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400 sm:inline">Admin</span>
         <span className="hidden h-4 w-px bg-neutral-200 sm:inline" />
         <div className="flex max-w-full flex-1 gap-1 overflow-x-auto">

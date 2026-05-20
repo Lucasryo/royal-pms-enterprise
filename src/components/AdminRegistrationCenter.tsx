@@ -371,7 +371,7 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
                 </label>
               </div>
 
-              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
+              <div className="min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Permissoes</p>
@@ -384,7 +384,7 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
                     Restaurar perfil
                   </button>
                 </div>
-                <div className="max-h-[430px] overflow-y-auto rounded-xl border border-neutral-200 bg-white p-3">
+                <div className="min-w-0 rounded-xl bg-white">
                   <PermissionsSelector permissions={permissions} onChange={setPermissions} role={userForm.role} />
                 </div>
               </div>
