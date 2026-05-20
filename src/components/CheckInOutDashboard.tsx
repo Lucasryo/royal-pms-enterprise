@@ -9,6 +9,7 @@ import { ptBR } from 'date-fns/locale';
 import { logAudit } from '../lib/audit';
 import { hasPermission } from '../lib/permissions';
 import CheckInCards3D from './three/CheckInCards3D';
+import { RoyalDocumentModal, RoyalDocumentPage, RoyalDocumentTable, RoyalInfoGrid, RoyalSummary } from './documents/RoyalDocument';
 
 type SubTab = 'checkin' | 'contas' | 'historico' | 'configuracoes';
 
@@ -1562,6 +1563,72 @@ function NotaHospedagemModal({
   const extrasTotal = total - diariasTotal;
 
   const handlePrint = () => window.print();
+
+  return (
+    <RoyalDocumentModal title={docTitle} subtitle={reservation.guest_name} onClose={onClose} onPrint={handlePrint}>
+      <RoyalDocumentPage
+        title={docTitle}
+        code={reservation.reservation_code || reservation.id.slice(0, 8).toUpperCase()}
+        issuedAt={format(new Date(), 'dd/MM/yyyy HH:mm:ss', { locale: ptBR })}
+        guestName={reservation.guest_name}
+        rightMeta={[
+          { label: 'UH', value: reservation.room_number || '' },
+          { label: 'Adultos/Criancas', value: reservation.guests_per_uh || '' },
+          { label: 'Entrada', value: format(new Date(reservation.check_in), 'dd/MM/yyyy HH:mm:ss', { locale: ptBR }) },
+          { label: 'Saida', value: format(new Date(reservation.check_out), 'dd/MM/yyyy HH:mm:ss', { locale: ptBR }) },
+          { label: 'Reserva', value: reservation.reservation_code || '' },
+        ]}
+        footerNote={isExtract ? (
+          <div className="mb-3 border border-neutral-300 p-2 text-[10px]">
+            Este documento e um extrato parcial do consumo do hospede ate o momento. Nao substitui a Nota de Hospedagem emitida no check-out.
+          </div>
+        ) : null}
+      >
+        <RoyalDocumentTable
+          headers={['Data', 'Descricao', 'Valor']}
+          rows={sortedCharges.length === 0
+            ? [[format(new Date(), 'dd/MM/yyyy', { locale: ptBR }), 'Sem lancamentos no folio.', formatBRL(0)]]
+            : sortedCharges.map((ch) => [
+              format(new Date(ch.charge_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR }),
+              `${CHARGE_TYPE_LABELS[ch.charge_type]} - ${ch.description} - Qtd ${ch.quantity}`,
+              formatBRL(ch.total_value),
+            ])}
+        />
+
+        <RoyalSummary>
+          <RoyalInfoGrid
+            rows={[
+              { label: 'Empresa', value: companyName },
+              { label: 'UH', value: reservation.room_number || '-' },
+              { label: 'Categoria', value: CATEGORY_LABELS[normalizeCategory(reservation.category || '')] || reservation.category || '-' },
+              { label: 'Diarias', value: nights },
+              { label: 'Pagamento', value: reservation.payment_method === 'VIRTUAL_CARD' ? 'Cartao Virtual' : 'Faturado' },
+              { label: 'Documento', value: docDocLabel },
+            ]}
+          />
+          <div className="mt-8 flex justify-end">
+            <div className="w-72 border-t border-neutral-900 pt-2 text-xs">
+              <div className="flex justify-between py-1">
+                <span>Diarias</span>
+                <span className="font-bold tabular-nums">{formatBRL(diariasTotal)}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Extras / servicos</span>
+                <span className="font-bold tabular-nums">{formatBRL(extrasTotal)}</span>
+              </div>
+              <div className="mt-1 flex justify-between border-t border-neutral-900 py-2 text-sm font-black">
+                <span>Total Geral</span>
+                <span className="tabular-nums">{formatBRL(total)}</span>
+              </div>
+            </div>
+          </div>
+          {reservation.billing_obs && (
+            <p className="mt-8 whitespace-pre-line text-[11px] leading-5 text-neutral-700">{reservation.billing_obs}</p>
+          )}
+        </RoyalSummary>
+      </RoyalDocumentPage>
+    </RoyalDocumentModal>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm nota-modal-backdrop">

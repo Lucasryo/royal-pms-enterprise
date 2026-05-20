@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import { CalendarClock, Download, FileText, Loader2, Pencil, Printer, X as CloseIcon } from 'lucide-react';
 import { fmtDate, money, startOfToday } from './shared';
+import { RoyalDocumentPage, RoyalDocumentTable, RoyalInfoGrid, RoyalSummary } from '../documents/RoyalDocument';
 
 /* ============================================================
  * InvoicePrintModal — preview imprimivel/PDF de fatura
@@ -216,7 +217,64 @@ function InvoiceLayout({ file, company, event, loadingEvent }: { file: FiscalFil
   const itemsTotal = items.reduce((s, i) => s + i.total, 0);
 
   return (
-    <div className="text-neutral-900">
+    <RoyalDocumentPage
+      title="Fatura"
+      code={file.event_os_number || file.reservation_code || file.id.slice(0, 8)}
+      issuedAt={fmtDate(file.upload_date)}
+      guestName={company?.name || 'Sem empresa'}
+      rightMeta={[
+        { label: 'Vencimento', value: fmtDate(file.due_date) },
+        { label: 'Periodo', value: file.period },
+        { label: 'Documento', value: file.category || file.type },
+      ]}
+    >
+      {loadingEvent ? (
+        <div className="py-6 text-center text-xs text-neutral-400">Carregando itens do evento...</div>
+      ) : (
+        <RoyalDocumentTable
+          headers={['Data', 'Descricao', 'Valor']}
+          rows={items.map((it) => [
+            fmtDate(file.upload_date),
+            `${it.name} - Qtd ${it.qty} - Unit. ${money(it.unit)}`,
+            money(it.total),
+          ])}
+        />
+      )}
+
+      <RoyalSummary>
+        <RoyalInfoGrid
+          rows={[
+            { label: 'Cliente', value: company?.name || 'Sem empresa' },
+            { label: 'CNPJ', value: company?.cnpj },
+            { label: 'Endereco', value: company?.address },
+            { label: 'E-mail', value: company?.email },
+            { label: 'O.S.', value: file.event_os_number },
+            { label: 'Reserva', value: file.reservation_code },
+          ]}
+        />
+        <div className="mt-8 flex justify-end">
+          <div className="w-72 border-t border-neutral-900 pt-2 text-xs">
+            <div className="flex justify-between py-1">
+              <span>Subtotal</span>
+              <span className="font-bold tabular-nums">{money(itemsTotal)}</span>
+            </div>
+            {event?.iss_amount ? (
+              <div className="flex justify-between py-1">
+                <span>ISS {event.iss_rate || ''}%</span>
+                <span className="font-bold tabular-nums">{money(event.iss_amount)}</span>
+              </div>
+            ) : null}
+            <div className="mt-1 flex justify-between border-t border-neutral-900 py-2 text-sm font-black">
+              <span>Total</span>
+              <span className="tabular-nums">{money(total)}</span>
+            </div>
+          </div>
+        </div>
+      </RoyalSummary>
+    </RoyalDocumentPage>
+  );
+  return (
+    <div className="hidden text-neutral-900">
       {/* Cabeçalho */}
       <div className="flex items-start justify-between border-b border-neutral-200 pb-6">
         <div>
