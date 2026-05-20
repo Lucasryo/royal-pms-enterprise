@@ -1,7 +1,7 @@
-@import "tailwindcss";
-
 /* Editorial fonts for marketing landing (Fraunces + Inter) */
 @import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300..900;1,300..900&family=Inter:wght@300..700&display=swap");
+
+@import "tailwindcss";
 
 @theme {
   --color-primary: #b45309;
@@ -215,4 +215,13 @@ html { scroll-behavior: smooth; }
   border-radius: 12px;
   scroll-margin-top: 100px;
   scroll-margin-bottom: 100px;
+}
+
+.royal-wordmark {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.015em;
+  line-height: 1;
+  text-transform: uppercase;
 }

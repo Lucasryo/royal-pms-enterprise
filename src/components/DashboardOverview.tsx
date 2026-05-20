@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, FiscalFile, Company, Room } from '../types';
 import { canAccessView } from '../lib/permissions';
+import { getConnectedMachineName } from '../lib/device';
 import {
   TrendingUp, Users, Calendar, Clock, ArrowUpRight,
   ArrowDownRight, Hotel, CheckCircle2, AlertCircle,
@@ -311,6 +312,7 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
     if (hour < 18) return 'Boa tarde';
     return 'Boa noite';
   })();
+  const connectedMachineName = useMemo(() => getConnectedMachineName(), []);
 
   return (
     <div className="space-y-4 md:space-y-8 pb-12">
@@ -320,10 +322,12 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
           <h1 className="text-2xl md:text-3xl font-black tracking-tight text-gray-900">{greeting}, {profile.name.split(' ')[0]}!</h1>
           <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">Visao Geral do Operacional • {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        <div className="flex gap-2">
-           <div className="px-3 py-1.5 md:px-4 md:py-2 bg-white border border-gray-200 rounded-xl shadow-sm flex items-center gap-2">
+        <div className="flex max-w-full gap-2">
+           <div className="flex max-w-full min-w-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm md:px-4 md:py-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Banco de Dados (.txt) Conectado</span>
+              <span className="min-w-0 truncate text-[10px] font-black uppercase tracking-widest text-gray-400">
+                Maquina: {connectedMachineName} conectado
+              </span>
            </div>
         </div>
       </div>

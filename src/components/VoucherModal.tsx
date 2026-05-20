@@ -388,10 +388,9 @@ export default function VoucherModal({ company, selectedFiles, onClose }: Vouche
                     <div className="flex items-center gap-6">
                       <div className="h-20 w-auto overflow-hidden flex items-center justify-center">
                         <img 
-                          src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" 
+                          src="/logo.png" 
                           alt="Logo Royal Macaé" 
                           className="h-full w-auto object-contain"
-                          referrerPolicy="no-referrer"
                         />
                       </div>
                       <div>

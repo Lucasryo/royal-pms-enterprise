@@ -7,6 +7,7 @@ import { ComponentType, useEffect, useState, useMemo } from 'react';
 import { isSupabaseConfigured, supabase } from './supabase';
 import { UserProfile, UserRole, Company, ViewType } from './types';
 import { canAccessView } from './lib/permissions';
+import { getConnectedMachineName } from './lib/device';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
@@ -469,10 +470,9 @@ export default function App() {
         >
           <div className="p-4 bg-white rounded-3xl shadow-xl flex items-center justify-center overflow-hidden w-20 h-20">
              <img 
-               src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" 
-               alt="Logo" 
+               src="/logo.png" 
+               alt="Royal PMS" 
                className="w-full h-full object-contain"
-               referrerPolicy="no-referrer"
              />
           </div>
           <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Iniciando PMS Desktop</p>
@@ -507,6 +507,7 @@ export default function App() {
   const activeNavigationItem = navigationItems.find(i => i.id === currentView);
   const activeMeta = NAV_META[currentView];
   const activeSectionLabel = activeMeta ? NAV_SECTION_LABELS[activeMeta.section] : 'Sistema';
+  const connectedMachineName = getConnectedMachineName();
 
   const renderContent = () => {
     switch (currentView) {
@@ -557,16 +558,15 @@ export default function App() {
         <div className="p-6 flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 bg-white border border-neutral-200 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden p-1">
             <img
-              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s"
-              alt="Logo"
+              src="/logo.png"
+              alt="Royal PMS"
               className="w-full h-full object-contain"
-              referrerPolicy="no-referrer"
             />
           </div>
           <AnimatePresence>
             {isSidebarOpen && (
               <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="whitespace-nowrap">
-                <h1 className="text-xl font-black tracking-tighter italic text-amber-500 uppercase">ROYAL</h1>
+                <h1 className="royal-wordmark text-xl text-amber-500">ROYAL</h1>
               </motion.div>
             )}
           </AnimatePresence>
@@ -643,7 +643,7 @@ export default function App() {
         {isMobile && <header className="h-14 bg-white border-b border-gray-100 px-4 flex items-center justify-between sticky top-0 z-30 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-xl bg-white border border-neutral-200 shadow-sm overflow-hidden p-0.5 shrink-0">
-              <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWHB7epnz8XIPz-g-0iPpTGKxRxJAYR9xKaQ&s" alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+              <img src="/logo.png" alt="Royal PMS" className="w-full h-full object-contain" />
             </div>
             <span className="text-sm font-black text-gray-900 truncate">
               {activeNavigationItem?.label || 'Royal PMS'}
@@ -743,7 +743,7 @@ export default function App() {
             <div className="h-6 w-[1px] bg-gray-200 mx-1" />
             <div className="flex flex-col items-end">
               <p className="text-xs font-black text-gray-900">Hotel Royal Macaé</p>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Terminal 01 • Conectado</p>
+              <p className="max-w-40 truncate text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{connectedMachineName} • Conectado</p>
             </div>
           </div>
         </header>}

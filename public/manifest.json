@@ -1,11 +1,13 @@
 {
   "name": "Royal PMS",
   "short_name": "Royal PMS",
-  "description": "Sistema de gestão hoteleira Royal",
+  "description": "Sistema web de gestao hoteleira para reservas, recepcao, governanca, manutencao, eventos e financeiro.",
+  "lang": "pt-BR",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#92400e",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/logo.png",
