@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, ShieldCheck, TrendingUp, Users, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, ShieldCheck, TrendingUp, UserCog, Users, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -10,6 +10,7 @@ import OperationsDashboard from './OperationsDashboard';
 import AdminDashboard from './AdminDashboard';
 import AuditDashboard from './AuditDashboard';
 import AdminRegistrationCenter from './AdminRegistrationCenter';
+import AdminUsersManager from './AdminUsersManager';
 import EventsDashboard from './EventsDashboard';
 import POSDashboard from './POSDashboard';
 import RevenuePanelDashboard from './RevenuePanelDashboard';
@@ -1913,9 +1914,10 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
 }
 
 export function AdminControlModuleDashboard({ profile }: { profile: UserProfile }) {
-  type AdminSection = 'registration' | 'audit';
+  type AdminSection = 'registration' | 'users' | 'audit';
   const sections: Array<{ id: AdminSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
-    { id: 'registration', label: 'Cadastro', icon: Building2, subtitle: 'Usuarios, empresas, vinculos e Telegram' },
+    { id: 'registration', label: 'Cadastro', icon: Building2, subtitle: 'Criar usuarios, empresas, vinculos e Telegram' },
+    { id: 'users', label: 'Usuarios', icon: UserCog, subtitle: 'Editar perfil, status, senha e vinculos' },
     { id: 'audit', label: 'Auditoria', icon: ShieldCheck, subtitle: 'Trilha de acoes do PMS' },
   ];
   const [active, setActive] = useState<AdminSection>('registration');
@@ -1944,6 +1946,8 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
     switch (active) {
       case 'registration':
         return <AdminRegistrationCenter profile={profile} />;
+      case 'users':
+        return <AdminUsersManager profile={profile} />;
       case 'audit':
         return <AuditDashboard profile={profile} />;
     }
