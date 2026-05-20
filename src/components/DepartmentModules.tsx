@@ -137,33 +137,6 @@ function resolutionMins(t: { created_at: string; resolved_at: string | null }): 
 }
 
 type Collaborator = { id: string; name: string; role: string };
-type TelegramRole = 'admin' | 'technician' | 'inspector';
-type TelegramBindingRow = {
-  id: string;
-  profile_id: string;
-  telegram_user_id: number;
-  telegram_username: string | null;
-  display_name: string | null;
-  telegram_role: TelegramRole;
-  active: boolean;
-  linked_at: string;
-  revoked_at: string | null;
-};
-type TelegramPendingCode = {
-  id: string;
-  code: string;
-  telegram_role: TelegramRole;
-  expires_at: string;
-};
-type TelegramPermissionProfile = {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  active: boolean;
-  telegram_binding: TelegramBindingRow | null;
-  pending_code: TelegramPendingCode | null;
-};
 type TelegramLog = {
   id: string;
   ticket_id: string | null;
@@ -281,11 +254,6 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [recreatingCardId, setRecreatingCardId] = useState<string | null>(null);
   const [showBotManual, setShowBotManual] = useState(false);
   const [botLogMode, setBotLogMode] = useState<'all' | 'failures' | 'pushes' | 'edits' | 'skips'>('failures');
-  const [telegramProfiles, setTelegramProfiles] = useState<TelegramPermissionProfile[]>([]);
-  const [telegramPermissionsLoading, setTelegramPermissionsLoading] = useState(false);
-  const [creatingTelegramCodeFor, setCreatingTelegramCodeFor] = useState<string | null>(null);
-  const [revokingTelegramBindingId, setRevokingTelegramBindingId] = useState<string | null>(null);
-  const [lastTelegramCode, setLastTelegramCode] = useState<{ profileId: string; code: string; expiresAt: string; role: TelegramRole } | null>(null);
 
   const canDirect = profile.role === 'admin' || profile.role === 'manager';
 
@@ -299,7 +267,6 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
     void fetchBotHealth();
     if (canDirect) {
       loadCollaborators();
-      void fetchTelegramPermissions();
     }
     const ch = supabase
       .channel('maint-tickets-module')
@@ -370,50 +337,6 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
       setBotHealth(null);
     } finally {
       setBotHealthLoading(false);
-    }
-  }
-
-  async function fetchTelegramPermissions() {
-    if (!canDirect) return;
-    setTelegramPermissionsLoading(true);
-    try {
-      const data = await callBotFunction({ type: 'telegram_permissions' });
-      setTelegramProfiles((data?.profiles ?? []) as TelegramPermissionProfile[]);
-    } catch (error) {
-      setTelegramProfiles([]);
-      toast.error(error instanceof Error ? error.message : 'Erro ao carregar permissoes do Telegram.');
-    } finally {
-      setTelegramPermissionsLoading(false);
-    }
-  }
-
-  async function createTelegramLinkCode(profileId: string, role: TelegramRole) {
-    setCreatingTelegramCodeFor(profileId);
-    try {
-      const data = await callBotFunction({ type: 'create_telegram_link_code', profile_id: profileId, telegram_role: role });
-      const code = data?.code as { code: string; expires_at: string; telegram_role: TelegramRole } | undefined;
-      if (!code) throw new Error('Codigo nao retornado pelo bot.');
-      setLastTelegramCode({ profileId, code: code.code, expiresAt: code.expires_at, role: code.telegram_role });
-      toast.success(`Codigo Telegram gerado: ${code.code}`);
-      await fetchTelegramPermissions();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erro ao gerar codigo Telegram.');
-    } finally {
-      setCreatingTelegramCodeFor(null);
-    }
-  }
-
-  async function revokeTelegramBinding(bindingId: string) {
-    setRevokingTelegramBindingId(bindingId);
-    try {
-      await callBotFunction({ type: 'revoke_telegram_binding', binding_id: bindingId });
-      toast.success('Vinculo Telegram revogado.');
-      if (lastTelegramCode) setLastTelegramCode(null);
-      await fetchTelegramPermissions();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erro ao revogar vinculo Telegram.');
-    } finally {
-      setRevokingTelegramBindingId(null);
     }
   }
 
@@ -977,114 +900,6 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
           </div>
         ) : null}
       </div>
-
-      {canDirect && (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-4 sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-widest text-neutral-400">Telegram / Permissoes</p>
-              <p className="mt-1 text-sm font-bold text-neutral-700">Vinculos oficiais entre usuarios PMS e contas Telegram.</p>
-            </div>
-            <button
-              onClick={fetchTelegramPermissions}
-              disabled={telegramPermissionsLoading}
-              className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black text-white transition hover:bg-neutral-700 disabled:opacity-50"
-            >
-              {telegramPermissionsLoading ? 'Atualizando...' : 'Atualizar'}
-            </button>
-          </div>
-
-          {lastTelegramCode && (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Codigo gerado</p>
-              <p className="mt-1 font-mono text-2xl font-black tracking-widest text-emerald-900">{lastTelegramCode.code}</p>
-              <p className="mt-1 text-xs font-bold text-emerald-700">
-                Valido ate {new Date(lastTelegramCode.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}. O colaborador deve enviar /vincular {lastTelegramCode.code}.
-              </p>
-            </div>
-          )}
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-[760px] w-full text-left text-xs">
-              <thead className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                <tr>
-                  <th className="py-2 pr-3">Colaborador</th>
-                  <th className="py-2 pr-3">PMS</th>
-                  <th className="py-2 pr-3">Telegram</th>
-                  <th className="py-2 pr-3">Codigo</th>
-                  <th className="py-2 pr-3 text-right">Acoes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {telegramProfiles.map(item => {
-                  const binding = item.telegram_binding;
-                  const pending = item.pending_code;
-                  return (
-                    <tr key={item.id}>
-                      <td className="py-3 pr-3">
-                        <p className="font-black text-neutral-900">{item.name}</p>
-                        <p className="text-[10px] font-bold text-neutral-400">{item.email}</p>
-                      </td>
-                      <td className="py-3 pr-3">
-                        <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${item.active ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                          {item.active ? item.role : 'inativo'}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-3">
-                        {binding ? (
-                          <>
-                            <p className="font-black text-neutral-800">{binding.display_name || binding.telegram_username || binding.telegram_user_id}</p>
-                            <p className="text-[10px] font-bold text-neutral-400">{binding.telegram_role} · {binding.telegram_username ? `@${binding.telegram_username}` : binding.telegram_user_id}</p>
-                          </>
-                        ) : (
-                          <span className="text-xs font-bold text-neutral-400">Nao vinculado</span>
-                        )}
-                      </td>
-                      <td className="py-3 pr-3">
-                        {pending ? (
-                          <span className="font-mono text-sm font-black text-emerald-700">{pending.code}</span>
-                        ) : (
-                          <span className="text-xs font-bold text-neutral-300">-</span>
-                        )}
-                      </td>
-                      <td className="py-3 pl-3 text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {(['technician', 'inspector', 'admin'] as TelegramRole[]).map(role => (
-                            <button
-                              key={`${item.id}-${role}`}
-                              onClick={() => createTelegramLinkCode(item.id, role)}
-                              disabled={!item.active || creatingTelegramCodeFor === item.id}
-                              className="rounded-lg bg-neutral-100 px-2.5 py-1.5 text-[10px] font-black uppercase text-neutral-700 transition hover:bg-neutral-200 disabled:opacity-40"
-                            >
-                              {role === 'technician' ? 'Tecnico' : role === 'inspector' ? 'Vistoria' : 'Admin'}
-                            </button>
-                          ))}
-                          {binding && (
-                            <button
-                              onClick={() => revokeTelegramBinding(binding.id)}
-                              disabled={revokingTelegramBindingId === binding.id}
-                              className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[10px] font-black uppercase text-red-700 transition hover:bg-red-100 disabled:opacity-40"
-                            >
-                              Revogar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!telegramProfiles.length && (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-xs font-bold text-neutral-400">
-                      {telegramPermissionsLoading ? 'Carregando permissoes...' : 'Nenhum colaborador operacional encontrado.'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
