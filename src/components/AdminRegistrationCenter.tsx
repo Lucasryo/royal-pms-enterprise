@@ -1,5 +1,5 @@
 import React, { ComponentType, useEffect, useMemo, useState } from 'react';
-import { Building2, CheckCircle2, KeyRound, Link2, Loader2, Mail, Phone, RefreshCw, Save, Search, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { Building2, CheckCircle2, KeyRound, Link2, Loader2, Mail, Pencil, Phone, RefreshCw, Save, Search, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { Company, UserPermissions, UserProfile, UserRole } from '../types';
@@ -39,6 +39,7 @@ const emptyUserForm = {
 };
 
 const emptyCompanyForm = {
+  id: '',
   name: '',
   cnpj: '',
   email: '',
@@ -48,6 +49,9 @@ const emptyCompanyForm = {
   slug: '',
   aliases: '',
   status: 'active' as 'active' | 'inactive',
+  parserBlocked: false,
+  parserBlockReason: '',
+  parserBlockReply: '',
 };
 
 export default function AdminRegistrationCenter({ profile }: { profile: UserProfile }) {
@@ -58,6 +62,9 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
   const [savingUser, setSavingUser] = useState(false);
   const [savingCompany, setSavingCompany] = useState(false);
   const [linkSearch, setLinkSearch] = useState('');
+  const [companySearch, setCompanySearch] = useState('');
+  const [companyListLimit, setCompanyListLimit] = useState(80);
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [permissions, setPermissions] = useState<UserPermissions>(DEFAULT_PERMISSIONS.client);
@@ -85,6 +92,36 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
     if (!term) return true;
     return user.name.toLowerCase().includes(term) || user.email.toLowerCase().includes(term);
   });
+  const filteredCompanies = useMemo(() => {
+    const term = companySearch.trim().toLowerCase();
+    if (!term) return companies;
+
+    return companies.filter(company => {
+      const searchable = [
+        company.name,
+        company.cnpj,
+        company.email,
+        company.phone,
+        company.address,
+        company.slug,
+        company.email_domain,
+        company.reservation_parser_block_reason,
+        company.reservation_parser_block_reply,
+        ...((company.parser_aliases ?? [])),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return searchable.includes(term);
+    });
+  }, [companies, companySearch]);
+  const visibleCompanies = filteredCompanies.slice(0, companyListLimit);
+  const hiddenCompanyCount = Math.max(0, filteredCompanies.length - visibleCompanies.length);
+
+  useEffect(() => {
+    setCompanyListLimit(80);
+  }, [companySearch]);
 
   async function fetchCadastroData() {
     setLoading(true);
@@ -165,10 +202,38 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
     }
   }
 
-  async function handleCreateCompany(event: React.FormEvent) {
+  function handleEditCompany(company: Company) {
+    setEditingCompanyId(company.id);
+    setCompanyForm({
+      id: company.id,
+      name: company.name || '',
+      cnpj: company.cnpj || '',
+      email: company.email || '',
+      emailDomain: company.email_domain || '',
+      phone: company.phone || '',
+      address: company.address || '',
+      slug: company.slug || '',
+      aliases: (company.parser_aliases ?? []).join(', '),
+      status: (company.status || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active',
+      parserBlocked: Boolean(company.reservation_parser_blocked),
+      parserBlockReason: company.reservation_parser_block_reason || '',
+      parserBlockReply: company.reservation_parser_block_reply || '',
+    });
+  }
+
+  function resetCompanyForm() {
+    setEditingCompanyId(null);
+    setCompanyForm(emptyCompanyForm);
+  }
+
+  async function handleSaveCompany(event: React.FormEvent) {
     event.preventDefault();
     if (!companyForm.name.trim()) {
       toast.error('Informe o nome da empresa.');
+      return;
+    }
+    if (companyForm.parserBlocked && !companyForm.parserBlockReason.trim()) {
+      toast.error('Informe o motivo do bloqueio para o parser.');
       return;
     }
 
@@ -188,24 +253,34 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
         slug: companyForm.slug.trim() || null,
         status: companyForm.status,
         parser_aliases: aliases,
+        reservation_parser_blocked: companyForm.parserBlocked,
+        reservation_parser_block_reason: companyForm.parserBlocked ? companyForm.parserBlockReason.trim() : null,
+        reservation_parser_block_reply: companyForm.parserBlocked ? companyForm.parserBlockReply.trim() || null : null,
         created_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('companies').insert([payload]);
+      const updatePayload = { ...payload } as Omit<typeof payload, 'created_at'> & { created_at?: string };
+      delete updatePayload.created_at;
+      const { error } = editingCompanyId
+        ? await supabase
+          .from('companies')
+          .update(updatePayload)
+          .eq('id', editingCompanyId)
+        : await supabase.from('companies').insert([payload]);
       if (error) throw error;
 
-      toast.success('Empresa cadastrada com sucesso.');
+      toast.success(editingCompanyId ? 'Empresa atualizada com sucesso.' : 'Empresa cadastrada com sucesso.');
       logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'Cadastrou empresa',
+        action: editingCompanyId ? 'Atualizou empresa' : 'Cadastrou empresa',
         details: `Empresa: ${companyForm.name}`,
         type: 'create',
       });
-      setCompanyForm(emptyCompanyForm);
+      resetCompanyForm();
       await fetchCadastroData();
     } catch (error: any) {
-      toast.error(error?.message || 'Erro ao cadastrar empresa.');
+      toast.error(error?.message || 'Erro ao salvar empresa.');
     } finally {
       setSavingCompany(false);
     }
@@ -423,44 +498,135 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
       )}
 
       {activeTab === 'company' && (
-        <form onSubmit={handleCreateCompany} className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Empresa</p>
-              <h3 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">Cadastro corporativo</h3>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)]">
+          <form onSubmit={handleSaveCompany} className="min-w-0 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Empresa</p>
+                <h3 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">
+                  {editingCompanyId ? 'Editar cadastro corporativo' : 'Cadastro corporativo'}
+                </h3>
+              </div>
+              <span className="w-fit rounded-full bg-neutral-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-neutral-500 ring-1 ring-neutral-200">Parser e faturamento</span>
             </div>
-            <span className="rounded-full bg-neutral-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-neutral-500 ring-1 ring-neutral-200">Parser e faturamento</span>
-          </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <CadastroText label="Nome da empresa" value={companyForm.name} onChange={value => setCompanyForm(prev => ({ ...prev, name: value }))} required />
-            <CadastroText label="CNPJ" value={companyForm.cnpj} onChange={value => setCompanyForm(prev => ({ ...prev, cnpj: value }))} />
-            <CadastroText label="E-mail financeiro" value={companyForm.email} onChange={value => setCompanyForm(prev => ({ ...prev, email: value }))} />
-            <CadastroText label="Dominio de e-mail" value={companyForm.emailDomain} onChange={value => setCompanyForm(prev => ({ ...prev, emailDomain: value }))} />
-            <CadastroText label="Telefone" value={companyForm.phone} onChange={value => setCompanyForm(prev => ({ ...prev, phone: value }))} />
-            <CadastroText label="Slug" value={companyForm.slug} onChange={value => setCompanyForm(prev => ({ ...prev, slug: value }))} />
-            <label className="space-y-1 sm:col-span-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Endereco</span>
-              <input value={companyForm.address} onChange={event => setCompanyForm(prev => ({ ...prev, address: event.target.value }))} className={plainInputClass} />
-            </label>
-            <label className="space-y-1">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Status</span>
-              <select value={companyForm.status} onChange={event => setCompanyForm(prev => ({ ...prev, status: event.target.value as 'active' | 'inactive' }))} className={selectClass}>
-                <option value="active">Ativa</option>
-                <option value="inactive">Inativa</option>
-              </select>
-            </label>
-            <label className="space-y-1 lg:col-span-3">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Aliases do parser</span>
-              <input value={companyForm.aliases} onChange={event => setCompanyForm(prev => ({ ...prev, aliases: event.target.value }))} placeholder="nomes alternativos separados por virgula" className={plainInputClass} />
-            </label>
-          </div>
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <CadastroText label="Nome da empresa" value={companyForm.name} onChange={value => setCompanyForm(prev => ({ ...prev, name: value }))} required />
+              <CadastroText label="CNPJ" value={companyForm.cnpj} onChange={value => setCompanyForm(prev => ({ ...prev, cnpj: value }))} />
+              <CadastroText label="E-mail financeiro" value={companyForm.email} onChange={value => setCompanyForm(prev => ({ ...prev, email: value }))} />
+              <CadastroText label="Dominio de e-mail" value={companyForm.emailDomain} onChange={value => setCompanyForm(prev => ({ ...prev, emailDomain: value }))} />
+              <CadastroText label="Telefone" value={companyForm.phone} onChange={value => setCompanyForm(prev => ({ ...prev, phone: value }))} />
+              <CadastroText label="Slug" value={companyForm.slug} onChange={value => setCompanyForm(prev => ({ ...prev, slug: value }))} />
+              <label className="space-y-1 sm:col-span-2 xl:col-span-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Endereco</span>
+                <input value={companyForm.address} onChange={event => setCompanyForm(prev => ({ ...prev, address: event.target.value }))} className={plainInputClass} />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Status</span>
+                <select value={companyForm.status} onChange={event => setCompanyForm(prev => ({ ...prev, status: event.target.value as 'active' | 'inactive' }))} className={selectClass}>
+                  <option value="active">Ativa</option>
+                  <option value="inactive">Inativa</option>
+                </select>
+              </label>
+              <label className="space-y-1 sm:col-span-2 xl:col-span-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Aliases do parser</span>
+                <input value={companyForm.aliases} onChange={event => setCompanyForm(prev => ({ ...prev, aliases: event.target.value }))} placeholder="nomes alternativos separados por virgula" className={plainInputClass} />
+              </label>
+              <label className="flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 p-4 sm:col-span-2 xl:col-span-1">
+                <input
+                  type="checkbox"
+                  checked={companyForm.parserBlocked}
+                  onChange={event => setCompanyForm(prev => ({ ...prev, parserBlocked: event.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-red-200 text-red-600"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[10px] font-black uppercase tracking-widest text-red-700">Bloquear parser de reservas</span>
+                  <span className="mt-1 block text-xs font-bold leading-5 text-red-700/80">
+                    Quando ativo, o bot identifica a empresa, recusa o fluxo automatico e responde com a mensagem configurada.
+                  </span>
+                </span>
+              </label>
+              {companyForm.parserBlocked && (
+                <>
+                  <label className="space-y-1 sm:col-span-2 xl:col-span-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Motivo interno do bloqueio</span>
+                    <textarea
+                      value={companyForm.parserBlockReason}
+                      onChange={event => setCompanyForm(prev => ({ ...prev, parserBlockReason: event.target.value }))}
+                      placeholder="Ex: Empresa com faturamento suspenso por pendencias financeiras."
+                      className={`${plainInputClass} min-h-24 resize-y`}
+                    />
+                  </label>
+                  <label className="space-y-1 sm:col-span-2 xl:col-span-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Resposta automatica do bot</span>
+                    <textarea
+                      value={companyForm.parserBlockReply}
+                      onChange={event => setCompanyForm(prev => ({ ...prev, parserBlockReply: event.target.value }))}
+                      placeholder="Mensagem enviada ao solicitante. Se ficar vazia, o sistema usa uma resposta padrao."
+                      className={`${plainInputClass} min-h-28 resize-y`}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
 
-          <button type="submit" disabled={savingCompany} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60 sm:w-auto">
-            {savingCompany ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
-            Cadastrar empresa
-          </button>
-        </form>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button type="submit" disabled={savingCompany} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60">
+                {savingCompany ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
+                {editingCompanyId ? 'Salvar alteracoes' : 'Cadastrar empresa'}
+              </button>
+              {editingCompanyId && (
+                <button type="button" onClick={resetCompanyForm} className="flex w-full items-center justify-center rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm font-black uppercase tracking-widest text-neutral-600 transition hover:border-neutral-400 hover:text-neutral-950 sm:w-auto">
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </form>
+
+          <section className="min-w-0 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Empresas cadastradas</p>
+                <h3 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">
+                  Consulte a base corporativa
+                </h3>
+                <p className="mt-1 text-sm font-bold text-neutral-500">
+                  {filteredCompanies.length} de {companies.length} empresas
+                </p>
+              </div>
+              <div className="relative w-full lg:w-80">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                  value={companySearch}
+                  onChange={event => setCompanySearch(event.target.value)}
+                  placeholder="Buscar nome, CNPJ, e-mail..."
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-neutral-900 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 grid max-h-[620px] grid-cols-1 gap-3 overflow-y-auto pr-1 xl:grid-cols-2">
+              {visibleCompanies.map(company => (
+                <CompanyCard key={company.id} company={company} onEdit={handleEditCompany} />
+              ))}
+              {!visibleCompanies.length && (
+                <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-6 text-center text-sm font-bold text-neutral-400 xl:col-span-2">
+                  Nenhuma empresa encontrada.
+                </div>
+              )}
+            </div>
+
+            {hiddenCompanyCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setCompanyListLimit(prev => prev + 80)}
+                className="mt-4 flex w-full items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-xs font-black uppercase tracking-widest text-neutral-600 transition hover:border-neutral-400 hover:bg-white hover:text-neutral-950"
+              >
+                Mostrar mais {Math.min(80, hiddenCompanyCount)} empresas
+              </button>
+            )}
+          </section>
+        </div>
       )}
 
       {activeTab === 'link' && (
@@ -555,5 +721,81 @@ function CadastroKpi({ label, value }: { label: string; value: number }) {
       <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
       <p className="mt-2 text-xl font-black tabular-nums text-neutral-950 sm:text-2xl">{value}</p>
     </div>
+  );
+}
+
+function CompanyCard({ company, onEdit }: { company: Company; onEdit: (company: Company) => void }) {
+  const normalizedStatus = (company.status || 'active').toLowerCase();
+  const active = normalizedStatus !== 'inactive';
+  const emailDomain = company.email_domain;
+  const parserAliases = company.parser_aliases ?? [];
+  const parserBlocked = Boolean(company.reservation_parser_blocked);
+
+  return (
+    <article className="min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 transition hover:border-neutral-300 hover:bg-white">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-neutral-950">{company.name}</p>
+          <p className="mt-1 truncate text-xs font-bold text-neutral-500">{company.cnpj || 'CNPJ nao informado'}</p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
+            active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-neutral-200 text-neutral-600 ring-1 ring-neutral-300'
+          }`}>
+            {active ? 'Ativa' : 'Inativa'}
+          </span>
+          {parserBlocked && (
+            <span className="rounded-full bg-red-50 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-700 ring-1 ring-red-100">
+              Parser bloqueado
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2 text-xs font-bold text-neutral-500">
+        <div className="flex min-w-0 items-center gap-2">
+          <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span className="truncate">{company.email || emailDomain || 'E-mail nao informado'}</span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span className="truncate">{company.phone || 'Telefone nao informado'}</span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <Building2 className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span className="truncate">{company.address || company.slug || 'Endereco nao informado'}</span>
+        </div>
+      </div>
+
+      {parserAliases.length > 0 && (
+        <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
+          {parserAliases.slice(0, 3).map(alias => (
+            <span key={alias} className="max-w-full truncate rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-500 ring-1 ring-neutral-200">
+              {alias}
+            </span>
+          ))}
+          {parserAliases.length > 3 && (
+            <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-400 ring-1 ring-neutral-200">
+              +{parserAliases.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+
+      {parserBlocked && (
+        <div className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-bold leading-5 text-red-700 ring-1 ring-red-100">
+          {company.reservation_parser_block_reason || 'Sem motivo interno informado.'}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onEdit(company)}
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 ring-1 ring-neutral-200 transition hover:text-neutral-950 hover:ring-neutral-400"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+        Editar cadastro
+      </button>
+    </article>
   );
 }

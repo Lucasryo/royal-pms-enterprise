@@ -117,8 +117,13 @@ export interface Company {
   slug: string;
   cnpj: string;
   email?: string;
+  email_domain?: string;
   phone?: string;
   address?: string;
+  parser_aliases?: string[];
+  reservation_parser_blocked?: boolean;
+  reservation_parser_block_reason?: string;
+  reservation_parser_block_reply?: string;
   status?: 'active' | 'inactive' | 'ACTIVE' | 'INACTIVE';
 }
 

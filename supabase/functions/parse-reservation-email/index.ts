@@ -96,13 +96,25 @@ async function loadBotConfig(): Promise<BotConfig | null> {
   } catch { return null; }
 }
 
-type CompanyRow = { id: string; name: string; cnpj: string | null; email_domain: string | null; parser_aliases: string[] | null };
+type CompanyRow = {
+  id: string;
+  name: string;
+  cnpj: string | null;
+  email_domain: string | null;
+  parser_aliases: string[] | null;
+  status?: string | null;
+  reservation_parser_blocked?: boolean | null;
+  reservation_parser_block_reason?: string | null;
+  reservation_parser_block_reply?: string | null;
+};
 
 async function loadActiveCompanies(): Promise<CompanyRow[]> {
   const { data } = await admin.from("companies")
-    .select("id, name, cnpj, email_domain, parser_aliases")
-    .ilike("status", "active");
-  return (data ?? []) as CompanyRow[];
+    .select("id, name, cnpj, email_domain, parser_aliases, status, reservation_parser_blocked, reservation_parser_block_reason, reservation_parser_block_reply");
+  return ((data ?? []) as CompanyRow[]).filter(c => {
+    const status = (c.status ?? "active").toLowerCase();
+    return status === "active" || c.reservation_parser_blocked === true;
+  });
 }
 
 function normalizeCnpj(s: string): string {
@@ -847,6 +859,139 @@ async function notifyStaffAlert(title: string, message: string) {
   }
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function extractEmailAddress(value: string): string | null {
+  const match = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] ?? null;
+}
+
+function buildBlockedCompanyReply(company: CompanyRow) {
+  const customReply = company.reservation_parser_block_reply?.trim();
+  if (customReply) return customReply;
+  return [
+    "Ola.",
+    "",
+    `Recebemos sua solicitacao, mas no momento nao conseguimos processar reservas automaticamente para ${company.name}.`,
+    "Por favor, entre em contato com a equipe de reservas do hotel para regularizacao ou orientacao.",
+    "",
+    "Atenciosamente,",
+    "Royal PMS",
+  ].join("\n");
+}
+
+function textToHtml(text: string) {
+  return escapeHtml(text).replace(/\n/g, "<br>");
+}
+
+function looksLikeReservationEmail(
+  cfg: ParserConfig,
+  subject: string,
+  body: string,
+  fastResult?: { extracted?: { is_reservation?: boolean } },
+) {
+  if (fastResult?.extracted?.is_reservation) return true;
+  const haystack = normalizeText(`${subject}\n${body}`);
+  const keywordMatch = (cfg.subject_keywords ?? []).some(keyword => haystack.includes(normalizeText(keyword)));
+  if (keywordMatch) return true;
+  return [
+    "reserva",
+    "hospedagem",
+    "solicitacao de hospedagem",
+    "check in",
+    "check out",
+    "diaria",
+    "voucher",
+  ].some(keyword => haystack.includes(keyword));
+}
+
+async function respondToBlockedCompany(
+  msg: Record<string, unknown>,
+  sourceKey: string,
+  company: CompanyRow,
+  parserStage: string,
+  extracted?: Extracted,
+) {
+  const { data: previousBlockLog } = await admin
+    .from("reservation_import_logs")
+    .select("id")
+    .eq("source_message_id", sourceKey)
+    .eq("event_type", "company_parser_blocked")
+    .maybeSingle();
+
+  if (previousBlockLog) {
+    return json({
+      skipped: "company_parser_blocked_already_handled",
+      company: company.name,
+    });
+  }
+
+  const recipient = extractEmailAddress(String(msg.contact_identifier ?? ""));
+  const reason = company.reservation_parser_block_reason?.trim() || "Empresa bloqueada para processamento automatico de reservas.";
+  const replyText = buildBlockedCompanyReply(company);
+  let emailSent = false;
+  let emailError: string | null = null;
+
+  if (recipient) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-resend-email`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+          "apikey": SERVICE_ROLE_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: recipient,
+          subject: `Solicitacao de reserva - ${company.name}`,
+          html: textToHtml(replyText),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      emailSent = response.ok && result?.ok !== false;
+      emailError = emailSent ? null : (result?.error || `HTTP ${response.status}`);
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : String(err);
+    }
+  } else {
+    emailError = "Remetente sem e-mail valido para resposta automatica.";
+  }
+
+  await logImportEvent({
+    event_type: "company_parser_blocked",
+    inbox_message_id: msg.id,
+    source_message_id: sourceKey,
+    reason,
+    company_id: company.id,
+    company_name: company.name,
+    parser_stage: parserStage,
+    email_recipient: recipient,
+    email_sent: emailSent,
+    email_error: emailError,
+    extracted: extracted ?? null,
+  });
+
+  await notifyStaffAlert(
+    "Reserva recusada pelo bloqueio da empresa",
+    `${company.name}: ${reason}${emailSent ? " Resposta automatica enviada." : " Resposta automatica nao enviada."}`,
+  );
+
+  return json({
+    skipped: "company_parser_blocked",
+    company: company.name,
+    reason,
+    email_sent: emailSent,
+    email_error: emailError,
+  });
+}
+
 function buildUserText(subject: string, body: string, bodyHtml: string, vouchers: Array<{ url: string; text: string }>): string {
   const base = `Assunto: ${subject}\n\nCorpo:\n${(body || bodyHtml || "(sem corpo)").slice(0, 8000)}`;
   if (vouchers.length === 0) return base;
@@ -1030,6 +1175,12 @@ serve(async (req) => {
     vouchers,
     defaultCategory: cfg.default_category ?? "executivo",
   });
+  if (
+    company?.reservation_parser_blocked &&
+    looksLikeReservationEmail(cfg, msg.subject ?? "", `${msg.body ?? ""}\n${msg.body_html ?? ""}`, fastResult)
+  ) {
+    return await respondToBlockedCompany(msg, sourceKey, company, "heuristic_match", fastResult.extracted);
+  }
 
   let requiresLlmEnrichment = false;
 
@@ -1141,6 +1292,10 @@ serve(async (req) => {
   }
 
   if (!extracted.is_reservation) return json({ skipped: "not_reservation", confidence: extracted.confidence });
+
+  if (company?.reservation_parser_blocked) {
+    return await respondToBlockedCompany(msg, sourceKey, company, "extracted_match", extracted);
+  }
 
   const order: Record<string, number> = { high: 3, medium: 2, low: 1 };
   if ((order[extracted.confidence] ?? 0) < (order[cfg.min_confidence ?? "medium"] ?? 2)) {
