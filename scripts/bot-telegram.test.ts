@@ -66,6 +66,8 @@ function sliceAfter(start: string, length = 1200) {
 }
 
 const commandMarkers = [
+  'cmd === "/vincular" || cmd === "/link"',
+  'cmd === "/quem" || cmd === "/quem_sou_eu" || cmd === "/whoami"',
   'cmd === "/status"',
   'cmd === "/listar"',
   'cmd === "/buscar"',
@@ -81,6 +83,18 @@ const commandMarkers = [
   'cmd === "/ajuda" || cmd === "/help" || cmd === "/start"',
 ];
 for (const marker of commandMarkers) assert.ok(source.includes(marker), `missing Telegram command handler: ${marker}`);
+
+const permissionMarkers = [
+  'getTelegramActor',
+  'requireCallbackRole',
+  'requireMessageRole',
+  'telegram_permissions',
+  'create_telegram_link_code',
+  'revoke_telegram_binding',
+  'telegram_user_bindings',
+  'telegram_link_codes',
+];
+for (const marker of permissionMarkers) assert.ok(source.includes(marker), `missing Telegram permission marker: ${marker}`);
 
 const callbackActionMarkers = [
   'action === "rate"',

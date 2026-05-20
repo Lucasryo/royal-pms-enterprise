@@ -184,6 +184,7 @@ export interface UserProfile {
   name: string;
   email: string;
   role: UserRole;
+  active?: boolean;
   company_id?: string;
   photo_url?: string;
   phone?: string;

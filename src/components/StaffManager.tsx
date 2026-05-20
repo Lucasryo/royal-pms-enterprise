@@ -104,7 +104,7 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
       role: user.role,
       phone: user.phone || '',
       company_id: user.company_id || '',
-      status: 'active',
+      status: user.active === false ? 'inactive' : 'active',
     });
     setFormPermissions(user.permissions || DEFAULT_PERMISSIONS[user.role] || DEFAULT_PERMISSIONS.client);
     setIsModalOpen(true);
@@ -145,6 +145,7 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
             role: formData.role,
             company_id: COMPANY_LINKED_ROLES.includes(formData.role) ? formData.company_id || null : null,
             permissions: formPermissions,
+            active: formData.status === 'active',
           },
         });
 
@@ -173,6 +174,7 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
             phone: formData.phone.trim(),
             company_id: COMPANY_LINKED_ROLES.includes(formData.role) ? formData.company_id || null : null,
             permissions: formPermissions,
+            active: formData.status === 'active',
           })
           .eq('id', editingUser.id);
 
@@ -303,9 +305,9 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
                     {user.phone || 'Não informado'}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="flex items-center gap-1.5 text-xs font-bold text-green-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-600" />
-                      Ativo
+                    <span className={`flex items-center gap-1.5 text-xs font-bold ${user.active === false ? 'text-red-600' : 'text-green-600'}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${user.active === false ? 'bg-red-600' : 'bg-green-600'}`} />
+                      {user.active === false ? 'Inativo' : 'Ativo'}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
@@ -393,6 +395,17 @@ export default function StaffManager({ currentUser }: { currentUser: UserProfile
                     {Object.entries(ROLE_LABELS).map(([role, label]) => (
                       <option key={role} value={role}>{label}</option>
                     ))}
+                  </select>
+                </Field>
+
+                <Field label="Status">
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as StaffFormData['status'] })}
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10"
+                  >
+                    <option value="active">Ativo</option>
+                    <option value="inactive">Inativo</option>
                   </select>
                 </Field>
 

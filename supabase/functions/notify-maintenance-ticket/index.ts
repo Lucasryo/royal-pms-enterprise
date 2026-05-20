@@ -46,6 +46,16 @@ async function tg(method: string, body: Record<string, unknown>) {
 }
 
 type TelegramApiResult = { ok?: boolean; result?: Record<string, unknown>; description?: string; error_code?: number };
+type TelegramRole = "admin" | "technician" | "inspector";
+type TelegramActor = {
+  bindingId: string;
+  profileId: string;
+  name: string;
+  profileRole: string;
+  telegramRole: TelegramRole;
+  active: boolean;
+  telegramUserId: number;
+};
 
 async function deleteChatMessage(chatId: unknown, messageId: unknown): Promise<boolean> {
   const numericMessageId = Number(messageId);
@@ -88,9 +98,10 @@ async function getInternalUser(authHeader: string | null) {
 
   const { data: profile } = await db
     .from("profiles")
-    .select("id,name,role")
+    .select("id,name,role,active")
     .eq("id", data.user.id)
     .single();
+  if (!profile || profile.active === false) return null;
   return profile ?? null;
 }
 
@@ -146,21 +157,103 @@ async function logTelegramCardEvent(
   });
 }
 
-// 3B: cache com TTL de 5 min para evitar rate limit do Telegram
-const modCache = new Map<string, { result: boolean; expiresAt: number }>();
-
 async function isModerator(chatId: unknown, userId: number): Promise<boolean> {
-  const key = `${chatId}:${userId}`;
-  const cached = modCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.result;
-  try {
-    const res = await tg("getChatMember", { chat_id: chatId, user_id: userId });
-    const result = res.ok && ["administrator", "creator"].includes(res.result?.status);
-    modCache.set(key, { result, expiresAt: Date.now() + 5 * 60 * 1000 });
-    return result;
-  } catch {
-    return false;
-  }
+  const actor = await getTelegramActor(userId);
+  void chatId;
+  if (actor?.telegramRole === "admin") return true;
+  return false;
+}
+
+async function getTelegramActor(userId: number): Promise<TelegramActor | null> {
+  if (!Number.isFinite(userId) || !userId) return null;
+  const { data: binding, error } = await db
+    .from("telegram_user_bindings")
+    .select("id,profile_id,telegram_user_id,telegram_role,active")
+    .eq("telegram_user_id", userId)
+    .eq("active", true)
+    .maybeSingle();
+  if (error || !binding) return null;
+
+  const { data: profile } = await db
+    .from("profiles")
+    .select("id,name,role,active")
+    .eq("id", binding.profile_id)
+    .maybeSingle();
+  if (!profile || profile.active === false) return null;
+
+  return {
+    bindingId: binding.id as string,
+    profileId: binding.profile_id as string,
+    name: String(profile.name ?? "Usuario"),
+    profileRole: String(profile.role ?? ""),
+    telegramRole: binding.telegram_role as TelegramRole,
+    active: true,
+    telegramUserId: Number(binding.telegram_user_id),
+  };
+}
+
+function actorHasRole(actor: TelegramActor | null, roles: TelegramRole[]): boolean {
+  if (!actor?.active) return false;
+  if (actor.telegramRole === "admin") return true;
+  return roles.includes(actor.telegramRole);
+}
+
+function isAdminProfile(user: { role?: unknown } | null): boolean {
+  return !!user && ["admin", "manager"].includes(String(user.role));
+}
+
+function normalizeTelegramCode(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function makeTelegramLinkCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join("");
+}
+
+async function logTelegramPermissionBlocked(action: string, fromId: number, ticketId?: string | null, reason = "forbidden") {
+  await logTelegramNotification("telegram_permission_blocked", "skipped", {
+    ticketId,
+    payload: { action, from_id: fromId, reason },
+  });
+}
+
+async function requireCallbackRole(
+  fromId: number,
+  roles: TelegramRole[],
+  action: string,
+  callbackAlert: (text: string) => Promise<void>,
+  ticketId?: string | null,
+): Promise<TelegramActor | null> {
+  const actor = await getTelegramActor(fromId);
+  if (actorHasRole(actor, roles)) return actor;
+  await logTelegramPermissionBlocked(action, fromId, ticketId, actor ? "role_not_allowed" : "not_linked_or_inactive");
+  await callbackAlert(actor
+    ? "Seu vinculo Telegram nao tem permissao para esta acao."
+    : "Vincule sua conta ao PMS com /vincular CODIGO antes de alterar chamados.");
+  return null;
+}
+
+async function requireMessageRole(
+  chatId: unknown,
+  fromId: number,
+  roles: TelegramRole[],
+  action: string,
+  ticketId?: string | null,
+): Promise<TelegramActor | null> {
+  const actor = await getTelegramActor(fromId);
+  if (actorHasRole(actor, roles)) return actor;
+  await logTelegramPermissionBlocked(action, fromId, ticketId, actor ? "role_not_allowed" : "not_linked_or_inactive");
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: actor
+      ? `🔒 Seu vínculo Telegram não tem permissão para esta ação\\.`
+      : `🔒 Vincule sua conta ao PMS com /vincular CODIGO antes de alterar chamados\\.`,
+    parse_mode: "MarkdownV2",
+  });
+  return null;
 }
 
 function esc(text: string | null | undefined): string {
@@ -1108,7 +1201,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test"];
+  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test", "telegram_permissions", "create_telegram_link_code", "revoke_telegram_binding"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -1117,6 +1210,128 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
   if ((body.type as string) === "bot_self_test")  return await runBotSelfTest(authHeader);
+
+  if ((body.type as string) === "telegram_permissions") {
+    const user = await getInternalUser(authHeader);
+    if (!isAdminProfile(user)) return { ok: false, error: "forbidden" };
+
+    const { data: profiles, error: profilesError } = await db
+      .from("profiles")
+      .select("id,name,email,role,active")
+      .in("role", ["admin", "manager", "maintenance", "housekeeping"])
+      .order("name", { ascending: true });
+    if (profilesError) return { ok: false, error: profilesError.message };
+
+    const profileIds = (profiles ?? []).map(profile => profile.id as string);
+    const [bindingsRes, codesRes] = await Promise.all([
+      profileIds.length
+        ? db.from("telegram_user_bindings")
+          .select("id,profile_id,telegram_user_id,telegram_username,display_name,telegram_role,active,linked_at,revoked_at")
+          .in("profile_id", profileIds)
+          .eq("active", true)
+        : Promise.resolve({ data: [], error: null }),
+      profileIds.length
+        ? db.from("telegram_link_codes")
+          .select("id,profile_id,code,telegram_role,expires_at,used_at,created_at")
+          .in("profile_id", profileIds)
+          .is("used_at", null)
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (bindingsRes.error) return { ok: false, error: bindingsRes.error.message };
+    if (codesRes.error) return { ok: false, error: codesRes.error.message };
+
+    const bindingsByProfile = new Map<string, Record<string, unknown>>();
+    for (const binding of bindingsRes.data ?? []) bindingsByProfile.set(binding.profile_id as string, binding);
+    const codesByProfile = new Map<string, Record<string, unknown>>();
+    for (const code of codesRes.data ?? []) if (!codesByProfile.has(code.profile_id as string)) codesByProfile.set(code.profile_id as string, code);
+
+    return {
+      ok: true,
+      profiles: (profiles ?? []).map(profile => ({
+        ...profile,
+        active: profile.active !== false,
+        telegram_binding: bindingsByProfile.get(profile.id as string) ?? null,
+        pending_code: codesByProfile.get(profile.id as string) ?? null,
+      })),
+    };
+  }
+
+  if ((body.type as string) === "create_telegram_link_code") {
+    const user = await getInternalUser(authHeader);
+    if (!isAdminProfile(user)) return { ok: false, error: "forbidden" };
+
+    const profileId = String(body.profile_id ?? "");
+    const telegramRole = String(body.telegram_role ?? "") as TelegramRole;
+    if (!profileId) return { ok: false, error: "missing profile_id" };
+    if (!["admin", "technician", "inspector"].includes(telegramRole)) return { ok: false, error: "invalid telegram_role" };
+
+    const { data: profile } = await db
+      .from("profiles")
+      .select("id,name,role,active")
+      .eq("id", profileId)
+      .maybeSingle();
+    if (!profile) return { ok: false, error: "profile_not_found" };
+    if (profile.active === false) return { ok: false, error: "profile_inactive" };
+
+    const now = new Date().toISOString();
+    await db.from("telegram_link_codes")
+      .update({ used_at: now })
+      .eq("profile_id", profileId)
+      .is("used_at", null);
+
+    let code = makeTelegramLinkCode();
+    let insertError: { message?: string; code?: string } | null = null;
+    let inserted: Record<string, unknown> | null = null;
+    for (let i = 0; i < 4; i++) {
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const result = await db.from("telegram_link_codes").insert({
+        code,
+        profile_id: profileId,
+        telegram_role: telegramRole,
+        expires_at: expiresAt,
+        created_by: user.id,
+      }).select("id,code,profile_id,telegram_role,expires_at,created_at").single();
+      if (!result.error) {
+        inserted = result.data as Record<string, unknown>;
+        insertError = null;
+        break;
+      }
+      insertError = result.error;
+      code = makeTelegramLinkCode();
+    }
+    if (!inserted) return { ok: false, error: insertError?.message ?? "could_not_create_code" };
+
+    await logTelegramNotification("telegram_link_code_created", "sent", {
+      payload: { profile_id: profileId, telegram_role: telegramRole, created_by: user.id },
+    });
+    return { ok: true, code: inserted };
+  }
+
+  if ((body.type as string) === "revoke_telegram_binding") {
+    const user = await getInternalUser(authHeader);
+    if (!isAdminProfile(user)) return { ok: false, error: "forbidden" };
+    const bindingId = String(body.binding_id ?? "");
+    if (!bindingId) return { ok: false, error: "missing binding_id" };
+    const { data: binding, error } = await db.from("telegram_user_bindings")
+      .update({
+        active: false,
+        revoked_at: new Date().toISOString(),
+        revoked_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", bindingId)
+      .eq("active", true)
+      .select("id,profile_id,telegram_user_id")
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    if (!binding) return { ok: false, error: "binding_not_found" };
+    await logTelegramNotification("telegram_binding_revoked", "sent", {
+      payload: { binding_id: bindingId, profile_id: binding.profile_id, telegram_user_id: binding.telegram_user_id, revoked_by: user.id },
+    });
+    return { ok: true, binding };
+  }
 
   if ((body.type as string) === "ticket_opened") {
     const ticketId = body.ticket_id as string;
@@ -1479,10 +1694,8 @@ async function handleCallback(query: Record<string, unknown>) {
     }
     await rememberCallbackCard(ticketId, chatId, msgId);
 
-    if (!await isModerator(chatId, fromId)) {
-      await callbackAlert("Apenas o vistoriador que assumiu pode avaliar este chamado.");
-      return { ok: true };
-    }
+    const actor = await requireCallbackRole(fromId, ["inspector"], "rate", callbackAlert, ticketId);
+    if (!actor) return { ok: true };
 
     const { data: ticket } = await db
       .from("maintenance_tickets")
@@ -1537,10 +1750,8 @@ async function handleCallback(query: Record<string, unknown>) {
   // ── Inspection: assume vistoria (somente moderadores) ───────────────────
   if (action === "insp_assume") {
     const ticketId = rest;
-    if (!await isModerator(chatId, fromId)) {
-      await callbackAlert("Apenas moderadores do grupo podem assumir a vistoria.");
-      return { ok: true };
-    }
+    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_assume", callbackAlert, ticketId);
+    if (!actor) return { ok: true };
 
     const { data: ticket } = await db
       .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id,status").eq("id", ticketId).single();
@@ -1613,10 +1824,8 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId       = parts[0];
     const lockedInspId   = parts[1] ? Number(parts[1]) : null;
 
-    if (!await isModerator(chatId, fromId)) {
-      await callbackAlert("Apenas moderadores do grupo podem aprovar vistoria.");
-      return { ok: true };
-    }
+    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_ok", callbackAlert, ticketId);
+    if (!actor) return { ok: true };
 
     // Fix B: validate lock against DB inspector_tg_id too
     if (lockedInspId && lockedInspId !== fromId) {
@@ -1682,10 +1891,8 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId     = parts[0];
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
-    if (!await isModerator(chatId, fromId)) {
-      await callbackAlert("Apenas moderadores do grupo podem reprovar vistoria.");
-      return { ok: true };
-    }
+    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_nok", callbackAlert, ticketId);
+    if (!actor) return { ok: true };
 
     if (lockedInspId && lockedInspId !== fromId) {
       await callbackAlert("Apenas o vistoriador que assumiu pode reprovar.");
@@ -1728,6 +1935,12 @@ async function handleCallback(query: Record<string, unknown>) {
   if (!ticket) return { ok: true };
 
   const ownerOnlyActions = ["parts_ok", "resolve", "parts", "note"];
+  if (action === "assume" && !await requireCallbackRole(fromId, ["technician"], "assume", callbackAlert, ticketId)) {
+    return { ok: true };
+  }
+  if (ownerOnlyActions.includes(action) && !await requireCallbackRole(fromId, ["technician"], action, callbackAlert, ticketId)) {
+    return { ok: true };
+  }
   if (ownerOnlyActions.includes(action) && !await ensureCallbackOwner(ticket, fromId, callbackAlert)) {
     return { ok: true };
   }
@@ -1870,9 +2083,8 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert("Este chamado nao esta em andamento e nao pode ser transferido.");
       return { ok: true };
     }
-    const isOwner = isTicketOwnedBy(ticket, fromId);
-    const isMod = await isModerator(chatId, fromId);
-    if (!isOwner && !isMod) {
+    const actor = await requireCallbackRole(fromId, ["admin"], "transfer", callbackAlert, ticketId);
+    if (!actor) {
       await logTelegramNotification("owner_lock_blocked", "skipped", {
         ticketId,
         payload: {
@@ -1883,7 +2095,6 @@ async function handleCallback(query: Record<string, unknown>) {
           status: ticket.status ?? null,
         },
       });
-      await callbackAlert(ownerBlockMessage(ticket));
       return { ok: true };
     }
     const { count: transferCount } = await db.from("maintenance_tickets")
@@ -1897,8 +2108,8 @@ async function handleCallback(query: Record<string, unknown>) {
     await logEvent({
       ticketId, actorType: "telegram_user",
       actorId: String(fromId), actorName: name,
-      event: isOwner ? "transferred" : "transferred_by_moderator", prevStatus: "in_progress", newStatus: "open",
-      notes: isOwner ? "tecnico liberou chamado de volta para a fila" : "moderador liberou chamado de volta para a fila",
+      event: "transferred_by_admin", prevStatus: "in_progress", newStatus: "open",
+      notes: "admin liberou chamado de volta para a fila",
     });
     const cardUpdated = await updateTicketCard(ticketId, chatId);
     await callbackOk("Chamado voltou para a fila.");
@@ -1928,6 +2139,7 @@ async function handleReply(message: Record<string, unknown>) {
 
   // /urgente via reply
   if (userText.trim().toLowerCase().startsWith("/urgente")) {
+    if (!await requireMessageRole(chatId, fromId, ["admin"], "urgent_reply")) return { ok: true };
     const uuidMatch = replyText.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (uuidMatch) {
       const ticketId = uuidMatch[1];
@@ -1960,14 +2172,7 @@ async function handleReply(message: Record<string, unknown>) {
       });
       return { ok: true };
     }
-    if (!await isModerator(chatId, fromId)) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `ðŸ”’ Apenas moderadores do grupo podem reprovar vistoria\\.`,
-        parse_mode: "MarkdownV2",
-      });
-      return { ok: true };
-    }
+    if (!await requireMessageRole(chatId, fromId, ["inspector"], "insp_reject_reply", ticketId)) return { ok: true };
 
     const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId, userText);
     if (result.ok) {
@@ -1999,6 +2204,7 @@ async function handleReply(message: Record<string, unknown>) {
   if (cancelMatch) {
     const ticketId    = cancelMatch[1];
     const lockedModId = Number(cancelMatch[2]);
+    if (!await requireMessageRole(chatId, fromId, ["admin"], "cancel_reply", ticketId)) return { ok: true };
     if (lockedModId !== fromId) {
       await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou o cancelamento pode confirmar\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
@@ -2028,6 +2234,7 @@ async function handleReply(message: Record<string, unknown>) {
   if (reopenMatch) {
     const ticketId    = reopenMatch[1];
     const lockedModId = Number(reopenMatch[2]);
+    if (!await requireMessageRole(chatId, fromId, ["admin"], "reopen_reply", ticketId)) return { ok: true };
     if (lockedModId !== fromId) {
       await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou a reabertura pode confirmar\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
@@ -2067,6 +2274,7 @@ async function handleReply(message: Record<string, unknown>) {
   if (directMatch) {
     const ticketId    = directMatch[1];
     const lockedModId = Number(directMatch[2]);
+    if (!await requireMessageRole(chatId, fromId, ["admin"], "direct_reply", ticketId)) return { ok: true };
     if (lockedModId !== fromId) {
       await tg("sendMessage", { chat_id: chatId, text: `🔒 Apenas o moderador que iniciou o direcionamento pode confirmar\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
@@ -2117,6 +2325,7 @@ async function handleReply(message: Record<string, unknown>) {
     const tId     = noteMatch[1];
     const ownerId = Number(noteMatch[2]);
     void ownerId;
+    if (!await requireMessageRole(chatId, fromId, ["technician"], "note_reply", tId)) return { ok: true };
     const ownerCheck = await ensureReplyOwner(tId, fromId, chatId, message);
     if (!ownerCheck.ok) return { ok: true };
     const noteText = userText.trim();
@@ -2157,13 +2366,13 @@ async function handleReply(message: Record<string, unknown>) {
   const ticketId       = match[1];
   const lockedTgUserId = match[2] ? Number(match[2]) : null;
   const replyValue     = userText.trim();
-
-  void lockedTgUserId;
-  const ownerCheck = await ensureReplyOwner(ticketId, fromId, chatId, message);
-  if (!ownerCheck.ok) return { ok: true };
-
   const isResolve = !!(resolveMatch ?? legacyResolveMatch);
   const isParts   = !!(partsMatch ?? legacyPartsMatch);
+
+  void lockedTgUserId;
+  if (!await requireMessageRole(chatId, fromId, ["technician"], isResolve ? "resolve_reply" : "parts_reply", ticketId)) return { ok: true };
+  const ownerCheck = await ensureReplyOwner(ticketId, fromId, chatId, message);
+  if (!ownerCheck.ok) return { ok: true };
 
   if (isResolve) {
     if (!replyValue) {
@@ -2317,7 +2526,87 @@ async function handleMessage(message: Record<string, unknown>) {
   // Fix H: restrict data commands to the configured group only
   const isGroupChat = String(chatId) === String(CHAT_ID);
 
+  if (cmd === "/vincular" || cmd === "/link") {
+    const code = normalizeTelegramCode(text.trim().split(/\s+/)[1]);
+    if (!code) {
+      await tg("sendMessage", { chat_id: chatId, text: `Uso: /vincular CODIGO\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+
+    const { data: linkCode } = await db.from("telegram_link_codes")
+      .select("id,code,profile_id,telegram_role,expires_at,used_at,created_by")
+      .eq("code", code)
+      .maybeSingle();
+    if (!linkCode || linkCode.used_at || new Date(linkCode.expires_at as string).getTime() <= Date.now()) {
+      await logTelegramPermissionBlocked("link_code", fromId, null, linkCode?.used_at ? "code_used" : "code_invalid_or_expired");
+      await tg("sendMessage", { chat_id: chatId, text: `Codigo invalido, expirado ou ja usado\\. Peca um novo codigo no PMS\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+
+    const { data: profile } = await db.from("profiles")
+      .select("id,name,role,active")
+      .eq("id", linkCode.profile_id)
+      .maybeSingle();
+    if (!profile || profile.active === false) {
+      await logTelegramPermissionBlocked("link_code", fromId, null, "profile_inactive");
+      await tg("sendMessage", { chat_id: chatId, text: `Este usuario PMS esta inativo ou nao existe\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+
+    const now = new Date().toISOString();
+    await db.from("telegram_user_bindings")
+      .update({ active: false, revoked_at: now, updated_at: now })
+      .eq("telegram_user_id", fromId)
+      .eq("active", true);
+    await db.from("telegram_user_bindings")
+      .update({ active: false, revoked_at: now, updated_at: now })
+      .eq("profile_id", profile.id)
+      .eq("active", true);
+
+    const { error: bindingError } = await db.from("telegram_user_bindings").insert({
+      profile_id: profile.id,
+      telegram_user_id: fromId,
+      telegram_username: from.username ? String(from.username) : null,
+      display_name: name,
+      telegram_role: linkCode.telegram_role,
+      active: true,
+      linked_by: linkCode.created_by ?? null,
+    });
+    if (bindingError) {
+      await tg("sendMessage", { chat_id: chatId, text: `Nao foi possivel vincular agora\\. Tente gerar um novo codigo no PMS\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+
+    await db.from("telegram_link_codes")
+      .update({ used_at: now, used_by_telegram_user_id: fromId })
+      .eq("id", linkCode.id);
+    await logTelegramNotification("telegram_linked", "sent", {
+      payload: { profile_id: profile.id, telegram_user_id: fromId, telegram_role: linkCode.telegram_role },
+    });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `Telegram vinculado a *${esc(profile.name)}* como *${esc(String(linkCode.telegram_role))}*\\.`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
+
+  if (cmd === "/quem" || cmd === "/quem_sou_eu" || cmd === "/whoami") {
+    const actor = await getTelegramActor(fromId);
+    if (!actor) {
+      await tg("sendMessage", { chat_id: chatId, text: `Este Telegram ainda nao esta vinculado a um usuario ativo do PMS\\. Use /vincular CODIGO\\.`, parse_mode: "MarkdownV2" });
+      return { ok: true };
+    }
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `PMS: *${esc(actor.name)}*\nCargo PMS: *${esc(actor.profileRole)}*\nPermissao Telegram: *${esc(actor.telegramRole)}*`,
+      parse_mode: "MarkdownV2",
+    });
+    return { ok: true };
+  }
+
   if (cmd === "/urgente") {
+    if (!await requireMessageRole(chatId, fromId, ["admin"], "urgent_command")) return { ok: true };
     const uuidMatch = text.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (!uuidMatch) {
       await tg("sendMessage", { chat_id: chatId, text: `❓ Responda a mensagem de um chamado com /urgente para marcá\\-lo como urgente\\.`, parse_mode: "MarkdownV2" });
@@ -2362,6 +2651,7 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
+    if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "list_command")) return { ok: true };
     const { data: open } = await db.from("maintenance_tickets")
       .select("id,priority,room_number,title,created_at,awaiting_parts")
       .in("status", ["open", "in_progress"]).order("created_at", { ascending: true }).limit(10);
@@ -2386,6 +2676,7 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
+    if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "search_command")) return { ok: true };
     const arg = text.trim().split(/\s+/)[1] ?? "";
     if (!arg) {
       await tg("sendMessage", { chat_id: chatId, text: `❓ Uso: /buscar \\[UUID ou número da UH\\]\\.`, parse_mode: "MarkdownV2" });
@@ -2429,6 +2720,7 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
+    if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "parts_list_command")) return { ok: true };
     const { data: waiting } = await db.from("maintenance_tickets")
       .select("id,priority,title,room_number,created_at")
       .eq("awaiting_parts", true)
@@ -2454,6 +2746,7 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
+    if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "sla_command")) return { ok: true };
     const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
     const now = Date.now();
     const { data: open } = await db.from("maintenance_tickets")
@@ -2489,6 +2782,7 @@ async function handleMessage(message: Record<string, unknown>) {
       await tg("sendMessage", { chat_id: chatId, text: `ℹ️ Use este comando no grupo de manutenção\\.`, parse_mode: "MarkdownV2" });
       return { ok: true };
     }
+    if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "my_tickets_command")) return { ok: true };
     // Fix E: use telegram_user_id for reliable lookup; fallback to name ilike
     let mine = null;
     if (fromId) {
@@ -2758,6 +3052,9 @@ async function handleMessage(message: Record<string, unknown>) {
   if (cmd === "/ajuda" || cmd === "/help" || cmd === "/start") {
     const help = [
       `🤖 *Royal PMS — Bot de Manutenção*`, "",
+      `/vincular CODIGO â€” Vincula seu Telegram ao PMS`,
+      `/quem sou eu â€” Mostra sua permissao atual`,
+      "",
       `*Todos os membros\\:*`,
       `/status — Resumo dos chamados abertos`,
       `/listar — Lista chamados abertos \\(até 10\\)`,

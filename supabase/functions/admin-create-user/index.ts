@@ -82,6 +82,7 @@ serve(async (req) => {
     const role = String(body?.role ?? "client");
     const companyId = body?.company_id ?? body?.companyId ?? null;
     const permissions = body?.permissions ?? null;
+    const active = body?.active !== false;
 
     if (!email || !password || !name) {
       return json({ error: "Name, email and password are required." }, 400);
@@ -119,6 +120,7 @@ serve(async (req) => {
       company_id: companyId,
       phone,
       permissions,
+      active,
     };
 
     const { error: profileError } = await adminClient
@@ -140,6 +142,7 @@ serve(async (req) => {
         company_id: companyId,
         phone,
         permissions,
+        active,
       },
     });
   } catch (error) {
