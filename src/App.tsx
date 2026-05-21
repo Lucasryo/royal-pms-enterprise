@@ -527,7 +527,7 @@ export default function App() {
       case 'registration': return <AdminDashboard profile={profile} initialTab="registration" />;
       case 'events': return <EventsModuleDashboard profile={profile} />;
       case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} /> : <ClientDashboard profile={profile} initialTab="active" />;
-      case 'prio-billing': return <PrioBillingGenerator profile={profile} />;
+      case 'prio-billing': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="active" /> : <PrioBillingGenerator profile={profile} />;
       case 'reports': return <ReportsDashboard profile={profile} />;
       case 'companies': return <AdminDashboard profile={profile} initialTab="companies" />;
       case 'staff': return <AdminDashboard profile={profile} initialTab="users" />;

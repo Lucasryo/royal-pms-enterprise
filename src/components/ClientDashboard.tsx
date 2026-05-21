@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { logAudit, sendNotification } from '../lib/audit';
 import { format, addDays } from 'date-fns';
+import jsPDF from 'jspdf';
 
 const FINANCIAL_TYPES = ['FATURA', 'Hospedagem', 'Alimentação', 'Lavanderia', 'Eventos', 'Transporte'];
 
@@ -55,6 +56,13 @@ function VoucherNote({ title, text }: { title: string; text: React.ReactNode }) 
 const clientMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const clientDate = (value?: string) => value ? new Date(value + (value.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : '-';
 
+function calculateReservationTotal(value: { tariff: number; iss_enabled?: boolean; iss_tax?: number; service_enabled?: boolean; service_tax?: number }) {
+  const tariff = Number(value.tariff || 0);
+  const iss = value.iss_enabled ? tariff * (Number(value.iss_tax || 0) / 100) : 0;
+  const service = value.service_enabled ? tariff * (Number(value.service_tax || 0) / 100) : 0;
+  return { tariff, iss, service, total: tariff + iss + service };
+}
+
 export default function ClientDashboard({ profile, initialTab = 'active' }: { profile: UserProfile, initialTab?: 'active' | 'trash' | 'reservations' }) {
   const isExternalClient = profile.role === 'external_client';
   const canManageClientArchive = !!profile.permissions?.canUploadFiles && !isExternalClient;
@@ -89,7 +97,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     category: 'executivo',
     guests_per_uh: 1,
     contact_phone: '',
+    iss_enabled: false,
     iss_tax: 5,
+    service_enabled: false,
     service_tax: 10,
     payment_method: 'BILLED' as 'BILLED' | 'VIRTUAL_CARD',
     billing_info: ''
@@ -291,15 +301,18 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
     try {
       const resCode = generateReservationCode();
-      const taxMultiplier = 1 + ((reservationForm.iss_tax + reservationForm.service_tax) / 100);
+      const reservationTotals = calculateReservationTotal(reservationForm);
+      const { iss_enabled, service_enabled, ...reservationValues } = reservationForm;
       const newRequest: ReservationRequest = {
-        ...reservationForm,
+        ...reservationValues,
+        iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
+        service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
         company_id: profile.company_id!,
         reservation_code: resCode,
         requested_by: profile.name,
         created_at: new Date().toISOString(),
         status: 'REQUESTED',
-        total_amount: reservationForm.tariff * taxMultiplier
+        total_amount: reservationTotals.total
       };
 
       const { error } = await supabase
@@ -348,7 +361,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       category: existingRes.category || 'executivo',
       guests_per_uh: existingRes.guests_per_uh || 1,
       contact_phone: existingRes.contact_phone || '',
+      iss_enabled: Number(existingRes.iss_tax || 0) > 0,
       iss_tax: existingRes.iss_tax || 5,
+      service_enabled: Number(existingRes.service_tax || 0) > 0,
       service_tax: existingRes.service_tax || 10,
       payment_method: existingRes.payment_method || 'BILLED',
       billing_obs: existingRes.billing_obs || '',
@@ -650,6 +665,143 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     } finally {
       setUploadingProof(false);
     }
+  };
+
+  const handleDownloadVoucherPdf = () => {
+    if (!viewingVoucher) return;
+    const totals = calculateReservationTotal({
+      tariff: Number(viewingVoucher.tariff || 0),
+      iss_enabled: Number(viewingVoucher.iss_tax || 0) > 0,
+      iss_tax: Number(viewingVoucher.iss_tax || 0),
+      service_enabled: Number(viewingVoucher.service_tax || 0) > 0,
+      service_tax: Number(viewingVoucher.service_tax || 0),
+    });
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const margin = 12;
+    const right = 198;
+    const status = (viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'EM ANÁLISE' : 'CONFIRMADA';
+    const code = viewingVoucher.reservation_code || 'PENDENTE';
+
+    pdf.setTextColor(17, 24, 39);
+    pdf.setDrawColor(17, 24, 39);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text('ROYAL MACAÉ', margin, 20);
+    pdf.setFontSize(6);
+    pdf.text('PALACE HOTEL', margin, 23);
+    pdf.setFontSize(8);
+    pdf.text('PORTAL CORPORATIVO ROYAL MACAÉ', 54, 15);
+    pdf.setFontSize(18);
+    pdf.text('AUTORIZAÇÃO DE HOSPEDAGEM', 54, 23);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text('Royal Macaé Palace Hotel - AV. ATLÂNTICA, 1642 - PR. DOS CAVALEIROS', 54, 29);
+    pdf.text('CNPJ 07.116.901/0001-92 - (22)2123-9650 - reservas@royalmacae.com.br', 54, 34);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text('LOCALIZADOR', right, 15, { align: 'right' });
+    pdf.setFontSize(14);
+    pdf.text(code, right, 24, { align: 'right' });
+    pdf.setFontSize(7);
+    pdf.text('STATUS', right, 34, { align: 'right' });
+    pdf.setFontSize(9);
+    pdf.text(status, right, 39, { align: 'right' });
+    pdf.line(margin, 58, right, 58);
+
+    pdf.roundedRect(margin, 64, 112, 44, 2, 2);
+    pdf.setFontSize(7);
+    pdf.text('HÓSPEDE E PERÍODO', margin + 4, 72);
+    pdf.setFontSize(15);
+    pdf.text(String(viewingVoucher.guest_name || '-'), margin + 4, 82, { maxWidth: 104 });
+    const guestRows = [
+      ['ENTRADA', clientDate(viewingVoucher.check_in)],
+      ['SAÍDA', clientDate(viewingVoucher.check_out)],
+      ['CATEGORIA', viewingVoucher.category || '-'],
+      ['PESSOAS/UH', String(viewingVoucher.guests_per_uh || '-')],
+    ];
+    guestRows.forEach(([label, value], index) => {
+      const x = margin + 4 + (index % 2) * 54;
+      const y = 94 + Math.floor(index / 2) * 9;
+      pdf.setFontSize(6);
+      pdf.text(label, x, y);
+      pdf.setFontSize(8);
+      pdf.text(String(value), x, y + 4, { maxWidth: 48 });
+    });
+
+    pdf.roundedRect(130, 64, 68, 44, 2, 2);
+    pdf.setFontSize(7);
+    pdf.text('EMPRESA VINCULADA', 134, 72);
+    pdf.setFontSize(12);
+    pdf.text(company?.name || 'Empresa não vinculada', 134, 82, { maxWidth: 58 });
+    pdf.setFontSize(7);
+    pdf.text(`CNPJ: ${company?.cnpj || '-'}`, 134, 92, { maxWidth: 58 });
+    pdf.text(`Centro de custo: ${viewingVoucher.cost_center || '-'}`, 134, 98, { maxWidth: 58 });
+    pdf.text(`Contato: ${viewingVoucher.contact_phone || company?.phone || '-'}`, 134, 104, { maxWidth: 58 });
+
+    const metricY = 118;
+    const metricW = (right - margin - 6) / 3;
+    [
+      ['PAGAMENTO', viewingVoucher.payment_method === 'BILLED' ? 'Faturado' : 'Cartão virtual'],
+      ['TARIFA', clientMoney(totals.tariff)],
+      ['TOTAL PREVISTO', clientMoney(Number(viewingVoucher.total_amount || totals.total))],
+    ].forEach(([label, value], index) => {
+      const x = margin + index * (metricW + 3);
+      pdf.setFillColor(index === 2 ? 17 : 245, index === 2 ? 24 : 245, index === 2 ? 39 : 245);
+      pdf.roundedRect(x, metricY, metricW, 18, 2, 2, 'F');
+      pdf.setTextColor(index === 2 ? 255 : 17, index === 2 ? 255 : 24, index === 2 ? 255 : 39);
+      pdf.setFontSize(6);
+      pdf.text(label, x + 3, metricY + 6);
+      pdf.setFontSize(9);
+      pdf.text(String(value), x + 3, metricY + 13, { maxWidth: metricW - 6 });
+      pdf.setTextColor(17, 24, 39);
+    });
+
+    let y = 150;
+    pdf.setFontSize(7);
+    pdf.text('COMPOSIÇÃO PREVISTA', margin, y);
+    pdf.text('Página 1 de 1', right, y, { align: 'right' });
+    y += 5;
+    pdf.setFillColor(212, 212, 212);
+    pdf.rect(margin, y, right - margin, 8, 'F');
+    pdf.text('Descrição', margin + 3, y + 5.5);
+    pdf.text('Valor', right - 3, y + 5.5, { align: 'right' });
+    y += 12;
+    const rows: Array<[string, number]> = [['Tarifa acordada', totals.tariff]];
+    if (totals.iss > 0) rows.push([`ISS ${viewingVoucher.iss_tax}%`, totals.iss]);
+    if (totals.service > 0) rows.push([`Taxa de serviço ${viewingVoucher.service_tax}%`, totals.service]);
+    rows.forEach(([label, value]) => {
+      pdf.text(label, margin + 3, y);
+      pdf.text(clientMoney(value), right - 3, y, { align: 'right' });
+      y += 8;
+    });
+
+    const notesY = Math.max(y + 10, 188);
+    pdf.roundedRect(margin, notesY, 86, 35, 2, 2);
+    pdf.setFontSize(6);
+    pdf.text('INSTRUÇÕES DE FATURAMENTO', margin + 3, notesY + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_obs || 'Sem observações adicionais.'), 78), margin + 3, notesY + 12);
+    pdf.setFont('helvetica', 'bold');
+    pdf.roundedRect(104, notesY, 94, 35, 2, 2);
+    pdf.setFontSize(6);
+    pdf.text('DADOS PARA EMISSÃO DE NOTA', 107, notesY + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agência.'), 86), 107, notesY + 12);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.line(margin, 258, margin + 86, 258);
+    pdf.line(112, 258, right, 258);
+    pdf.setFontSize(6);
+    pdf.text('ROYAL MACAÉ - RESERVAS / RECEPÇÃO', margin, 264);
+    pdf.text('CLIENTE CORPORATIVO', 112, 264);
+    pdf.line(margin, 282, right, 282);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text('www.royalmacae.com.br - reservas@royalmacae.com.br', 105, 288, { align: 'center' });
+    pdf.save(`AUTORIZACAO_HOSPEDAGEM_${code}.pdf`);
   };
 
   if (loading) {
@@ -1372,17 +1524,64 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     />
                   </div>
 
-                  {/* Taxes (Read only or based on rules) */}
-                  <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-100 md:col-span-2">
-                     <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-3">Impostos e Taxas Incidentes</p>
-                     <div className="flex gap-8">
-                        <div className="flex items-center gap-2">
-                           <span className="text-xs font-bold text-neutral-700">ISS:</span>
-                           <span className="text-xs text-neutral-500">{reservationForm.iss_tax}% (já incluso no cálculo)</span>
+                  <div className="rounded-xl border border-neutral-100 bg-neutral-50 p-4 md:col-span-2">
+                     <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                       <div>
+                         <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">ISS e taxas opcionais</p>
+                         <p className="mt-1 text-xs text-neutral-500">Marque somente quando a política da empresa exigir composição com imposto ou taxa.</p>
+                       </div>
+                       <p className="text-sm font-black text-neutral-900">
+                         Total previsto: {clientMoney(calculateReservationTotal(reservationForm).total)}
+                       </p>
+                     </div>
+                     <div className="grid gap-3 sm:grid-cols-2">
+                        <div className={`rounded-xl border p-3 ${reservationForm.iss_enabled ? 'border-neutral-900 bg-white' : 'border-neutral-200 bg-neutral-100'}`}>
+                          <label className="flex cursor-pointer items-center justify-between gap-3">
+                            <span className="text-xs font-black uppercase tracking-widest text-neutral-700">ISS</span>
+                            <input
+                              type="checkbox"
+                              checked={reservationForm.iss_enabled}
+                              onChange={(e) => setReservationForm({ ...reservationForm, iss_enabled: e.target.checked })}
+                              className="h-4 w-4 accent-neutral-900"
+                            />
+                          </label>
+                          {reservationForm.iss_enabled && (
+                            <div className="mt-3 flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={reservationForm.iss_tax}
+                                onChange={(e) => setReservationForm({ ...reservationForm, iss_tax: parseFloat(e.target.value) || 0 })}
+                                className="w-24 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold outline-none"
+                              />
+                              <span className="text-xs font-bold text-neutral-500">% sobre tarifa</span>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                           <span className="text-xs font-bold text-neutral-700">Taxa de Serviço:</span>
-                           <span className="text-xs text-neutral-500">{reservationForm.service_tax}% (já incluso no cálculo)</span>
+                        <div className={`rounded-xl border p-3 ${reservationForm.service_enabled ? 'border-neutral-900 bg-white' : 'border-neutral-200 bg-neutral-100'}`}>
+                          <label className="flex cursor-pointer items-center justify-between gap-3">
+                            <span className="text-xs font-black uppercase tracking-widest text-neutral-700">Taxa de serviço</span>
+                            <input
+                              type="checkbox"
+                              checked={reservationForm.service_enabled}
+                              onChange={(e) => setReservationForm({ ...reservationForm, service_enabled: e.target.checked })}
+                              className="h-4 w-4 accent-neutral-900"
+                            />
+                          </label>
+                          {reservationForm.service_enabled && (
+                            <div className="mt-3 flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={reservationForm.service_tax}
+                                onChange={(e) => setReservationForm({ ...reservationForm, service_tax: parseFloat(e.target.value) || 0 })}
+                                className="w-24 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold outline-none"
+                              />
+                              <span className="text-xs font-bold text-neutral-500">% sobre tarifa</span>
+                            </div>
+                          )}
                         </div>
                      </div>
                   </div>
@@ -1518,9 +1717,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 <button onClick={() => setViewingVoucher(null)} className="rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest text-neutral-500 transition-colors hover:text-neutral-900">
                   Fechar
                 </button>
-                <button onClick={() => window.print()} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
+                <button onClick={handleDownloadVoucherPdf} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
                   <Printer className="h-4 w-4" />
-                  Imprimir / Salvar PDF
+                  Gerar PDF
                 </button>
               </div>
             </motion.div>

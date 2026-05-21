@@ -74,6 +74,7 @@ export function canAccessView(
     case 'audit':
       return false;
     case 'prio-billing':
+      if (profile.role === 'client' || profile.role === 'external_client') return false;
       return hasPermission(profile, 'canViewFinance', ['admin', 'faturamento', 'finance', 'manager']);
     case 'reports':
       return ['admin', 'manager', 'finance', 'faturamento'].includes(profile.role);
