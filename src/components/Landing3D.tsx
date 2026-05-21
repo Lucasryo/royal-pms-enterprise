@@ -938,6 +938,9 @@ export default function Landing3D() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <a href="/" className="hidden text-sm text-ink/70 hover:text-ink md:inline">
+              Site do hotel
+            </a>
             <button onClick={openLogin} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
               Acessar
             </button>
@@ -969,6 +972,13 @@ export default function Landing3D() {
                   <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)}
                     className="py-3 text-base font-medium text-ink/80 border-b border-ink/5 last:border-0">{l.label}</a>
                 ))}
+                <a
+                  href="/"
+                  onClick={() => setMenuOpen(false)}
+                  className="py-3 text-base font-medium text-ink/80 border-b border-ink/5"
+                >
+                  Site do hotel
+                </a>
                 <button
                   onClick={openLogin}
                   className="mt-3 w-full rounded-full border border-ink/20 py-3 text-sm font-medium text-ink/70"
@@ -1248,7 +1258,10 @@ export default function Landing3D() {
               </div>
               <p className="font-display text-sm text-ink">Royal PMS Enterprise</p>
             </div>
-            <p className="text-xs text-stone-500">© {new Date().getFullYear()} · Hotelaria orquestrada com método.</p>
+            <div className="flex flex-col items-center gap-2 text-xs text-stone-500 sm:items-end">
+              <a href="/" className="font-medium text-ink/70 transition hover:text-ink">Voltar ao site do hotel</a>
+              <p>© {new Date().getFullYear()} · Hotelaria orquestrada com método.</p>
+            </div>
           </div>
         </footer>
       </main>
