@@ -64,27 +64,54 @@ const amenities = [
   { icon: Building2, title: 'Centro de eventos', text: 'Salões flexíveis para reuniões, banquetes e convenções.' },
 ];
 
-const rooms = [
+type RoomCard = {
+  title: string;
+  image: string;
+  fallback: string;
+  images?: Array<{ src: string; label: string }>;
+  text: string;
+  tags: string[];
+};
+
+const rooms: RoomCard[] = [
   {
     title: 'Executivo',
-    image: '/hotel/quarto-executivo.jpg',
-    fallback: '/hotel/lobby.jpg',
+    image: '/hotel/rooms/executivo/principal.jpg',
+    fallback: '/hotel/rooms/executivo/principal.jpg',
+    images: [
+      { src: '/hotel/rooms/executivo/principal.jpg', label: 'Quarto Executivo' },
+      { src: '/hotel/rooms/executivo/quarto-casal.jpg', label: 'Ambiente do quarto' },
+      { src: '/hotel/rooms/executivo/banheiro.jpg', label: 'Banheiro' },
+    ],
     text: 'Conforto objetivo para viagens corporativas e estadias rápidas.',
     tags: ['Cama confortável', 'Mesa de trabalho', 'Wi-Fi'],
   },
   {
     title: 'Master',
-    image: '/hotel/quarto-master.jpg',
-    fallback: '/hotel/piscina-noite.jpg',
+    image: '/hotel/rooms/master/principal.jpg',
+    fallback: '/hotel/rooms/master/principal.jpg',
+    images: [
+      { src: '/hotel/rooms/master/principal.jpg', label: 'Quarto Master' },
+      { src: '/hotel/rooms/master/quarto-vista-mar.jpg', label: 'Vista mar' },
+      { src: '/hotel/rooms/master/banheiro-banheira.jpg', label: 'Banheiro com banheira' },
+      { src: '/hotel/rooms/master/banheiro-sauna.jpg', label: 'Sauna privativa' },
+      { src: '/hotel/rooms/master/varanda-vista-mar.jpg', label: 'Varanda frente mar' },
+    ],
     text: 'Mais espaço, descanso e praticidade para estadias prolongadas.',
-    tags: ['Vista parcial', 'Frigobar', 'TV LCD'],
+    tags: ['Vista mar', 'Banheira', 'Sauna privativa'],
   },
   {
     title: 'Suíte Presidencial',
-    image: '/hotel/suite-presidencial.jpg',
-    fallback: '/hotel/detalhes.jpg',
+    image: '/hotel/rooms/suite-presidencial/principal.jpg',
+    fallback: '/hotel/rooms/suite-presidencial/principal.jpg',
+    images: [
+      { src: '/hotel/rooms/suite-presidencial/principal.jpg', label: 'Suíte Presidencial' },
+      { src: '/hotel/rooms/suite-presidencial/estar.jpg', label: 'Sala de estar' },
+      { src: '/hotel/rooms/suite-presidencial/quarto.jpg', label: 'Quarto principal' },
+      { src: '/hotel/rooms/suite-presidencial/detalhe-quarto.jpg', label: 'Detalhes do quarto' },
+    ],
     text: 'Experiência premium para ocasiões especiais e hospedagens executivas.',
-    tags: ['Sala de estar', 'Varanda', 'Experiência premium'],
+    tags: ['Sala de estar', 'Quarto principal', 'Experiência premium'],
   },
 ];
 
@@ -306,6 +333,7 @@ export default function HotelLanding() {
   const [expandedImageIndex, setExpandedImageIndex] = useState<number | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [heroVideoReady, setHeroVideoReady] = useState(false);
+  const [roomSlides, setRoomSlides] = useState<Record<string, number>>({});
   const heroRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLDivElement>(null);
 
@@ -352,6 +380,8 @@ export default function HotelLanding() {
   const expandedMedia = expandedImageIndex !== null ? gallery[expandedImageIndex] : null;
   const showPreviousImage = () => setExpandedImageIndex((current) => current === null ? current : (current - 1 + gallery.length) % gallery.length);
   const showNextImage = () => setExpandedImageIndex((current) => current === null ? current : (current + 1) % gallery.length);
+  const showPreviousRoomImage = (title: string, total: number) => setRoomSlides((current) => ({ ...current, [title]: ((current[title] ?? 0) - 1 + total) % total }));
+  const showNextRoomImage = (title: string, total: number) => setRoomSlides((current) => ({ ...current, [title]: ((current[title] ?? 0) + 1) % total }));
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f7f2ea] text-stone-950" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -458,20 +488,52 @@ export default function HotelLanding() {
           <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <SectionIntro eyebrow="Acomodações" title="Quartos para descansar depois de viver Macaé." text="Acomodações modernas, funcionais e prontas para diferentes perfis de estadia." light />
             <div className="mt-12 grid gap-5 md:grid-cols-3">
-              {rooms.map((room) => (
-                <article key={room.title} className="group overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.06]">
-                  <div className="aspect-[4/3] overflow-hidden">
-                    <MediaImage src={room.image} fallback={room.fallback} alt={room.title} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
-                  </div>
-                  <div className="p-5">
-                    <h3 className="font-display text-2xl font-light">{room.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-white/65">{room.text}</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {room.tags.map((tag) => <span key={tag} className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/70">{tag}</span>)}
+              {rooms.map((room) => {
+                const images = room.images ?? [{ src: room.image, label: room.title }];
+                const activeIndex = roomSlides[room.title] ?? 0;
+                const activeImage = images[activeIndex] ?? images[0];
+                const hasCarousel = images.length > 1;
+
+                return (
+                  <article key={room.title} className="group overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.06]">
+                    <div className="relative aspect-[4/3] overflow-hidden">
+                      <AnimatePresence mode="wait">
+                        <motion.div key={activeImage.src} initial={{ opacity: 0, scale: 1.04 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.28 }} className="absolute inset-0">
+                          <MediaImage src={activeImage.src} fallback={room.fallback} alt={`${room.title} - ${activeImage.label}`} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
+                        </motion.div>
+                      </AnimatePresence>
+                      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-stone-950/80 to-transparent p-4">
+                        <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-stone-950">{activeImage.label}</span>
+                        {hasCarousel && (
+                          <span className="rounded-full bg-stone-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur">{activeIndex + 1}/{images.length}</span>
+                        )}
+                      </div>
+                      {hasCarousel && (
+                        <>
+                          <button type="button" onClick={() => showPreviousRoomImage(room.title, images.length)} className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-stone-950/45 text-white opacity-100 backdrop-blur transition hover:bg-stone-950/70 md:opacity-0 md:group-hover:opacity-100" aria-label={`Foto anterior do quarto ${room.title}`}>
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          <button type="button" onClick={() => showNextRoomImage(room.title, images.length)} className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-stone-950/45 text-white opacity-100 backdrop-blur transition hover:bg-stone-950/70 md:opacity-0 md:group-hover:opacity-100" aria-label={`Próxima foto do quarto ${room.title}`}>
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                          <div className="absolute left-1/2 top-4 flex -translate-x-1/2 gap-1.5">
+                            {images.map((image, index) => (
+                              <button key={image.src} type="button" onClick={() => setRoomSlides((current) => ({ ...current, [room.title]: index }))} className={`h-1.5 rounded-full transition ${index === activeIndex ? 'w-6 bg-white' : 'w-1.5 bg-white/45 hover:bg-white/75'}`} aria-label={`Ver ${image.label}`} />
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-                </article>
-              ))}
+                    <div className="p-5">
+                      <h3 className="font-display text-2xl font-light">{room.title}</h3>
+                      <p className="mt-2 text-sm leading-6 text-white/65">{room.text}</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {room.tags.map((tag) => <span key={tag} className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/70">{tag}</span>)}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </div>
         </section>
