@@ -290,50 +290,28 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   pdf.line(margin, 58, right, 58);
 
   pdf.setLineWidth(0.35);
-  pdf.roundedRect(margin, 64, 108, 48, 2, 2);
+  pdf.roundedRect(margin, 64, right - margin, 46, 2, 2);
   pdf.setFontSize(7);
   pdf.text('BRIEFING DO EVENTO', margin + 4, 72);
   pdf.setFontSize(15);
   pdf.text(clean(data.name || 'Evento sem nome'), margin + 4, 82);
 
-  const leftFields = [
-    ['TIPO', data.event_type || '-'],
-    ['LOCAL', halls || '-'],
-    ['INICIO', `${eventDate(data.start_date)} ${data.start_time || ''}`],
+  const fieldColumns = [
+    { x: margin + 4, max: 44, rows: [['TIPO', data.event_type || '-'], ['LOCAL', halls || '-']] },
+    { x: margin + 58, max: 38, rows: [['CONTRATANTE', data.client_category || '-'], ['PARTICIPANTES', data.attendees_count ? `${data.attendees_count} pessoas` : '-']] },
+    { x: margin + 106, max: 32, rows: [['INICIO', `${eventDate(data.start_date)} ${data.start_time || ''}`]] },
+    { x: margin + 146, max: 32, rows: [['TERMINO', `${eventDate(data.end_date)} ${data.end_time || ''}`]] },
   ];
-  const rightFields = [
-    ['CONTRATANTE', data.client_category || '-'],
-    ['PARTICIPANTES', data.attendees_count ? `${data.attendees_count} pessoas` : '-'],
-    ['TERMINO', `${eventDate(data.end_date)} ${data.end_time || ''}`],
-  ];
-  pdf.setFontSize(6);
-  leftFields.forEach(([label, value], index) => {
-    const y = 92 + index * 9;
-    pdf.text(label, margin + 4, y);
-    pdf.setFontSize(8);
-    pdf.text(clean(value), margin + 4, y + 4);
+  fieldColumns.forEach((column) => {
+    column.rows.forEach(([label, value], index) => {
+      const y = 92 + index * 10;
+      pdf.setFontSize(6);
+      pdf.text(label, column.x, y);
+      pdf.setFontSize(7.4);
+      pdf.text(pdf.splitTextToSize(clean(value), column.max), column.x, y + 4);
+    });
     pdf.setFontSize(6);
   });
-  rightFields.forEach(([label, value], index) => {
-    const y = 92 + index * 9;
-    pdf.text(label, margin + 55, y);
-    pdf.setFontSize(8);
-    pdf.text(clean(value), margin + 55, y + 4);
-    pdf.setFontSize(6);
-  });
-
-  pdf.setFillColor(24, 24, 27);
-  pdf.roundedRect(126, 64, right - 126, 48, 2, 2, 'F');
-  pdf.setTextColor(255, 255, 255);
-  pdf.setFontSize(7);
-  pdf.text('CONTROLE OPERACIONAL', 130, 72);
-  ['Montagem do salao', 'A&B / itens conferidos', 'Responsavel alinhado', 'Financeiro provisionado'].forEach((label, index) => {
-    const y = 82 + index * 8;
-    pdf.rect(130, y - 3.5, 3.5, 3.5);
-    if (index === 3 && data.is_quote) pdf.text('X', 130.7, y - 0.5);
-    pdf.text(label, 136, y);
-  });
-  pdf.setTextColor(17, 24, 39);
 
   const metricY = 120;
   const metricW = (right - margin - 6) / 3;
