@@ -156,27 +156,17 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
         </div>
       </header>
 
-      <section className="mt-5 grid grid-cols-[1.25fr_0.75fr] gap-4">
+      <section className="mt-5">
         <div className="rounded-xl border-2 border-neutral-900 p-4">
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Briefing do evento</p>
           <h2 className="mt-2 text-2xl font-black leading-tight">{data.name || 'Evento sem nome'}</h2>
-          <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
+          <div className="mt-4 grid grid-cols-[1.15fr_1fr_0.85fr_0.85fr] gap-x-5 gap-y-2 text-[12px]">
             <EventDocField label="Tipo" value={data.event_type || '-'} />
             <EventDocField label="Contratante" value={data.client_category || '-'} />
-            <EventDocField label="Local" value={halls || '-'} />
-            <EventDocField label="Participantes" value={data.attendees_count ? `${data.attendees_count} pessoas` : '-'} />
             <EventDocField label="Inicio" value={`${eventDate(data.start_date)} ${data.start_time || ''}`} />
             <EventDocField label="Termino" value={`${eventDate(data.end_date)} ${data.end_time || ''}`} />
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-neutral-900 p-4 text-white">
-          <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-400">Controle operacional</p>
-          <div className="mt-4 space-y-3 text-[12px]">
-            <EventDocCheck label="Montagem do salao" />
-            <EventDocCheck label="A&B / itens conferidos" />
-            <EventDocCheck label="Responsavel alinhado" />
-            <EventDocCheck label="Financeiro provisionado" checked={data.is_quote} />
+            <EventDocField label="Local" value={halls || '-'} />
+            <EventDocField label="Participantes" value={data.attendees_count ? `${data.attendees_count} pessoas` : '-'} />
           </div>
         </div>
       </section>
@@ -226,9 +216,6 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
 
 function EventDocField({ label, value }: { label: string; value: React.ReactNode }) {
   return <div><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="font-bold">{value}</p></div>;
-}
-function EventDocCheck({ label, checked = false }: { label: string; checked?: boolean }) {
-  return <div className="flex items-center gap-2"><span className="flex h-4 w-4 items-center justify-center border border-white text-[10px]">{checked ? 'X' : ''}</span><span>{label}</span></div>;
 }
 function EventDocMetric({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="rounded-xl bg-neutral-100 p-3"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 truncate text-sm font-black">{value}</p></div>;
