@@ -5,11 +5,14 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Mail,
   MapPin,
   Menu,
   Phone,
+  PlayCircle,
   Send,
   Utensils,
   Waves,
@@ -89,7 +92,7 @@ const gallery = [
   { src: '/hotel/fachada.jpg', fallback: fallbackMedia.facade, label: 'Fachada' },
   { src: '/hotel/entrada-noite.jpg', fallback: fallbackMedia.facade, label: 'Entrada à noite' },
   { src: '/hotel/recepcao-instagram.jpg', fallback: fallbackMedia.lobby, label: 'Recepção' },
-  { src: '/hotel/recepcao-video-poster.jpg', fallback: fallbackMedia.lobby, label: 'Recepção em vídeo' },
+  { src: '/hotel/recepcao-video-poster.jpg', videoSrc: '/hotel/recepcao-video.mp4', fallback: fallbackMedia.lobby, label: 'Recepção em vídeo', type: 'video' },
   { src: '/hotel/lobby.jpg', fallback: fallbackMedia.lobby, label: 'Recepção' },
   { src: '/hotel/bar-instagram.jpg', fallback: fallbackMedia.restaurant, label: 'Bar' },
   { src: '/hotel/gastronomia-instagram.jpg', fallback: fallbackMedia.restaurant, label: 'Gastronomia' },
@@ -107,6 +110,11 @@ const gallery = [
 
 function MediaImage({ src, fallback, alt, className }: { src: string; fallback: string; alt: string; className?: string }) {
   const [current, setCurrent] = useState(src);
+
+  useEffect(() => {
+    setCurrent(src);
+  }, [src]);
+
   return <img src={current} alt={alt} className={className} onError={() => setCurrent(fallback)} />;
 }
 
@@ -295,6 +303,7 @@ function HotelInput({ label, value, onChange, type = 'text', required, min }: { 
 export default function HotelLanding() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [expandedImageIndex, setExpandedImageIndex] = useState<number | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [heroVideoReady, setHeroVideoReady] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -339,6 +348,10 @@ export default function HotelLanding() {
     setLoginOpen(true);
     window.history.replaceState(null, '', '#login');
   };
+
+  const expandedMedia = expandedImageIndex !== null ? gallery[expandedImageIndex] : null;
+  const showPreviousImage = () => setExpandedImageIndex((current) => current === null ? current : (current - 1 + gallery.length) % gallery.length);
+  const showNextImage = () => setExpandedImageIndex((current) => current === null ? current : (current + 1) % gallery.length);
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f7f2ea] text-stone-950" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -481,11 +494,18 @@ export default function HotelLanding() {
           <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-10">
             <SectionIntro eyebrow="Galeria" title="Espaços que contam a experiência." />
             <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {gallery.map((item) => (
-                <figure key={item.label} className="group relative aspect-[4/3] overflow-hidden rounded-[2rem] bg-stone-200">
+              {gallery.map((item, index) => (
+                <button key={`${item.label}-${item.src}`} type="button" onClick={() => setExpandedImageIndex(index)} className="group relative aspect-[4/3] overflow-hidden rounded-[2rem] bg-stone-200 text-left outline-none ring-0 transition focus-visible:ring-4 focus-visible:ring-amber-300">
                   <MediaImage src={item.src} fallback={item.fallback} alt={item.label} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
-                  <figcaption className="absolute bottom-4 left-4 rounded-full bg-stone-950/70 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white backdrop-blur">{item.label}</figcaption>
-                </figure>
+                  <span className="absolute inset-0 bg-stone-950/0 transition group-hover:bg-stone-950/15" />
+                  {item.type === 'video' && (
+                    <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-2xl">
+                      <PlayCircle className="h-16 w-16 fill-white/15" />
+                    </span>
+                  )}
+                  <span className="absolute bottom-4 left-4 rounded-full bg-stone-950/70 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white backdrop-blur">{item.label}</span>
+                  <span className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-stone-950 opacity-0 shadow-sm transition group-hover:opacity-100">Expandir</span>
+                </button>
               ))}
             </div>
           </div>
@@ -533,6 +553,54 @@ export default function HotelLanding() {
       </footer>
 
       <AnimatePresence>
+        {expandedMedia && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/92 p-3 backdrop-blur-md sm:p-6"
+            onClick={() => setExpandedImageIndex(null)}
+          >
+            <button onClick={() => setExpandedImageIndex(null)} className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white backdrop-blur transition hover:bg-white/20" aria-label="Fechar imagem">
+              <X className="h-5 w-5" />
+            </button>
+            <button onClick={(event) => { event.stopPropagation(); showPreviousImage(); }} className="absolute left-4 top-1/2 z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white backdrop-blur transition hover:bg-white/20 sm:flex" aria-label="Imagem anterior">
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <button onClick={(event) => { event.stopPropagation(); showNextImage(); }} className="absolute right-4 top-1/2 z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white backdrop-blur transition hover:bg-white/20 sm:flex" aria-label="Próxima imagem">
+              <ChevronRight className="h-6 w-6" />
+            </button>
+            <motion.figure
+              initial={{ opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.96 }}
+              transition={{ duration: 0.25 }}
+              className="relative max-h-[88vh] w-full max-w-6xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {expandedMedia.type === 'video' ? (
+                <div className="mx-auto h-[78vh] max-h-[820px] w-full max-w-[520px] overflow-hidden rounded-[1.5rem] bg-black shadow-2xl">
+                  <video className="h-full w-full object-contain" controls autoPlay playsInline poster={expandedMedia.src}>
+                    <source src={expandedMedia.videoSrc} type="video/mp4" />
+                  </video>
+                </div>
+              ) : (
+                <MediaImage src={expandedMedia.src} fallback={expandedMedia.fallback} alt={expandedMedia.label} className="max-h-[78vh] w-full rounded-[1.5rem] object-contain shadow-2xl" />
+              )}
+              <figcaption className="mt-4 flex flex-col gap-3 text-white sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  <span className="block text-[10px] font-black uppercase tracking-[0.24em] text-white/45">Galeria Royal</span>
+                  <span className="mt-1 block font-display text-2xl font-light">{expandedMedia.label}</span>
+                </span>
+                <span className="flex items-center gap-2 sm:hidden">
+                  <button onClick={showPreviousImage} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Anterior</button>
+                  <button onClick={showNextImage} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Próxima</button>
+                </span>
+              </figcaption>
+            </motion.figure>
+          </motion.div>
+        )}
+
         {loginOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/75 p-4 backdrop-blur-md" onClick={() => setLoginOpen(false)}>
             <motion.div initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.96 }} className="relative w-full max-w-md" onClick={(e) => e.stopPropagation()}>
