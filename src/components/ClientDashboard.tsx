@@ -9,6 +9,52 @@ import { format, addDays } from 'date-fns';
 
 const FINANCIAL_TYPES = ['FATURA', 'Hospedagem', 'Alimentação', 'Lavanderia', 'Eventos', 'Transporte'];
 
+function ClientPortalKpi({ label, value, tone = 'neutral' }: { label: string; value: React.ReactNode; tone?: 'neutral' | 'emerald' | 'amber' | 'red' | 'ink' }) {
+  const tones = {
+    neutral: 'bg-white text-neutral-900 ring-neutral-200',
+    emerald: 'bg-emerald-50 text-emerald-800 ring-emerald-100',
+    amber: 'bg-amber-50 text-amber-800 ring-amber-100',
+    red: 'bg-red-50 text-red-700 ring-red-100',
+    ink: 'bg-neutral-950 text-white ring-neutral-950',
+  };
+  return (
+    <div className={`rounded-2xl p-4 ring-1 ${tones[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-widest opacity-60">{label}</p>
+      <p className="mt-2 text-lg font-black tracking-tight sm:text-xl">{value}</p>
+    </div>
+  );
+}
+
+function VoucherField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p>
+      <p className="mt-1 font-black text-neutral-950">{value || '-'}</p>
+    </div>
+  );
+}
+
+function VoucherMetric({ label, value, strong = false }: { label: string; value: React.ReactNode; strong?: boolean }) {
+  return (
+    <div className={`${strong ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-950'} rounded-2xl p-4`}>
+      <p className="text-[9px] font-black uppercase tracking-widest opacity-60">{label}</p>
+      <p className="mt-2 text-base font-black">{value || '-'}</p>
+    </div>
+  );
+}
+
+function VoucherNote({ title, text }: { title: string; text: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 p-4">
+      <p className="text-[9px] font-black uppercase tracking-[0.22em] text-neutral-500">{title}</p>
+      <p className="mt-3 whitespace-pre-line text-xs font-medium leading-5 text-neutral-700">{text}</p>
+    </div>
+  );
+}
+
+const clientMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const clientDate = (value?: string) => value ? new Date(value + (value.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : '-';
+
 export default function ClientDashboard({ profile, initialTab = 'active' }: { profile: UserProfile, initialTab?: 'active' | 'trash' | 'reservations' }) {
   const isExternalClient = profile.role === 'external_client';
   const canManageClientArchive = !!profile.permissions?.canUploadFiles && !isExternalClient;
@@ -64,9 +110,6 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const [filterPeriodEnd, setFilterPeriodEnd] = useState<string>('');
 
   useEffect(() => {
-    if (isExternalClient && activeTab !== 'reservations') {
-      setActiveTab('reservations');
-    }
     if (!canManageClientArchive && activeTab === 'trash') {
       setActiveTab(isExternalClient ? 'reservations' : 'active');
     }
@@ -326,6 +369,14 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     const periodEndMatch = !filterPeriodEnd || (filePeriod && filePeriod <= filterPeriodEnd);
     return typeMatch && periodStartMatch && periodEndMatch;
   });
+
+  const activeReservations = reservations.filter(r => !['CANCELLED', 'CHECKED_OUT'].includes(r.status));
+  const checkedOutReservations = reservations.filter(r => r.status === 'CHECKED_OUT');
+  const pendingRequests = reservationRequests.filter(r => r.status === 'REQUESTED');
+  const activeFiles = files.filter(file => !file.is_deleted);
+  const openInvoices = activeFiles.filter(file => FINANCIAL_TYPES.includes(file.type) && file.status !== 'PAID' && file.status !== 'CANCELLED');
+  const overdueInvoices = openInvoices.filter(file => file.due_date && new Date(file.due_date + 'T12:00:00') < new Date(new Date().toDateString()));
+  const openDebtTotal = openInvoices.reduce((sum, file) => sum + Number(file.amount || 0), 0);
 
   const markAsViewed = async (file: FiscalFile) => {
     if (!file.viewed_by_client) {
@@ -636,37 +687,32 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 overflow-x-clip pb-16">
       {/* Company Header */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white p-4 sm:p-8 rounded-xl border border-neutral-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative"
+        className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-8"
       >
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-xl sm:text-2xl font-bold text-neutral-900">{company?.name || 'Sua Empresa'}</h2>
-            <Sparkles className="w-5 h-5 text-amber-500" />
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-black tracking-tight text-neutral-950 sm:text-3xl">{company?.name || 'Sua Empresa'}</h2>
+              <Sparkles className="h-5 w-5 shrink-0 text-amber-500" />
+            </div>
+            <p className="text-sm font-medium text-neutral-500">CNPJ: {company?.cnpj || 'N/A'}</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+              Canal corporativo para solicitar hospedagens, acompanhar reservas, consultar faturas e resolver pendências com o Royal Macaé.
+            </p>
           </div>
-          <p className="text-neutral-500 text-sm">CNPJ: {company?.cnpj || 'N/A'}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-neutral-100 rounded-lg text-neutral-600 font-medium text-sm">
-            <FileText className="w-4 h-4" />
-            {files.length} Documentos
-          </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-lg text-green-700 font-medium text-sm">
-            <CheckCircle2 className="w-4 h-4" />
-            {files.filter(f => f.viewed_by_client).length} Visualizados
-          </div>
-          
+
           {/* Notification Bell */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 rounded-full hover:bg-neutral-100 transition-colors relative"
+              className="relative rounded-full border border-neutral-200 p-3 transition-colors hover:bg-neutral-100"
             >
-              <Bell className="w-6 h-6 text-neutral-600" />
+              <Bell className="h-5 w-5 text-neutral-600" />
               {notifications.filter(n => !n.read).length > 0 && (
                 <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
               )}
@@ -708,6 +754,13 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
             </AnimatePresence>
           </div>
         </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <ClientPortalKpi label="Reservas ativas" value={activeReservations.length} tone="emerald" />
+          <ClientPortalKpi label="Solicitações" value={pendingRequests.length} tone="amber" />
+          <ClientPortalKpi label="Faturas abertas" value={openInvoices.length} tone="neutral" />
+          <ClientPortalKpi label="Débito aberto" value={openDebtTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} tone={overdueInvoices.length ? 'red' : 'ink'} />
+        </div>
       </motion.div>
 
       {/* Tabs */}
@@ -716,18 +769,18 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
           <>
             <button
               onClick={() => setActiveTab('active')}
-              className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+              className={`shrink-0 px-6 py-2 rounded-lg text-sm font-bold transition-all ${
                 activeTab === 'active' 
                   ? 'bg-white text-neutral-900 shadow-sm' 
                   : 'text-neutral-500 hover:text-neutral-700'
               }`}
             >
-              Documentos Ativos
+              Faturas e débitos
             </button>
             {canManageClientArchive && (
               <button
                 onClick={() => setActiveTab('trash')}
-                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+                className={`shrink-0 px-6 py-2 rounded-lg text-sm font-bold transition-all ${
                   activeTab === 'trash' 
                     ? 'bg-white text-neutral-900 shadow-sm' 
                     : 'text-neutral-500 hover:text-neutral-700'
@@ -740,7 +793,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         )}
         <button
           onClick={() => setActiveTab('reservations')}
-          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+          className={`shrink-0 px-6 py-2 rounded-lg text-sm font-bold transition-all ${
             activeTab === 'reservations' 
               ? 'bg-white text-neutral-900 shadow-sm' 
               : 'text-neutral-500 hover:text-neutral-700'
@@ -748,6 +801,18 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         >
           Reservas
         </button>
+        {isExternalClient && (
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`shrink-0 px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+              activeTab === 'active'
+                ? 'bg-white text-neutral-900 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            Faturas e débitos
+          </button>
+        )}
       </div>
 
       {/* Main Content Area */}
@@ -778,7 +843,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 </h4>
               </div>
               <div className="divide-y divide-neutral-100 flex-1 overflow-y-auto max-h-[600px]">
-                {reservations.length > 0 ? reservations.map(res => (
+                {activeReservations.length > 0 ? activeReservations.map(res => (
                   <div key={res.id} className="p-6 hover:bg-neutral-50 transition-colors group">
                     <div className="flex justify-between items-start mb-4">
                       <div>
@@ -831,7 +896,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 </h4>
               </div>
               <div className="divide-y divide-neutral-100 flex-1 overflow-y-auto max-h-[600px]">
-                {reservations.filter(r => r.status === 'CHECKED_OUT').length > 0 ? reservations.filter(r => r.status === 'CHECKED_OUT').map(res => (
+                {checkedOutReservations.length > 0 ? checkedOutReservations.map(res => (
                   <div key={res.id} className="p-6 hover:bg-neutral-50 transition-colors group">
                     <div className="flex justify-between items-start mb-4">
                       <div>
@@ -935,11 +1000,17 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       ) : (
         <>
           {/* Filters */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <ClientPortalKpi label="A pagar" value={openDebtTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} tone={overdueInvoices.length ? 'red' : 'ink'} />
+            <ClientPortalKpi label="Vencidas" value={overdueInvoices.length} tone="red" />
+            <ClientPortalKpi label="Com comprovante" value={activeFiles.filter(file => file.proof_url).length} tone="emerald" />
+          </div>
+
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1 }}
-            className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm flex flex-wrap items-center gap-4"
+            className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6 lg:flex-row lg:flex-wrap lg:items-center"
           >
         <div className="flex items-center gap-2 text-neutral-500 mr-2">
           <Filter className="w-4 h-4" />
@@ -1368,146 +1439,89 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 overflow-y-auto"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl my-8 relative"
+              className="my-8 w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
-              {/* Printable Area */}
-              <div id="voucher-print" className="p-10 space-y-8 bg-white">
-                {/* Header */}
-                <div className="flex justify-between items-start border-b-2 border-neutral-100 pb-8">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-neutral-900 rounded-xl flex items-center justify-center text-white shrink-0">
-                      <Building2 className="w-7 h-7" />
+              <div id="voucher-print" className="bg-white p-5 sm:p-8">
+                <div className="rounded-[1.5rem] border border-neutral-200 p-4 sm:p-8">
+                  <div className="flex flex-col gap-4 border-b-4 border-neutral-950 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <img src="/logo.png" alt="Royal Macaé" className="h-12 w-20 object-contain" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-neutral-500">Portal Corporativo Royal Macaé</p>
+                        <h2 className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-neutral-950 sm:text-3xl">Autorização de Hospedagem</h2>
+                        <p className="mt-2 text-xs font-bold text-neutral-500">Documento operacional para reserva B2B, faturamento e recepção.</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-black uppercase tracking-tighter italic leading-none">Voucher de Reserva</h2>
-                      <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest mt-1">Royal Macaé Hotel • Corporativo</p>
+                    <div className="rounded-2xl bg-neutral-950 p-4 text-left text-white sm:text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Localizador</p>
+                      <p className="mt-1 font-mono text-xl font-black tracking-widest">{viewingVoucher.reservation_code}</p>
+                      <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-white/50">Status</p>
+                      <p className="text-sm font-black">{(viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'EM ANÁLISE' : 'CONFIRMADA'}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest leading-none mb-1">Código de Referência</p>
-                    <p className="text-xl font-black text-neutral-900 font-mono tracking-widest">{viewingVoucher.reservation_code}</p>
+
+                  <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                    <div className="rounded-2xl border-2 border-neutral-950 p-4">
+                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Hóspede e período</p>
+                      <h3 className="mt-2 text-2xl font-black text-neutral-950">{viewingVoucher.guest_name}</h3>
+                      <div className="mt-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                        <VoucherField label="Entrada" value={clientDate(viewingVoucher.check_in)} />
+                        <VoucherField label="Saída" value={clientDate(viewingVoucher.check_out)} />
+                        <VoucherField label="Categoria" value={viewingVoucher.category} />
+                        <VoucherField label="Pessoas/UH" value={viewingVoucher.guests_per_uh} />
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-neutral-100 p-4">
+                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Empresa vinculada</p>
+                      <h3 className="mt-2 text-xl font-black text-neutral-950">{company?.name || 'Empresa não vinculada'}</h3>
+                      <div className="mt-4 space-y-2 text-xs font-bold text-neutral-600">
+                        <p>CNPJ: {company?.cnpj || '-'}</p>
+                        <p>Centro de custo: {viewingVoucher.cost_center || '-'}</p>
+                        <p>Contato: {viewingVoucher.contact_phone || company?.phone || '-'}</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                {/* Status Alert */}
-                <div className={`p-4 rounded-xl flex items-center justify-between border ${
-                   (viewingVoucher as ReservationRequest).status === 'REQUESTED' 
-                   ? 'bg-amber-50 border-amber-100 text-amber-900' 
-                   : 'bg-green-50 border-green-100 text-green-900'
-                }`}>
-                   <div className="flex items-center gap-3">
-                      { (viewingVoucher as ReservationRequest).status === 'REQUESTED' ? <Clock className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" /> }
-                      <span className="text-sm font-bold uppercase tracking-tight">Status da Reserva: {(viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'EM ANÁLISE' : 'CONFIRMADA'}</span>
-                   </div>
-                   <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Emitido em {new Date().toLocaleDateString('pt-BR')}</span>
-                </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <VoucherMetric label="Pagamento" value={viewingVoucher.payment_method === 'BILLED' ? 'Faturado' : 'Cartão virtual'} />
+                    <VoucherMetric label="Tarifa" value={clientMoney(Number(viewingVoucher.tariff || 0))} />
+                    <VoucherMetric label="Total previsto" value={clientMoney(Number(viewingVoucher.total_amount || 0))} strong />
+                  </div>
 
-                {/* Main Content */}
-                <div className="grid grid-cols-2 gap-x-12 gap-y-8">
-                   <div className="space-y-4">
-                      <div>
-                        <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Hóspede Principal</p>
-                        <p className="text-lg font-black text-neutral-900 uppercase">{viewingVoucher.guest_name}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Check-in</p>
-                          <p className="font-bold text-neutral-700">{new Date(viewingVoucher.check_in + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Check-out</p>
-                          <p className="font-bold text-neutral-700">{new Date(viewingVoucher.check_out + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Agência / Empresa Solicitante</p>
-                        <p className="font-bold text-neutral-700">{company?.name}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Centro de Custo</p>
-                          <p className="font-bold text-neutral-700">{viewingVoucher.cost_center}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Pagamento</p>
-                          <p className="font-bold text-neutral-700">{viewingVoucher.payment_method === 'BILLED' ? 'FATURADO' : 'CARTÃO VIRTUAL'}</p>
-                        </div>
-                      </div>
-                   </div>
+                  <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                    <VoucherNote title="Instruções de faturamento" text={viewingVoucher.billing_obs || 'Sem observações adicionais.'} />
+                    <VoucherNote title="Dados para emissão de nota" text={viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agência.'} />
+                  </div>
 
-                   <div className="space-y-4">
-                      <div>
-                        <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Categoria de UH</p>
-                        <p className="font-black text-neutral-900 uppercase">{viewingVoucher.category}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Hóspedes p/ UH</p>
-                          <p className="font-bold text-neutral-700">{viewingVoucher.guests_per_uh} Pessoa(s)</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Tarifa Acordada</p>
-                          <p className="font-bold text-neutral-700">{viewingVoucher.tariff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Telefone de Contato</p>
-                        <p className="font-bold text-neutral-700">{viewingVoucher.contact_phone}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">ISS (5%)</p>
-                          <p className="font-bold text-neutral-700">{(viewingVoucher.tariff * 0.05).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-1">Taxa Serv. (10%)</p>
-                          <p className="font-bold text-neutral-700">{(viewingVoucher.tariff * 0.1).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                        </div>
-                      </div>
-                   </div>
-                </div>
+                  <div className="mt-8 grid grid-cols-2 gap-8 pt-8">
+                    <div className="border-t border-neutral-900 pt-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Royal Macaé</p>
+                      <p className="mt-1 text-[10px] text-neutral-500">Reservas / Recepção</p>
+                    </div>
+                    <div className="border-t border-neutral-900 pt-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Cliente corporativo</p>
+                      <p className="mt-1 text-[10px] text-neutral-500">Validação da empresa</p>
+                    </div>
+                  </div>
 
-                <div className="space-y-6 pt-4 border-t border-neutral-100">
-                   <div>
-                      <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-2">Instruções de Faturamento</p>
-                      <div className="bg-neutral-50 p-4 rounded-xl text-xs text-neutral-600 font-medium leading-relaxed italic border border-neutral-100">
-                        {viewingVoucher.billing_obs || 'Sem observações adicionais.'}
-                      </div>
-                   </div>
-                   <div>
-                      <p className="text-[10px] text-neutral-400 font-black uppercase tracking-widest mb-2">Dados para Emissão de Nota Fiscal</p>
-                      <div className="bg-neutral-50 p-4 rounded-xl text-xs text-neutral-600 font-medium leading-relaxed border border-neutral-100">
-                        {viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agência.'}
-                      </div>
-                   </div>
-                </div>
-
-                {/* Footer Guide */}
-                <div className="pt-8 text-center text-[9px] text-neutral-400 uppercase tracking-widest font-black leading-relaxed">
-                   Este documento é um registro corporativo interno do Royal Macaé PMS Desktop.<br />
-                   Para alterações, contate o setor comercial através do e-mail: reservas@royalmacaepms.com.br
+                  <p className="mt-6 border-t border-neutral-200 pt-3 text-center text-[10px] font-bold text-neutral-400">
+                    Emitido em {new Date().toLocaleString('pt-BR')} - reservas@royalmacae.com.br - www.royalmacae.com.br
+                  </p>
                 </div>
               </div>
 
-              {/* Action Buttons (Not for print) */}
-              <div className="p-8 border-t border-neutral-100 bg-neutral-50 flex justify-end gap-4">
-                 <button 
-                  onClick={() => setViewingVoucher(null)}
-                  className="px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest text-neutral-500 hover:text-neutral-900 transition-colors"
-                 >
-                   Fechar
-                 </button>
-                 <button 
-                  onClick={() => window.print()}
-                  className="bg-neutral-900 text-white px-8 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-neutral-800 transition-all shadow-lg flex items-center gap-2"
-                 >
-                   <Printer className="w-4 h-4" />
-                   Imprimir / Salvar PDF
-                 </button>
+              <div className="flex flex-col gap-3 border-t border-neutral-100 bg-neutral-50 p-4 sm:flex-row sm:justify-end sm:p-6">
+                <button onClick={() => setViewingVoucher(null)} className="rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest text-neutral-500 transition-colors hover:text-neutral-900">
+                  Fechar
+                </button>
+                <button onClick={() => window.print()} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
+                  <Printer className="h-4 w-4" />
+                  Imprimir / Salvar PDF
+                </button>
               </div>
             </motion.div>
           </motion.div>
