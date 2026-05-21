@@ -706,6 +706,36 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const handleDownloadLivePreview = async () => {
+    const element =
+      document.getElementById('event-live-preview-document') ||
+      document.getElementById('contract-pdf-template');
+    if (!element) {
+      toast.error('Preview da O.S. ainda nao esta pronto para gerar PDF.');
+      return;
+    }
+
+    const toastId = toast.loading(`Gerando ${formData.is_quote ? 'cotacao' : 'O.S.'} em PDF...`);
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const props = pdf.getImageProperties(imgData);
+      const w = pdf.internal.pageSize.getWidth();
+      pdf.addImage(imgData, 'PNG', 0, 0, w, (props.height * w) / props.width);
+      pdf.save(`${formData.is_quote ? 'COTACAO' : 'OS'}_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
+      toast.success('PDF gerado com sucesso.', { id: toastId });
+    } catch (error) {
+      console.error('Error generating live preview PDF:', error);
+      toast.error('Falha ao gerar o PDF. Tente novamente.', { id: toastId });
+    }
+  };
+
   const days = eachDayOfInterval({
     start: startOfMonth(currentMonth),
     end: endOfMonth(currentMonth)
@@ -1539,18 +1569,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         <div className="flex shrink-0 items-center gap-2">
                            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400 px-3 py-1.5 bg-ink/5 rounded-full">{formData.client_category}</span>
                            <button
-                             onClick={async () => {
-                               const el = document.getElementById('contract-pdf-template');
-                               if (!el) return;
-                               const { default: html2canvas } = await import('html2canvas');
-                               const { default: jsPDF } = await import('jspdf');
-                               const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#FAF8F2' });
-                               const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                               const props = pdf.getImageProperties(canvas.toDataURL('image/png'));
-                               const w = pdf.internal.pageSize.getWidth();
-                               pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, (props.height * w) / props.width);
-                               pdf.save(`OS_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
-                             }}
+                             type="button"
+                             onClick={handleDownloadLivePreview}
                              className="group flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 text-ink/50 hover:bg-ink hover:text-paper transition-all"
                              title="Gerar PDF da O.S."
                            >
@@ -1565,7 +1585,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                          style={{ width: 'calc(210mm * var(--preview-scale))', height: 'calc(297mm * var(--preview-scale))' }}
                        >
                          <div className="absolute left-0 top-0 origin-top-left" style={{ width: '210mm', minHeight: '297mm', transform: 'scale(var(--preview-scale))' }}>
-                           <EventRoyalDocument data={formData} totals={totals} />
+                           <div id="event-live-preview-document">
+                             <EventRoyalDocument data={formData} totals={totals} />
+                           </div>
                          </div>
                        </div>
                      </div>
