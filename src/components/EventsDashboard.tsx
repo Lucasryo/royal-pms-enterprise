@@ -243,6 +243,186 @@ function EventDocSignature({ label }: { label: string }) {
   return <div className="border-t border-neutral-900 pt-2"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 text-[10px] text-neutral-500">Data: ____/____/________</p></div>;
 }
 
+function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const margin = 12;
+  const right = pageWidth - margin;
+  const halls = data.halls?.length ? data.halls.join(' / ') : data.hall_name;
+  const rows = buildEventDocumentRows(data, totals);
+  const title = data.is_quote ? 'COTACAO DE EVENTO' : 'ORDEM DE SERVICO';
+  const code = data.is_quote ? (data.quote_number || 'Pendente') : (data.os_number || 'Pendente');
+  const clean = (value: React.ReactNode) => String(value ?? '-').replace(/[–—]/g, '-');
+
+  pdf.setTextColor(17, 24, 39);
+  pdf.setDrawColor(17, 24, 39);
+  pdf.setLineWidth(0.7);
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7);
+  pdf.text('ROYAL MACAE', margin, 20);
+  pdf.setFontSize(6);
+  pdf.text('PALACE HOTEL', margin, 23);
+
+  pdf.setFontSize(8);
+  pdf.text('EVENTOS ROYAL MACAE', 54, 15);
+  pdf.setFontSize(18);
+  pdf.text(title, 54, 23);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7);
+  pdf.text('Royal Macae Palace Hotel - AV. ATLANTICA, 1642 - PR. DOS CAVALEIROS', 54, 29);
+  pdf.text('CNPJ 07.116.901/0001-92 - (22)2123-9650 - eventos@royalmacae.com.br', 54, 34);
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7);
+  pdf.text(data.is_quote ? 'COTACAO' : 'O.S.', right, 15, { align: 'right' });
+  pdf.setFontSize(14);
+  pdf.text(clean(code), right, 24, { align: 'right' });
+  pdf.setFontSize(7);
+  pdf.text('EMISSAO', right, 34, { align: 'right' });
+  pdf.setFontSize(8);
+  pdf.text(format(new Date(), 'dd/MM/yyyy HH:mm'), right, 39, { align: 'right' });
+  pdf.roundedRect(right - 27, 44, 27, 8, 4, 4);
+  pdf.setFontSize(7);
+  pdf.text(data.is_quote ? 'PROPOSTA' : 'EXECUCAO', right - 13.5, 49.2, { align: 'center' });
+
+  pdf.setLineWidth(1);
+  pdf.line(margin, 58, right, 58);
+
+  pdf.setLineWidth(0.35);
+  pdf.roundedRect(margin, 64, 108, 48, 2, 2);
+  pdf.setFontSize(7);
+  pdf.text('BRIEFING DO EVENTO', margin + 4, 72);
+  pdf.setFontSize(15);
+  pdf.text(clean(data.name || 'Evento sem nome'), margin + 4, 82);
+
+  const leftFields = [
+    ['TIPO', data.event_type || '-'],
+    ['LOCAL', halls || '-'],
+    ['INICIO', `${eventDate(data.start_date)} ${data.start_time || ''}`],
+  ];
+  const rightFields = [
+    ['CONTRATANTE', data.client_category || '-'],
+    ['PARTICIPANTES', data.attendees_count ? `${data.attendees_count} pessoas` : '-'],
+    ['TERMINO', `${eventDate(data.end_date)} ${data.end_time || ''}`],
+  ];
+  pdf.setFontSize(6);
+  leftFields.forEach(([label, value], index) => {
+    const y = 92 + index * 9;
+    pdf.text(label, margin + 4, y);
+    pdf.setFontSize(8);
+    pdf.text(clean(value), margin + 4, y + 4);
+    pdf.setFontSize(6);
+  });
+  rightFields.forEach(([label, value], index) => {
+    const y = 92 + index * 9;
+    pdf.text(label, margin + 55, y);
+    pdf.setFontSize(8);
+    pdf.text(clean(value), margin + 55, y + 4);
+    pdf.setFontSize(6);
+  });
+
+  pdf.setFillColor(24, 24, 27);
+  pdf.roundedRect(126, 64, right - 126, 48, 2, 2, 'F');
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(7);
+  pdf.text('CONTROLE OPERACIONAL', 130, 72);
+  ['Montagem do salao', 'A&B / itens conferidos', 'Responsavel alinhado', 'Financeiro provisionado'].forEach((label, index) => {
+    const y = 82 + index * 8;
+    pdf.rect(130, y - 3.5, 3.5, 3.5);
+    if (index === 3 && data.is_quote) pdf.text('X', 130.7, y - 0.5);
+    pdf.text(label, 136, y);
+  });
+  pdf.setTextColor(17, 24, 39);
+
+  const metricY = 120;
+  const metricW = (right - margin - 6) / 3;
+  [
+    ['SALAO', halls || '-'],
+    ['HORARIO', data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'],
+    [data.is_quote ? 'VALOR PROPOSTO' : 'STATUS', data.is_quote ? eventMoney(totals.total) : (data.status || 'planned')],
+  ].forEach(([label, value], index) => {
+    const x = margin + index * (metricW + 3);
+    pdf.setFillColor(245, 245, 245);
+    pdf.roundedRect(x, metricY, metricW, 17, 2, 2, 'F');
+    pdf.setFontSize(6);
+    pdf.text(label, x + 3, metricY + 6);
+    pdf.setFontSize(8);
+    pdf.text(clean(value), x + 3, metricY + 12, { maxWidth: metricW - 6 });
+  });
+
+  let y = 148;
+  pdf.setFontSize(7);
+  pdf.text(data.is_quote ? 'ITENS DA COTACAO' : 'SERVICOS DA O.S.', margin, y);
+  pdf.text('Page 1 of 1', right, y, { align: 'right' });
+  y += 5;
+  pdf.setFillColor(212, 212, 212);
+  pdf.rect(margin, y, right - margin, 8, 'F');
+  pdf.setFontSize(7);
+  pdf.text('Data', margin + 3, y + 5.5);
+  pdf.text('Descricao', margin + 65, y + 5.5);
+  pdf.text(data.is_quote ? 'Valor' : 'Qtd/Status', right - 3, y + 5.5, { align: 'right' });
+  y += 11;
+  pdf.setFont('helvetica', 'normal');
+  rows.slice(0, 8).forEach((row) => {
+    const desc = pdf.splitTextToSize(clean(row[1]), 84);
+    const rowHeight = Math.max(8, desc.length * 4 + 2);
+    pdf.text(clean(row[0]), margin + 3, y);
+    pdf.text(desc, margin + 65, y);
+    pdf.text(clean(row[2]), right - 3, y, { align: 'right' });
+    y += rowHeight;
+  });
+
+  const notesY = Math.max(y + 8, 188);
+  pdf.setFont('helvetica', 'bold');
+  pdf.roundedRect(margin, notesY, 100, 18, 2, 2);
+  pdf.setFontSize(6);
+  pdf.text('OBSERVACOES IMPORTANTES', margin + 3, notesY + 6);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7);
+  pdf.text(pdf.splitTextToSize(clean(data.important_notes || 'Sem observacoes registradas.'), 92), margin + 3, notesY + 11);
+
+  pdf.roundedRect(margin, notesY + 22, 100, 18, 2, 2);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(6);
+  pdf.text('PASSO A PASSO DA EQUIPE', margin + 3, notesY + 28);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7);
+  pdf.text(pdf.splitTextToSize(clean(data.staff_roadmap || 'Nenhum cronograma definido.'), 92), margin + 3, notesY + 33);
+
+  pdf.roundedRect(118, notesY, right - 118, 40, 2, 2);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(6);
+  pdf.text('RESUMO FINANCEIRO', 122, notesY + 6);
+  const totalsRows = [
+    ['Locacao', eventMoney(totals.hallPrice)],
+    ['Itens', eventMoney(totals.itemsTotal)],
+    ...(data.iss_enabled ? [[`ISS ${data.iss_rate || 0}%`, eventMoney(totals.iss)]] : []),
+    ['Total', eventMoney(totals.total)],
+  ];
+  totalsRows.forEach(([label, value], index) => {
+    const yy = notesY + 15 + index * 7;
+    if (label === 'Total') pdf.line(122, yy - 4, right - 4, yy - 4);
+    pdf.text(label, 122, yy);
+    pdf.text(value, right - 4, yy, { align: 'right' });
+  });
+
+  pdf.setLineWidth(0.2);
+  pdf.line(margin, 258, margin + 86, 258);
+  pdf.line(112, 258, right, 258);
+  pdf.setFontSize(6);
+  pdf.text('RESPONSAVEL PELO EVENTO', margin, 264);
+  pdf.text('Data: ____/____/________', margin, 270);
+  pdf.text('CONTRATANTE', 112, 264);
+  pdf.text('Data: ____/____/________', 112, 270);
+  pdf.line(margin, 282, right, 282);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7);
+  pdf.text('www.royalmacae.com.br - reservas@royalmacae.com.br', pageWidth / 2, 288, { align: 'center' });
+
+  return pdf;
+}
+
 function LeadField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-neutral-100">
@@ -748,28 +928,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   };
 
   const handleDownloadLivePreview = async () => {
-    const element =
-      document.getElementById('contract-pdf-template') ||
-      document.getElementById('event-live-preview-document');
-    if (!element) {
-      toast.error('Preview da O.S. ainda nao esta pronto para gerar PDF.');
-      return;
-    }
-
     const toastId = toast.loading(`Gerando ${formData.is_quote ? 'cotacao' : 'O.S.'} em PDF...`);
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        onclone: prepareEventPdfClone,
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const w = pdf.internal.pageSize.getWidth();
-      const h = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', 0, 0, w, h);
+      const pdf = drawEventPdf(formData, totals);
       pdf.save(`${formData.is_quote ? 'COTACAO' : 'OS'}_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
       toast.success('PDF gerado com sucesso.', { id: toastId });
     } catch (error) {
