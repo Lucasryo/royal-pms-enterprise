@@ -913,23 +913,23 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   const prevMonth = () => setCurrentMonth(addDays(startOfMonth(currentMonth), -1));
 
   return (
-    <div className="w-full space-y-6 pb-20">
+    <div className="w-full space-y-6 overflow-x-clip pb-20">
       <div className="flex flex-col gap-4 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-gray-900">Gestão de Eventos</h1>
-          <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">Planejamento • Reservas de Salão • O.S.</p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-black tracking-tight text-gray-900 sm:text-3xl">Gestão de Eventos</h1>
+          <p className="mt-1 text-[10px] font-bold uppercase leading-4 tracking-widest text-gray-500">Planejamento • Reservas de Salão • O.S.</p>
         </div>
 
-        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-neutral-100 p-1">
+        <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto rounded-xl bg-neutral-100 p-1">
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Calendário
           </button>
           <button
             onClick={() => setActiveTab('quotes')}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'quotes' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'quotes' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Cotações
             {events.filter(e => e.is_quote && e.status !== 'cancelled').length > 0 && (
@@ -940,7 +940,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           </button>
           <button
             onClick={() => setActiveTab('leads')}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'leads' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'leads' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Leads Landing
             {eventLeads.filter(lead => ['abandoned', 'submitted'].includes(lead.status)).length > 0 && (
@@ -954,14 +954,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
               setOriginLeadId(null);
               setActiveTab('register');
             }}
-            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Nova Cotação / O.S.
           </button>
           {(profile.role === 'admin' || profile.role === 'manager' || profile.role === 'eventos') && (
             <button
               onClick={() => setActiveTab('items')}
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'items' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'items' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
             >
               Catálogo de Itens
             </button>
@@ -1309,7 +1309,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Quote vs O.S. toggle */}
                   {!editingId && (
-                    <div className="flex gap-2 p-1 bg-neutral-100 rounded-xl">
+                    <div className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-1 sm:flex-row">
                       {([{ v: false, label: 'O.S. Direta', desc: 'Gera ordem de serviço e fatura imediatamente' }, { v: true, label: 'Cotação', desc: 'Envie ao cliente antes de confirmar' }] as const).map(opt => (
                         <button
                           key={String(opt.v)}
@@ -1449,7 +1449,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                        />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                        <div>
                           <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Início</label>
                           <input
@@ -1533,8 +1533,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                                       onMouseDown={() => addQuoteItem(item)}
                                       className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-amber-50 text-left transition-colors"
                                     >
-                                      <div>
-                                        <span className="text-sm font-medium text-ink">{item.name}</span>
+                                      <div className="min-w-0">
+                                        <span className="block truncate text-sm font-medium text-ink">{item.name}</span>
                                         {item.category && <span className="ml-2 text-[10px] text-stone-400">{item.category}</span>}
                                       </div>
                                       <span className="text-xs text-amber-700 font-bold ml-4 shrink-0">
@@ -1726,7 +1726,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
             {/* O.S. Live Preview */}
             <div className="min-w-0 space-y-6 2xl:col-span-7">
-               <div className="bg-paper rounded-[2rem] border border-ink/10 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sticky top-20 overflow-hidden p-4 sm:p-6">
+               <div className="rounded-2xl border border-ink/10 bg-paper p-4 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sm:rounded-[2rem] sm:p-6 xl:sticky xl:top-20 xl:overflow-hidden">
 
                   <div>
                      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1747,7 +1747,29 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                      </div>
 
-                     <div className="mx-auto w-full overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4">
+                     <div className="rounded-2xl bg-neutral-100 p-4 lg:hidden">
+                       <div className="flex items-start gap-3">
+                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-ink shadow-sm">
+                           <FileText className="h-4 w-4" />
+                         </div>
+                         <div className="min-w-0 flex-1">
+                           <p className="text-sm font-black text-ink">Documento A4</p>
+                           <p className="mt-1 text-xs leading-5 text-neutral-500">
+                             PDF final em alta qualidade para conferência da cotação ou O.S.
+                           </p>
+                         </div>
+                       </div>
+                       <button
+                         type="button"
+                         onClick={handleDownloadLivePreview}
+                         className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition-all hover:bg-neutral-800"
+                       >
+                         <Printer className="h-4 w-4" />
+                         Gerar PDF
+                       </button>
+                     </div>
+
+                     <div className="mx-auto hidden w-full overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4 lg:block">
                        <div
                          className="relative mx-auto [--preview-scale:0.43] sm:[--preview-scale:0.55] lg:[--preview-scale:0.68] xl:[--preview-scale:0.82] 2xl:[--preview-scale:0.92]"
                          style={{ width: 'calc(210mm * var(--preview-scale))', height: 'calc(297mm * var(--preview-scale))' }}
