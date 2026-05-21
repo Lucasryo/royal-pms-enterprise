@@ -120,6 +120,12 @@ function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTot
   return rows;
 }
 
+function eventOccursOnDay(event: HotelEvent, day: Date) {
+  const start = parseISO(event.start_date);
+  const end = parseISO(event.end_date || event.start_date);
+  return isSameDay(start, day) || isSameDay(end, day) || (start <= day && day <= end);
+}
+
 function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number } }) {
   const docTitle = data.is_quote ? 'Cotação de Evento' : 'Ordem de Serviço';
   const code = data.is_quote ? (data.quote_number || 'Pendente') : (data.os_number || 'Pendente');
@@ -586,12 +592,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         lead.company_name ? `Empresa: ${lead.company_name}` : '',
         lead.customer_email ? `E-mail: ${lead.customer_email}` : '',
         lead.customer_phone ? `Telefone: ${lead.customer_phone}` : '',
-        lead.budget_range ? `Investimento: ${lead.budget_range}` : '',
       ].filter(Boolean).join('\n'),
       important_notes: [
         lead.notes || '',
         lead.alternate_date ? `Data alternativa: ${eventDate(lead.alternate_date)}` : '',
-        lead.budget_range ? `Faixa de investimento: ${lead.budget_range}` : '',
       ].filter(Boolean).join('\n'),
       check_info: `Origem: landing de eventos. Status do lead: ${lead.status}.`,
     }));
@@ -1132,7 +1136,6 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                             <LeadField label="Horário" value={lead.start_time || '-'} />
                             <LeadField label="Pessoas" value={lead.attendees_count ? `${lead.attendees_count}` : '-'} />
                             <LeadField label="Salão" value={lead.hall_preference || '-'} />
-                            <LeadField label="Investimento" value={lead.budget_range || '-'} />
                           </div>
 
                           {lead.notes && (
@@ -1203,7 +1206,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                 ))}
 
                 {days.map(day => {
-                  const dayEvents = events.filter(e => isSameDay(parseISO(e.start_date), day));
+                  const dayEvents = events.filter(e => !e.is_quote && eventOccursOnDay(e, day));
                   return (
                     <div key={day.toString()} className={`bg-white p-4 h-32 border-t border-r last:border-r-0 border-neutral-100 hover:bg-neutral-50 transition-colors group relative ${isToday(day) ? 'bg-blue-50/30' : ''}`}>
                       <span className={`text-sm font-black ${isToday(day) ? 'text-blue-600 bg-blue-100 w-8 h-8 flex items-center justify-center rounded-full -ml-1 -mt-1' : 'text-neutral-400'}`}>
