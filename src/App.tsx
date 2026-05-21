@@ -757,7 +757,7 @@ export default function App() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.12 }}
-            className={currentView === 'marketing' ? 'w-full' : 'max-w-7xl mx-auto'}
+            className={currentView === 'marketing' || currentView === 'events' ? 'w-full' : 'max-w-7xl mx-auto'}
           >
             <ErrorBoundary key={currentView}>{renderContent()}</ErrorBoundary>
           </motion.div>

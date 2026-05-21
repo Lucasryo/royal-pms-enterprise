@@ -1901,15 +1901,16 @@ export function RestaurantModuleDashboard({ profile }: { profile: UserProfile })
 
 export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
   return (
-    <ModuleShell
-      eyebrow="Modulo Eventos"
-      title="Eventos, O.S. e agenda"
-      description="Eventos continuam em modulo proprio, mas o calendario e espelhado para todos os demais setores."
-      profile={profile}
-      tabs={[
-        { id: 'events', label: 'Eventos', icon: Hotel, render: () => <EventsDashboard profile={profile} /> },
-      ]}
-    />
+    <div className="w-full space-y-6 pb-12">
+      <div className="rounded-[2rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600 sm:text-xs">Modulo Eventos</p>
+        <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Eventos, O.S. e agenda</h1>
+        <p className="mt-2 max-w-4xl text-xs leading-6 text-neutral-500 sm:text-sm sm:leading-7">
+          Eventos continuam em modulo proprio, mas o calendario e espelhado para todos os demais setores.
+        </p>
+      </div>
+      <EventsDashboard profile={profile} />
+    </div>
   );
 }
 

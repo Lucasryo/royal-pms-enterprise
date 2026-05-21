@@ -913,14 +913,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   const prevMonth = () => setCurrentMonth(addDays(startOfMonth(currentMonth), -1));
 
   return (
-    <div className="space-y-8 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="w-full space-y-6 pb-20">
+      <div className="flex flex-col gap-4 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-gray-900">Gestão de Eventos</h1>
           <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest mt-1">Planejamento • Reservas de Salão • O.S.</p>
         </div>
 
-        <div className="flex gap-1 p-1 bg-neutral-100 rounded-xl w-fit flex-wrap">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-neutral-100 p-1">
           <button
             onClick={() => setActiveTab('calendar')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'calendar' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
@@ -1301,10 +1301,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="grid grid-cols-1 gap-6 xl:grid-cols-12 xl:gap-8 items-start"
+            className="grid grid-cols-1 gap-6 2xl:grid-cols-12 2xl:gap-8 items-start"
           >
             {/* Form */}
-            <div className="min-w-0 space-y-6 xl:col-span-4">
+            <div className="min-w-0 space-y-6 2xl:col-span-5">
               <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Quote vs O.S. toggle */}
@@ -1725,7 +1725,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             </div>
 
             {/* O.S. Live Preview */}
-            <div className="min-w-0 space-y-6 xl:col-span-8">
+            <div className="min-w-0 space-y-6 2xl:col-span-7">
                <div className="bg-paper rounded-[2rem] border border-ink/10 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sticky top-20 overflow-hidden p-4 sm:p-6">
 
                   <div>
@@ -1749,7 +1749,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                      <div className="mx-auto max-h-[calc(100vh-190px)] w-full overflow-y-auto overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4 [scrollbar-gutter:stable]">
                        <div
-                         className="relative mx-auto [--preview-scale:0.43] sm:[--preview-scale:0.55] lg:[--preview-scale:0.68] xl:[--preview-scale:0.78] 2xl:[--preview-scale:0.92]"
+                         className="relative mx-auto [--preview-scale:0.43] sm:[--preview-scale:0.55] lg:[--preview-scale:0.68] xl:[--preview-scale:0.82] 2xl:[--preview-scale:0.92]"
                          style={{ width: 'calc(210mm * var(--preview-scale))', height: 'calc(297mm * var(--preview-scale))' }}
                        >
                          <div className="absolute left-0 top-0 origin-top-left" style={{ width: '210mm', minHeight: '297mm', transform: 'scale(var(--preview-scale))' }}>
