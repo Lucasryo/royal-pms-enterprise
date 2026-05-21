@@ -40,6 +40,29 @@ const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'S
 const eventMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const eventDate = (value?: string) => value ? format(parseISO(value), 'dd/MM/yyyy') : '-';
 
+function prepareEventPdfClone(doc: Document) {
+  const win = doc.defaultView;
+  if (!win) return;
+
+  doc.querySelectorAll<HTMLElement>('#event-live-preview-document *, #contract-pdf-template *').forEach((el) => {
+    const computed = win.getComputedStyle(el);
+    const style = el.style;
+    const safe = (value: string, fallback: string) => value.includes('oklch') ? fallback : value;
+
+    style.color = safe(computed.color, '#111827');
+    style.backgroundColor = safe(computed.backgroundColor, 'transparent');
+    style.borderTopColor = safe(computed.borderTopColor, '#e5e7eb');
+    style.borderRightColor = safe(computed.borderRightColor, '#e5e7eb');
+    style.borderBottomColor = safe(computed.borderBottomColor, '#e5e7eb');
+    style.borderLeftColor = safe(computed.borderLeftColor, '#e5e7eb');
+    style.outlineColor = safe(computed.outlineColor, '#e5e7eb');
+    style.textDecorationColor = safe(computed.textDecorationColor, 'currentColor');
+    style.boxShadow = computed.boxShadow.includes('oklch') ? 'none' : computed.boxShadow;
+    style.setProperty('fill', safe(computed.fill, 'currentColor'));
+    style.setProperty('stroke', safe(computed.stroke, 'currentColor'));
+  });
+}
+
 type PublicEventLead = {
   id: string;
   status: 'draft' | 'abandoned' | 'submitted' | 'contacted' | 'quoted' | 'won' | 'lost';
@@ -680,7 +703,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        onclone: prepareEventPdfClone,
       });
 
       const imgData = canvas.toDataURL('image/png');
@@ -722,6 +746,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
+        onclone: prepareEventPdfClone,
       });
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
