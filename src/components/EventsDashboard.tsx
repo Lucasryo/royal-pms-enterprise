@@ -48,8 +48,18 @@ function prepareEventPdfClone(doc: Document) {
     '#event-live-preview-document, #event-live-preview-document *, #contract-pdf-template, #contract-pdf-template *'
   ).forEach((el) => {
     const computed = win.getComputedStyle(el);
-    const style = el.style;
     const safe = (value: string, fallback: string) => value.includes('oklch') ? fallback : value;
+    const preserved: string[] = [];
+
+    for (const property of Array.from(computed)) {
+      const value = computed.getPropertyValue(property);
+      if (!value.includes('oklch')) {
+        preserved.push(`${property}: ${value};`);
+      }
+    }
+
+    el.setAttribute('style', preserved.join(' '));
+    const style = el.style;
 
     style.background = safe(computed.background, 'transparent');
     style.color = safe(computed.color, '#111827');
@@ -739,8 +749,8 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
   const handleDownloadLivePreview = async () => {
     const element =
-      document.getElementById('event-live-preview-document') ||
-      document.getElementById('contract-pdf-template');
+      document.getElementById('contract-pdf-template') ||
+      document.getElementById('event-live-preview-document');
     if (!element) {
       toast.error('Preview da O.S. ainda nao esta pronto para gerar PDF.');
       return;
@@ -757,9 +767,9 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
       });
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const props = pdf.getImageProperties(imgData);
       const w = pdf.internal.pageSize.getWidth();
-      pdf.addImage(imgData, 'PNG', 0, 0, w, (props.height * w) / props.width);
+      const h = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', 0, 0, w, h);
       pdf.save(`${formData.is_quote ? 'COTACAO' : 'OS'}_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
       toast.success('PDF gerado com sucesso.', { id: toastId });
     } catch (error) {
@@ -2127,7 +2137,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         ];
         return (
           <div className="fixed -left-[9999px] top-0 overflow-hidden pointer-events-none">
-            <div id="contract-pdf-template">
+            <div id="contract-pdf-template" style={{ width: '210mm', height: '297mm', overflow: 'hidden', background: '#ffffff' }}>
               <EventRoyalDocument
                 data={d}
                 totals={{
