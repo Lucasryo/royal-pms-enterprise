@@ -34,7 +34,6 @@ serve(async (req) => {
     const startTime = cleanText(body?.start_time, 20);
     const attendeesCount = clampNumber(body?.attendees_count, 0, 2000, 0);
     const hallPreference = cleanText(body?.hall_preference, 120);
-    const budgetRange = cleanText(body?.budget_range, 80);
     const notes = cleanText(body?.notes, 1600);
     const pageUrl = cleanText(body?.page_url, 500);
     const utmSource = cleanText(body?.utm_source, 100);
@@ -67,7 +66,7 @@ serve(async (req) => {
       previousStatus = data?.status ?? "";
     }
 
-    const score = computeScore({ status, customerEmail, customerPhone, eventDate, attendeesCount, budgetRange, notes });
+    const score = computeScore({ status, customerEmail, customerPhone, eventDate, attendeesCount, notes });
     const payload = {
       contact_id: contact?.id ?? null,
       status,
@@ -83,7 +82,7 @@ serve(async (req) => {
       start_time: startTime || null,
       attendees_count: attendeesCount || null,
       hall_preference: hallPreference || null,
-      budget_range: budgetRange || null,
+      budget_range: null,
       notes: notes || null,
       source: "landing_events",
       utm_source: utmSource || null,
@@ -258,13 +257,12 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
-function computeScore(args: { status: string; customerEmail: string; customerPhone: string; eventDate: string; attendeesCount: number; budgetRange: string; notes: string }) {
+function computeScore(args: { status: string; customerEmail: string; customerPhone: string; eventDate: string; attendeesCount: number; notes: string }) {
   let score = args.status === "submitted" ? 70 : 38;
   if (args.customerEmail) score += 5;
   if (args.customerPhone) score += 10;
   if (args.eventDate) score += 8;
   if (args.attendeesCount >= 80) score += 8;
-  if (args.budgetRange && !args.budgetRange.includes("definir")) score += 5;
   if (args.notes) score += 4;
   return Math.max(0, Math.min(100, score));
 }

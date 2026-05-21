@@ -928,7 +928,6 @@ function EventLeadSection() {
     start_time: '19:00',
     attendees_count: 80,
     hall_preference: 'Salão Sétimo Andar',
-    budget_range: 'a definir',
     notes: '',
   });
 
@@ -970,7 +969,7 @@ function EventLeadSection() {
     if (!canAutoCapture || sent) return;
     const handle = setTimeout(() => capture('abandoned', true), 1200);
     return () => clearTimeout(handle);
-  }, [canAutoCapture, sent, form.customer_name, form.customer_email, form.customer_phone, form.event_type, form.event_date, form.attendees_count, form.hall_preference, form.budget_range]);
+  }, [canAutoCapture, sent, form.customer_name, form.customer_email, form.customer_phone, form.event_type, form.event_date, form.attendees_count, form.hall_preference]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1050,17 +1049,11 @@ function EventLeadSection() {
                   <EventInput label="Horário" type="time" value={form.start_time} onChange={(v) => setForm({ ...form, start_time: v })} />
                   <EventInput label="Pessoas" type="number" value={String(form.attendees_count)} onChange={(v) => setForm({ ...form, attendees_count: Number(v) || 0 })} />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <EventLabel>Salão preferido</EventLabel>
                     <select value={form.hall_preference} onChange={(e) => setForm({ ...form, hall_preference: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
                       {['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop', 'Indicação do consultor'].map((hall) => <option key={hall}>{hall}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <EventLabel>Faixa de investimento</EventLabel>
-                    <select value={form.budget_range} onChange={(e) => setForm({ ...form, budget_range: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
-                      {['a definir', 'até R$ 5 mil', 'R$ 5 mil a R$ 15 mil', 'R$ 15 mil a R$ 35 mil', 'acima de R$ 35 mil'].map((range) => <option key={range}>{range}</option>)}
                     </select>
                   </div>
                   <EventInput label="Data alternativa" type="date" min={today} value={form.alternate_date} onChange={(v) => setForm({ ...form, alternate_date: v })} />
