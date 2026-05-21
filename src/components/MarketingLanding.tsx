@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo, type ReactNode, type CSSPropertie
 import { supabase } from '../supabase';
 import { toast } from 'sonner';
 import PublicBookingEngine from './PublicBookingEngine';
+import { Building2, CalendarDays, CheckCircle2, Loader2, Send, Users } from 'lucide-react';
 
 const WHATSAPP_NUMBER = '5522996105104';
 const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
@@ -322,6 +323,7 @@ const navLinks = [
   { href: '#telas', label: 'Telas do sistema' },
   { href: '#operacao', label: 'Operação' },
   { href: '#hospedes', label: 'Hóspedes' },
+  { href: '#eventos', label: 'Eventos' },
   { href: '#faq', label: 'Perguntas' },
 ];
 
@@ -909,6 +911,202 @@ function Hospedes() {
 
 // ─── How It Works ─────────────────────────────────────────────────────────────
 
+function EventLeadSection() {
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [leadId, setLeadId] = useState(() => localStorage.getItem('royal_event_lead_id') || '');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({
+    customer_name: '',
+    customer_email: '',
+    customer_phone: '',
+    company_name: '',
+    event_name: '',
+    event_type: 'Corporativo',
+    event_date: '',
+    alternate_date: '',
+    start_time: '19:00',
+    attendees_count: 80,
+    hall_preference: 'Salão Sétimo Andar',
+    budget_range: 'a definir',
+    notes: '',
+  });
+
+  const canAutoCapture = form.customer_name.trim().length >= 3 && (form.customer_email.trim() || form.customer_phone.trim());
+
+  async function capture(status: 'abandoned' | 'submitted', silent = false) {
+    if (!canAutoCapture) return;
+    setLoading(!silent);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const { data, error } = await supabase.functions.invoke('public-event-lead', {
+        body: {
+          lead_id: leadId || undefined,
+          status,
+          ...form,
+          page_url: window.location.href,
+          utm_source: params.get('utm_source') || '',
+          utm_medium: params.get('utm_medium') || '',
+          utm_campaign: params.get('utm_campaign') || '',
+        },
+      });
+      if (error) throw error;
+      if (data?.lead_id) {
+        setLeadId(data.lead_id);
+        localStorage.setItem('royal_event_lead_id', data.lead_id);
+      }
+      if (status === 'submitted') {
+        setSent(true);
+        toast.success('Pedido recebido. Nossa equipe de eventos vai entrar em contato.');
+      }
+    } catch {
+      if (!silent) toast.error('Nao foi possivel enviar agora. Tente novamente em instantes.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!canAutoCapture || sent) return;
+    const handle = setTimeout(() => capture('abandoned', true), 1200);
+    return () => clearTimeout(handle);
+  }, [canAutoCapture, sent, form.customer_name, form.customer_email, form.customer_phone, form.event_type, form.event_date, form.attendees_count, form.hall_preference, form.budget_range]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await capture('submitted');
+  };
+
+  return (
+    <section id="eventos" className="relative overflow-hidden bg-ink py-16 text-paper sm:py-24 lg:py-32">
+      <div aria-hidden className="absolute inset-0 opacity-[0.08]"
+        style={{ backgroundImage: 'linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(0deg, rgba(255,255,255,0.08) 1px, transparent 1px)', backgroundSize: '42px 42px' }} />
+      <div className="relative mx-auto grid max-w-7xl gap-10 px-5 sm:px-6 lg:grid-cols-12 lg:gap-12 lg:px-10">
+        <div className="lg:col-span-5">
+          <Reveal as="p" className="text-[11px] uppercase tracking-[0.28em] text-paper/50">· Eventos no Royal</Reveal>
+          <Reveal as="h2" delay={120} className="mt-4 font-display text-3xl font-light leading-[1.04] tracking-[-0.02em] sm:text-4xl lg:text-[3.6rem]">
+            Seu evento entra como oportunidade, vira cotação e chega ao salão.
+          </Reveal>
+          <Reveal as="p" delay={220} className="mt-5 max-w-md text-sm leading-7 text-paper/70 sm:text-base">
+            A landing captura interessados em locação de salões e alimenta o módulo Eventos do PMS. Se o cliente sair no meio, nossos consultores ainda recebem nome, contato e intenção para retomar a venda.
+          </Reveal>
+          <div className="mt-8 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {[
+              ['Captação', 'Nome, WhatsApp, data, perfil e porte do evento.'],
+              ['Retargeting', 'Desistentes viram leads quentes para abordagem consultiva.'],
+              ['PMS Eventos', 'A equipe transforma o lead em cotação ou O.S.'],
+            ].map(([title, text], i) => (
+              <Reveal key={title} delay={320 + i * 90} className="rounded-2xl border border-paper/12 bg-paper/[0.04] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gold">{title}</p>
+                <p className="mt-2 text-sm leading-6 text-paper/70">{text}</p>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+
+        <Reveal delay={180} className="lg:col-span-7">
+          <div className="rounded-[2rem] border border-paper/12 bg-paper p-5 text-ink shadow-[0_32px_110px_rgba(0,0,0,0.28)] sm:p-8">
+            <div className="flex flex-col gap-4 border-b border-ink/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.28em] text-amber-700">Solicitar proposta</p>
+                <h3 className="mt-2 font-display text-3xl font-light">Locação para eventos</h3>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-ink/65">Conte para nós o essencial. A equipe de eventos monta a melhor configuração de salão, cardápio e proposta.</p>
+              </div>
+              <div className="rounded-2xl bg-ink px-4 py-3 text-paper">
+                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-paper/45">SLA comercial</p>
+                <p className="mt-1 text-sm font-bold">Contato em até 1 dia útil</p>
+              </div>
+            </div>
+
+            {sent ? (
+              <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+                  <div>
+                    <p className="font-bold">Recebemos sua solicitação.</p>
+                    <p className="mt-1 text-sm leading-6">Um consultor de eventos vai entrar em contato pelo telefone/e-mail informado para evoluir a proposta.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={submit} className="mt-6 grid gap-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <EventInput label="Nome" required value={form.customer_name} onChange={(v) => setForm({ ...form, customer_name: v })} placeholder="Seu nome" />
+                  <EventInput label="WhatsApp" required value={form.customer_phone} onChange={(v) => setForm({ ...form, customer_phone: v })} placeholder="(22) 00000-0000" />
+                  <EventInput label="E-mail" type="email" value={form.customer_email} onChange={(v) => setForm({ ...form, customer_email: v })} placeholder="voce@email.com" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <EventInput label="Empresa / responsável" value={form.company_name} onChange={(v) => setForm({ ...form, company_name: v })} placeholder="Empresa, família ou organização" />
+                  <EventInput label="Nome do evento" value={form.event_name} onChange={(v) => setForm({ ...form, event_name: v })} placeholder="Confraternização, reunião..." />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <div>
+                    <EventLabel>Tipo</EventLabel>
+                    <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
+                      {['Corporativo', 'Social', 'Casamento', 'Batizado', 'Formatura', 'Exposição', 'Outro'].map((type) => <option key={type}>{type}</option>)}
+                    </select>
+                  </div>
+                  <EventInput label="Data desejada" type="date" min={today} value={form.event_date} onChange={(v) => setForm({ ...form, event_date: v })} />
+                  <EventInput label="Horário" type="time" value={form.start_time} onChange={(v) => setForm({ ...form, start_time: v })} />
+                  <EventInput label="Pessoas" type="number" value={String(form.attendees_count)} onChange={(v) => setForm({ ...form, attendees_count: Number(v) || 0 })} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <EventLabel>Salão preferido</EventLabel>
+                    <select value={form.hall_preference} onChange={(e) => setForm({ ...form, hall_preference: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
+                      {['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop', 'Indicação do consultor'].map((hall) => <option key={hall}>{hall}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <EventLabel>Faixa de investimento</EventLabel>
+                    <select value={form.budget_range} onChange={(e) => setForm({ ...form, budget_range: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
+                      {['a definir', 'até R$ 5 mil', 'R$ 5 mil a R$ 15 mil', 'R$ 15 mil a R$ 35 mil', 'acima de R$ 35 mil'].map((range) => <option key={range}>{range}</option>)}
+                    </select>
+                  </div>
+                  <EventInput label="Data alternativa" type="date" min={today} value={form.alternate_date} onChange={(v) => setForm({ ...form, alternate_date: v })} />
+                </div>
+                <div>
+                  <EventLabel>Detalhes importantes</EventLabel>
+                  <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3}
+                    className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
+                    placeholder="Buffet, audiovisual, formato da sala, hospedagem para convidados..." />
+                </div>
+                <div className="grid gap-3 border-t border-ink/10 pt-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1.5 font-bold text-stone-700"><Users className="h-3.5 w-3.5" /> {form.attendees_count || 0} pessoas</span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1.5 font-bold text-stone-700"><CalendarDays className="h-3.5 w-3.5" /> {form.event_date || 'sem data'}</span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1.5 font-bold text-stone-700"><Building2 className="h-3.5 w-3.5" /> {form.hall_preference}</span>
+                  </div>
+                  <button type="submit" disabled={loading || !canAutoCapture} className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-ink px-6 text-sm font-medium text-paper transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60">
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Solicitar proposta
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink transition-transform group-hover:translate-x-0.5">→</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function EventLabel({ children }: { children: string }) {
+  return <label className="text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">{children}</label>;
+}
+
+function EventInput({ label, value, onChange, type = 'text', placeholder, required, min }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; required?: boolean; min?: string }) {
+  return (
+    <div>
+      <EventLabel>{label}</EventLabel>
+      <input required={required} type={type} min={min} value={value} onChange={(e) => onChange(e.target.value)}
+        className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-amber-500 focus:bg-white"
+        placeholder={placeholder} />
+    </div>
+  );
+}
+
 function HowItWorks() {
   const steps = [
     { n: 'I', weeks: 'Semana 1', title: 'Diagnóstico operacional', desc: 'Mapeamos rotinas, gargalos por setor e indicadores que importam para a sua hotelaria.' },
@@ -1097,6 +1295,7 @@ export default function MarketingLanding() {
         <PinnedNarrative />
         <Modules />
         <Hospedes />
+        <EventLeadSection />
         <HowItWorks />
         <FAQ />
         <DemoCTA />

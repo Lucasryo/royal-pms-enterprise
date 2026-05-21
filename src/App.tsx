@@ -11,6 +11,7 @@ import { getConnectedMachineName } from './lib/device';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
+import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
 import ResetPassword from './components/ResetPassword';
 import AdminDashboard from './components/AdminDashboard';
@@ -496,10 +497,11 @@ export default function App() {
   }
 
   if (!user || !profile) {
+    const isSystemLanding = window.location.pathname.replace(/\/+$/, '') === '/sistema';
     return (
       <>
         <Toaster position="top-right" richColors />
-        <Landing3D />
+        {isSystemLanding ? <Landing3D /> : <HotelLanding />}
       </>
     );
   }

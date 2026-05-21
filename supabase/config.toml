@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.pin-validate]
 verify_jwt = false
+
+[functions.public-event-lead]
+verify_jwt = false

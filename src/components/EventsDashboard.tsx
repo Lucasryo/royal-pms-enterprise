@@ -40,6 +40,27 @@ const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'S
 const eventMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const eventDate = (value?: string) => value ? format(parseISO(value), 'dd/MM/yyyy') : '-';
 
+type PublicEventLead = {
+  id: string;
+  status: 'draft' | 'abandoned' | 'submitted' | 'contacted' | 'quoted' | 'won' | 'lost';
+  lead_score: number;
+  customer_name: string;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  company_name?: string | null;
+  event_name?: string | null;
+  event_type?: string | null;
+  event_date?: string | null;
+  alternate_date?: string | null;
+  start_time?: string | null;
+  attendees_count?: number | null;
+  hall_preference?: string | null;
+  budget_range?: string | null;
+  notes?: string | null;
+  last_activity_at: string;
+  submitted_at?: string | null;
+};
+
 function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
   const rows: React.ReactNode[][] = [];
   if (totals.hallPrice > 0) rows.push([eventDate(data.start_date), 'Locacao do salao', eventMoney(totals.hallPrice)]);
@@ -182,9 +203,36 @@ function EventDocSignature({ label }: { label: string }) {
   return <div className="border-t border-neutral-900 pt-2"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 text-[10px] text-neutral-500">Data: ____/____/________</p></div>;
 }
 
+function LeadField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-neutral-100">
+      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
+      <p className="mt-0.5 truncate font-bold text-neutral-800">{value}</p>
+    </div>
+  );
+}
+
+function EventFormSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="mb-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-700">{title}</p>
+        {description && <p className="mt-1 text-xs leading-5 text-neutral-500">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EventFieldLabel({ children }: { children: string }) {
+  return <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">{children}</label>;
+}
+
 export default function EventsDashboard({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<'calendar' | 'quotes' | 'register' | 'items'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'quotes' | 'leads' | 'register' | 'items'>('calendar');
   const [events, setEvents] = useState<HotelEvent[]>([]);
+  const [eventLeads, setEventLeads] = useState<PublicEventLead[]>([]);
+  const [originLeadId, setOriginLeadId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingEvent, setViewingEvent] = useState<HotelEvent | null>(null);
@@ -274,10 +322,11 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         console.warn('sync_faturas failed (non-fatal):', e);
       }
 
-      const [{ data: eventsData, error: eventsError }, { data: companiesData }, { data: itemsData }] = await Promise.all([
+      const [{ data: eventsData, error: eventsError }, { data: companiesData }, { data: itemsData }, { data: leadsData }] = await Promise.all([
         supabase.from('hotel_events').select('*').order('start_date'),
         supabase.from('companies').select('*').order('name'),
         supabase.from('event_items').select('*').eq('active', true).order('name'),
+        supabase.from('public_event_leads').select('*').order('last_activity_at', { ascending: false }).limit(80),
       ]);
 
       if (eventsError) {
@@ -289,6 +338,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
       if (companiesData) setCompanies(companiesData);
       if (itemsData) setEventItems(itemsData);
+      if (leadsData) setEventLeads(leadsData as PublicEventLead[]);
     } catch (error) {
       console.error("Error fetching events:", error);
     } finally {
@@ -319,6 +369,49 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
   function removeQuoteItem(index: number) {
     setFormData(prev => ({ ...prev, quote_items: prev.quote_items.filter((_, i) => i !== index) }));
+  }
+
+  async function updateLeadStatus(lead: PublicEventLead, status: PublicEventLead['status']) {
+    const updates: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+    if (status === 'contacted') updates.contacted_at = new Date().toISOString();
+    const { error } = await supabase.from('public_event_leads').update(updates).eq('id', lead.id);
+    if (error) {
+      toast.error('Falha ao atualizar lead: ' + error.message);
+      return;
+    }
+    setEventLeads(prev => prev.map(item => item.id === lead.id ? { ...item, status } : item));
+    toast.success('Lead atualizado.');
+  }
+
+  function startQuoteFromLead(lead: PublicEventLead) {
+    setOriginLeadId(lead.id);
+    setFormData(prev => ({
+      ...prev,
+      is_quote: true,
+      name: lead.event_name || `${lead.event_type || 'Evento'} - ${lead.customer_name}`,
+      start_date: lead.event_date || prev.start_date,
+      end_date: lead.event_date || prev.end_date,
+      start_time: lead.start_time || prev.start_time,
+      hall_name: lead.hall_preference && HALLS.includes(lead.hall_preference) ? lead.hall_preference : prev.hall_name,
+      halls: lead.hall_preference && HALLS.includes(lead.hall_preference) ? [lead.hall_preference] : [],
+      event_type: lead.event_type || prev.event_type,
+      attendees_count: lead.attendees_count || prev.attendees_count,
+      client_profile: [
+        `Contato: ${lead.customer_name}`,
+        lead.company_name ? `Empresa: ${lead.company_name}` : '',
+        lead.customer_email ? `E-mail: ${lead.customer_email}` : '',
+        lead.customer_phone ? `Telefone: ${lead.customer_phone}` : '',
+        lead.budget_range ? `Investimento: ${lead.budget_range}` : '',
+      ].filter(Boolean).join('\n'),
+      important_notes: [
+        lead.notes || '',
+        lead.alternate_date ? `Data alternativa: ${eventDate(lead.alternate_date)}` : '',
+        lead.budget_range ? `Faixa de investimento: ${lead.budget_range}` : '',
+      ].filter(Boolean).join('\n'),
+      check_info: `Origem: landing de eventos. Status do lead: ${lead.status}.`,
+    }));
+    updateLeadStatus(lead, 'contacted');
+    setActiveTab('register');
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -365,8 +458,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           created_at: new Date().toISOString(),
           created_by: profile.id,
         };
-        const { error } = await supabase.from('hotel_events').insert([newQuote]);
+        const { data: insertedQuote, error } = await supabase.from('hotel_events').insert([newQuote]).select('id').single();
         if (error) throw error;
+        if (originLeadId) {
+          await supabase
+            .from('public_event_leads')
+            .update({ status: 'quoted', converted_event_id: insertedQuote?.id || null, updated_at: new Date().toISOString() })
+            .eq('id', originLeadId);
+        }
         toast.success(`Cotação ${quoteNumber} criada! Converta em O.S. após aprovação do cliente.`);
       } else {
         // Saving as direct O.S.
@@ -378,8 +477,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
           created_by: profile.id
         };
 
-        const { error } = await supabase.from('hotel_events').insert([newEvent]);
+        const { data: insertedEvent, error } = await supabase.from('hotel_events').insert([newEvent]).select('id').single();
         if (error) throw error;
+        if (originLeadId) {
+          await supabase
+            .from('public_event_leads')
+            .update({ status: 'won', converted_event_id: insertedEvent?.id || null, updated_at: new Date().toISOString() })
+            .eq('id', originLeadId);
+        }
 
         const { error: faturaError } = await supabase.from('files').insert([{
           type: 'Fatura Evento',
@@ -432,6 +537,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         company_id: '',
         status: 'planned'
       });
+      setOriginLeadId(null);
       setActiveTab('calendar');
       fetchData();
     } catch (error) {
@@ -635,7 +741,21 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('register')}
+            onClick={() => setActiveTab('leads')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'leads' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+          >
+            Leads Landing
+            {eventLeads.filter(lead => ['abandoned', 'submitted'].includes(lead.status)).length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-emerald-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                {eventLeads.filter(lead => ['abandoned', 'submitted'].includes(lead.status)).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              setOriginLeadId(null);
+              setActiveTab('register');
+            }}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
           >
             Nova Cotação / O.S.
@@ -735,6 +855,103 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ) : activeTab === 'leads' ? (
+          <motion.div
+            key="leads"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="space-y-4"
+          >
+            <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Remarketing de eventos</p>
+                  <h2 className="text-xl font-black text-gray-900 mt-0.5">Interesses capturados na landing</h2>
+                  <p className="mt-1 text-sm text-neutral-500">Inclui solicitações concluídas e clientes que deixaram contato antes de desistir.</p>
+                </div>
+                <button onClick={fetchData} className="px-4 py-2 text-xs font-bold text-neutral-600 border border-neutral-200 rounded-xl hover:bg-neutral-50">
+                  Atualizar
+                </button>
+              </div>
+
+              {eventLeads.length === 0 ? (
+                <div className="py-16 text-center">
+                  <Users className="w-10 h-10 text-stone-200 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-stone-400">Nenhum lead de evento capturado ainda.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {eventLeads.map((lead) => {
+                    const isAbandoned = lead.status === 'abandoned';
+                    const statusClass = isAbandoned
+                      ? 'bg-amber-100 text-amber-800'
+                      : lead.status === 'submitted'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : lead.status === 'lost'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-neutral-100 text-neutral-700';
+                    return (
+                      <div key={lead.id} className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
+                        <div className="flex flex-col gap-5">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="font-black text-neutral-950">{lead.customer_name}</h3>
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${statusClass}`}>
+                                {isAbandoned ? 'Desistente' : lead.status}
+                              </span>
+                              <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-neutral-500 ring-1 ring-neutral-200">
+                                Score {lead.lead_score}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              {[lead.customer_email, lead.customer_phone, lead.company_name].filter(Boolean).join(' · ') || 'Sem contato detalhado'}
+                            </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <button onClick={() => startQuoteFromLead(lead)} className="px-4 py-2 text-xs font-bold text-white bg-neutral-900 rounded-xl hover:bg-neutral-800">
+                              Criar cotação
+                            </button>
+                            <button onClick={() => updateLeadStatus(lead, 'contacted')} className="px-4 py-2 text-xs font-bold text-neutral-700 border border-neutral-200 bg-white rounded-xl hover:bg-neutral-50">
+                              Marcar contato
+                            </button>
+                            <button onClick={() => updateLeadStatus(lead, 'lost')} className="px-4 py-2 text-xs font-bold text-red-600 border border-red-100 bg-white rounded-xl hover:bg-red-50">
+                              Perdido
+                            </button>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2 text-xs text-neutral-700 sm:grid-cols-2 xl:grid-cols-4">
+                            <LeadField label="Evento" value={lead.event_name || lead.event_type || '-'} />
+                            <LeadField label="Tipo" value={lead.event_type || '-'} />
+                            <LeadField label="Data desejada" value={lead.event_date ? format(parseISO(lead.event_date), 'dd/MM/yyyy', { locale: ptBR }) : '-'} />
+                            <LeadField label="Data alternativa" value={lead.alternate_date ? format(parseISO(lead.alternate_date), 'dd/MM/yyyy', { locale: ptBR }) : '-'} />
+                            <LeadField label="Horário" value={lead.start_time || '-'} />
+                            <LeadField label="Pessoas" value={lead.attendees_count ? `${lead.attendees_count}` : '-'} />
+                            <LeadField label="Salão" value={lead.hall_preference || '-'} />
+                            <LeadField label="Investimento" value={lead.budget_range || '-'} />
+                          </div>
+
+                          {lead.notes && (
+                            <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-100">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Observações do cliente</p>
+                              <p className="mt-1 whitespace-pre-line text-xs leading-5 text-neutral-600">{lead.notes}</p>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-3 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                            <span>Última atividade: {lead.last_activity_at ? format(parseISO(lead.last_activity_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }) : '-'}</span>
+                            {lead.submitted_at && <span>Enviado: {format(parseISO(lead.submitted_at), 'dd/MM/yyyy HH:mm', { locale: ptBR })}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -908,7 +1125,61 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       ))}
                     </div>
                   )}
+
+                  <EventFormSection title="Cliente e origem" description="Dados comerciais antes da montagem do evento. Quando vier da landing, estas informações já chegam preenchidas.">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <EventFieldLabel>Empresa / Contratante</EventFieldLabel>
+                        <select
+                          value={formData.company_id}
+                          onChange={e => setFormData({...formData, company_id: e.target.value})}
+                          className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
+                        >
+                          <option value="">Particular / Pessoa Física</option>
+                          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <EventFieldLabel>Tipo de contratante</EventFieldLabel>
+                        <select
+                          value={formData.client_category}
+                          onChange={e => setFormData({...formData, client_category: e.target.value as any})}
+                          className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
+                        >
+                          <option value="Pessoa física">Pessoa física</option>
+                          <option value="Empresa">Empresa</option>
+                          <option value="Agência">Agência</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <EventFieldLabel>Origem / logística</EventFieldLabel>
+                        <input
+                          value={formData.check_info}
+                          onChange={e => setFormData({...formData, check_info: e.target.value})}
+                          className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
+                          placeholder="Ex: landing, indicação, hospedagem vinculada"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <EventFieldLabel>Contato e perfil comercial</EventFieldLabel>
+                        <textarea
+                          value={formData.client_profile}
+                          onChange={e => setFormData({...formData, client_profile: e.target.value})}
+                          className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold h-24"
+                          placeholder="Nome, telefone, e-mail, empresa, faixa de investimento e contexto do cliente"
+                        />
+                      </div>
+                    </div>
+                  </EventFormSection>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="md:col-span-2 border-b border-neutral-100 pb-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-700">Dados do evento</p>
+                      <p className="mt-1 text-xs text-neutral-500">Nome, tipo, agenda, participantes e salões.</p>
+                    </div>
                     <div className="md:col-span-2">
                        <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Nome do Evento</label>
                        <input
@@ -1199,41 +1470,12 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       </div>
                     </div>
 
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Perfil do Contratante</label>
-                       <select
-                         value={formData.client_category}
-                         onChange={e => setFormData({...formData, client_category: e.target.value as any})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                       >
-                         <option value="Pessoa física">Pessoa física</option>
-                         <option value="Empresa">Empresa</option>
-                         <option value="Agência">Agência</option>
-                       </select>
-                    </div>
-
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Perfil do Evento / Cliente</label>
-                       <input
-                         value={formData.client_profile}
-                         onChange={e => setFormData({...formData, client_profile: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                         placeholder="Ex: Noivos em pré-casamento"
-                       />
-                    </div>
-
-                    <div>
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Observações de Check-in/out</label>
-                       <input
-                         value={formData.check_info}
-                         onChange={e => setFormData({...formData, check_info: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                         placeholder="Ex: Check-in sexta / Check-out sábado"
-                       />
-                    </div>
-
                     <div className="md:col-span-2">
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Observações Importantes (Bullet points)</label>
+                       <div className="border-b border-neutral-100 pb-2 mb-4">
+                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-700">Operação interna</p>
+                         <p className="mt-1 text-xs text-neutral-500">Informações para equipe, montagem e execução. Não duplicam dados do cliente.</p>
+                       </div>
+                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Observações importantes</label>
                        <textarea
                          value={formData.important_notes}
                          onChange={e => setFormData({...formData, important_notes: e.target.value})}
@@ -1243,7 +1485,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                     </div>
 
                     <div className="md:col-span-2">
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Passo-a-passo para Colaboradores (Cronograma)</label>
+                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Cronograma da equipe</label>
                        <textarea
                          value={formData.staff_roadmap}
                          onChange={e => setFormData({...formData, staff_roadmap: e.target.value})}
@@ -1254,7 +1496,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
 
                     {formData.quote_items.length === 0 && (
                       <div className="md:col-span-2">
-                         <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens Inclusos (texto livre, separe por vírgula)</label>
+                         <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Itens inclusos em texto livre</label>
                          <textarea
                            value={formData.items_included}
                            onChange={e => setFormData({...formData, items_included: e.target.value})}
@@ -1264,17 +1506,6 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                       </div>
                     )}
 
-                    <div className="md:col-span-2">
-                       <label className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-1 block ml-1">Empresa Contratante</label>
-                       <select
-                         value={formData.company_id}
-                         onChange={e => setFormData({...formData, company_id: e.target.value})}
-                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl outline-none font-bold"
-                       >
-                         <option value="">Particular / Pessoa Física</option>
-                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                       </select>
-                    </div>
                   </div>
 
                   <div className="pt-6 border-t border-neutral-100 flex justify-end">
