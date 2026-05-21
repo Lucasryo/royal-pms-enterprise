@@ -44,22 +44,29 @@ function prepareEventPdfClone(doc: Document) {
   const win = doc.defaultView;
   if (!win) return;
 
-  doc.querySelectorAll<HTMLElement>('#event-live-preview-document *, #contract-pdf-template *').forEach((el) => {
+  doc.querySelectorAll<HTMLElement>(
+    '#event-live-preview-document, #event-live-preview-document *, #contract-pdf-template, #contract-pdf-template *'
+  ).forEach((el) => {
     const computed = win.getComputedStyle(el);
     const style = el.style;
     const safe = (value: string, fallback: string) => value.includes('oklch') ? fallback : value;
 
+    style.background = safe(computed.background, 'transparent');
     style.color = safe(computed.color, '#111827');
     style.backgroundColor = safe(computed.backgroundColor, 'transparent');
+    style.backgroundImage = computed.backgroundImage.includes('oklch') ? 'none' : computed.backgroundImage;
     style.borderTopColor = safe(computed.borderTopColor, '#e5e7eb');
     style.borderRightColor = safe(computed.borderRightColor, '#e5e7eb');
     style.borderBottomColor = safe(computed.borderBottomColor, '#e5e7eb');
     style.borderLeftColor = safe(computed.borderLeftColor, '#e5e7eb');
+    style.borderColor = safe(computed.borderColor, '#e5e7eb');
     style.outlineColor = safe(computed.outlineColor, '#e5e7eb');
     style.textDecorationColor = safe(computed.textDecorationColor, 'currentColor');
     style.boxShadow = computed.boxShadow.includes('oklch') ? 'none' : computed.boxShadow;
+    style.textShadow = computed.textShadow.includes('oklch') ? 'none' : computed.textShadow;
     style.setProperty('fill', safe(computed.fill, 'currentColor'));
     style.setProperty('stroke', safe(computed.stroke, 'currentColor'));
+    el.removeAttribute('class');
   });
 }
 
