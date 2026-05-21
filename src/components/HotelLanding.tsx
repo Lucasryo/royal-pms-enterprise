@@ -171,7 +171,6 @@ function EventLeadHotelSection() {
     start_time: '19:00',
     attendees_count: 80,
     hall_preference: 'Salão Sétimo Andar',
-    budget_range: 'a definir',
     notes: '',
   });
 
@@ -198,7 +197,7 @@ function EventLeadHotelSection() {
         start_time: form.start_time || null,
         attendees_count: form.attendees_count || null,
         hall_preference: form.hall_preference || null,
-        budget_range: form.budget_range || null,
+        budget_range: null,
         notes: form.notes || null,
         source: 'landing_events',
         utm_source: params.get('utm_source') || null,
@@ -282,17 +281,11 @@ function EventLeadHotelSection() {
                   <HotelInput label="Horário" type="time" value={form.start_time} onChange={(v) => setForm({ ...form, start_time: v })} />
                   <HotelInput label="Pessoas" type="number" value={String(form.attendees_count)} onChange={(v) => setForm({ ...form, attendees_count: Number(v) || 0 })} />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <HotelLabel>Salão preferido</HotelLabel>
                     <select value={form.hall_preference} onChange={(e) => setForm({ ...form, hall_preference: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
                       {['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'Sala de Reunião', 'Salão Sétimo Andar', 'Rooftop', 'Indicação do consultor'].map((hall) => <option key={hall}>{hall}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <HotelLabel>Faixa de investimento</HotelLabel>
-                    <select value={form.budget_range} onChange={(e) => setForm({ ...form, budget_range: e.target.value })} className="mt-2 w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-bold outline-none focus:border-amber-500 focus:bg-white">
-                      {['a definir', 'até R$ 5 mil', 'R$ 5 mil a R$ 15 mil', 'R$ 15 mil a R$ 35 mil', 'acima de R$ 35 mil'].map((range) => <option key={range}>{range}</option>)}
                     </select>
                   </div>
                   <HotelInput label="Data alternativa" type="date" min={today} value={form.alternate_date} onChange={(v) => setForm({ ...form, alternate_date: v })} />
