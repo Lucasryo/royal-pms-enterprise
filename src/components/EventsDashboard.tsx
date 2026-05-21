@@ -1747,7 +1747,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                      </div>
 
-                     <div className="mx-auto max-h-[calc(100vh-190px)] w-full overflow-y-auto overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4 [scrollbar-gutter:stable]">
+                     <div className="mx-auto w-full overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4">
                        <div
                          className="relative mx-auto [--preview-scale:0.43] sm:[--preview-scale:0.55] lg:[--preview-scale:0.68] xl:[--preview-scale:0.82] 2xl:[--preview-scale:0.92]"
                          style={{ width: 'calc(210mm * var(--preview-scale))', height: 'calc(297mm * var(--preview-scale))' }}
