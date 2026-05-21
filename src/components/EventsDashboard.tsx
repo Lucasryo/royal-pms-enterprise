@@ -103,7 +103,7 @@ type PublicEventLead = {
 
 function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
   const rows: React.ReactNode[][] = [];
-  if (totals.hallPrice > 0) rows.push([eventDate(data.start_date), 'Locacao do salao', eventMoney(totals.hallPrice)]);
+  if (totals.hallPrice > 0) rows.push([eventDate(data.start_date), 'Locação do salão', eventMoney(totals.hallPrice)]);
   (data.quote_items || []).forEach((item: QuoteItem) => {
     rows.push([
       eventDate(data.start_date),
@@ -121,7 +121,7 @@ function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTot
 }
 
 function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number } }) {
-  const docTitle = data.is_quote ? 'Cotacao de Evento' : 'Ordem de Servico';
+  const docTitle = data.is_quote ? 'Cotação de Evento' : 'Ordem de Serviço';
   const code = data.is_quote ? (data.quote_number || 'Pendente') : (data.os_number || 'Pendente');
   const halls = data.halls?.length ? data.halls.join(' / ') : data.hall_name;
   const rows = buildEventDocumentRows(data, totals);
@@ -135,23 +135,23 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
 
       <header className="grid grid-cols-[38mm_1fr_50mm] gap-4 border-b-4 border-neutral-900 pb-5">
         <div className="flex items-start justify-center pt-1">
-          <img src="/logo.png" alt="Royal Macae" className="max-h-16 max-w-[34mm] object-contain" />
+          <img src="/logo.png" alt="Royal Macaé" className="max-h-16 max-w-[34mm] object-contain" />
         </div>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Eventos Royal Macae</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">Eventos Royal Macaé</p>
           <h1 className="mt-1 text-[25px] font-black uppercase leading-none tracking-tight">{docTitle}</h1>
           <p className="mt-2 text-[11px] leading-4 text-neutral-600">
-            Royal Macae Palace Hotel - AV. ATLANTICA, 1642 - PR. DOS CAVALEIROS<br />
+            Royal Macaé Palace Hotel - AV. ATLÂNTICA, 1642 - PR. DOS CAVALEIROS<br />
             CNPJ 07.116.901/0001-92 - (22)2123-9650 - eventos@royalmacae.com.br
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{data.is_quote ? 'Cotacao' : 'O.S.'}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{data.is_quote ? 'Cotação' : 'O.S.'}</p>
           <p className="mt-1 text-lg font-black">{code}</p>
-          <p className="mt-2 text-[10px] font-bold text-neutral-500">Emissao</p>
+          <p className="mt-2 text-[10px] font-bold text-neutral-500">Emissão</p>
           <p className="text-[12px] font-bold">{format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
           <span className="mt-3 inline-flex rounded-full border border-neutral-900 px-3 py-1 text-[9px] font-black uppercase tracking-widest">
-            {data.is_quote ? 'Proposta' : 'Execucao'}
+            {data.is_quote ? 'Proposta' : 'Execução'}
           </span>
         </div>
       </header>
@@ -163,8 +163,8 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
           <div className="mt-4 grid grid-cols-[1.15fr_1fr_0.85fr_0.85fr] gap-x-5 gap-y-2 text-[12px]">
             <EventDocField label="Tipo" value={data.event_type || '-'} />
             <EventDocField label="Contratante" value={data.client_category || '-'} />
-            <EventDocField label="Inicio" value={`${eventDate(data.start_date)} ${data.start_time || ''}`} />
-            <EventDocField label="Termino" value={`${eventDate(data.end_date)} ${data.end_time || ''}`} />
+            <EventDocField label="Início" value={`${eventDate(data.start_date)} ${data.start_time || ''}`} />
+            <EventDocField label="Término" value={`${eventDate(data.end_date)} ${data.end_time || ''}`} />
             <EventDocField label="Local" value={halls || '-'} />
             <EventDocField label="Participantes" value={data.attendees_count ? `${data.attendees_count} pessoas` : '-'} />
           </div>
@@ -172,27 +172,27 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
       </section>
 
       <section className="mt-5 grid grid-cols-[1fr_1fr_1fr] gap-3">
-        <EventDocMetric label="Salao" value={halls || '-'} />
-        <EventDocMetric label="Horario" value={data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'} />
+        <EventDocMetric label="Salão" value={halls || '-'} />
+        <EventDocMetric label="Horário" value={data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'} />
         <EventDocMetric label={data.is_quote ? 'Valor proposto' : 'Status'} value={data.is_quote ? eventMoney(totals.total) : (data.status || 'planned')} />
       </section>
 
       <section className="mt-5">
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-500">{data.is_quote ? 'Itens da cotacao' : 'Servicos da O.S.'}</h3>
-          <span className="text-[10px] font-bold text-neutral-400">Page 1 of 1</span>
+          <h3 className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-500">{data.is_quote ? 'Itens da cotação' : 'Serviços da O.S.'}</h3>
+          <span className="text-[10px] font-bold text-neutral-400">Página 1 de 1</span>
         </div>
-        <RoyalDocumentTable headers={['Data', 'Descricao', data.is_quote ? 'Valor' : 'Qtd/Status']} rows={rows} />
+        <RoyalDocumentTable headers={['Data', 'Descrição', data.is_quote ? 'Valor' : 'Qtd/Status']} rows={rows} />
       </section>
 
       <section className="mt-6 grid grid-cols-[1fr_72mm] gap-5">
         <div className="space-y-3">
-          <EventDocNote title="Observacoes importantes" text={data.important_notes || 'Sem observacoes registradas.'} />
+          <EventDocNote title="Observações importantes" text={data.important_notes || 'Sem observações registradas.'} />
           <EventDocNote title="Passo a passo da equipe" text={data.staff_roadmap || 'Nenhum cronograma definido.'} />
         </div>
         <div className="rounded-xl border border-neutral-300 p-4">
           <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Resumo financeiro</p>
-          <EventDocTotal label="Locacao" value={eventMoney(totals.hallPrice)} />
+          <EventDocTotal label="Locação" value={eventMoney(totals.hallPrice)} />
           <EventDocTotal label="Itens" value={eventMoney(totals.itemsTotal)} />
           {data.iss_enabled && <EventDocTotal label={`ISS ${data.iss_rate || 0}%`} value={eventMoney(totals.iss)} />}
           <div className="mt-3 border-t-2 border-neutral-900 pt-3">
@@ -203,7 +203,7 @@ function EventRoyalDocument({ data, totals }: { data: any; totals: { hallPrice: 
 
       <footer className="absolute bottom-5 left-12 right-12">
         <div className="grid grid-cols-2 gap-12">
-          <EventDocSignature label="Responsavel pelo evento" />
+          <EventDocSignature label="Responsável pelo evento" />
           <EventDocSignature label="Contratante" />
         </div>
         <div className="mt-5 border-t border-neutral-900 pt-2 text-center text-[11px]">
@@ -237,7 +237,7 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   const right = pageWidth - margin;
   const halls = data.halls?.length ? data.halls.join(' / ') : data.hall_name;
   const rows = buildEventDocumentRows(data, totals);
-  const title = data.is_quote ? 'COTACAO DE EVENTO' : 'ORDEM DE SERVICO';
+  const title = data.is_quote ? 'COTAÇÃO DE EVENTO' : 'ORDEM DE SERVIÇO';
   const code = data.is_quote ? (data.quote_number || 'Pendente') : (data.os_number || 'Pendente');
   const clean = (value: React.ReactNode) => String(value ?? '-').replace(/[–—]/g, '-');
 
@@ -247,31 +247,31 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(7);
-  pdf.text('ROYAL MACAE', margin, 20);
+  pdf.text('ROYAL MACAÉ', margin, 20);
   pdf.setFontSize(6);
   pdf.text('PALACE HOTEL', margin, 23);
 
   pdf.setFontSize(8);
-  pdf.text('EVENTOS ROYAL MACAE', 54, 15);
+  pdf.text('EVENTOS ROYAL MACAÉ', 54, 15);
   pdf.setFontSize(18);
   pdf.text(title, 54, 23);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(7);
-  pdf.text('Royal Macae Palace Hotel - AV. ATLANTICA, 1642 - PR. DOS CAVALEIROS', 54, 29);
+  pdf.text('Royal Macaé Palace Hotel - AV. ATLÂNTICA, 1642 - PR. DOS CAVALEIROS', 54, 29);
   pdf.text('CNPJ 07.116.901/0001-92 - (22)2123-9650 - eventos@royalmacae.com.br', 54, 34);
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(7);
-  pdf.text(data.is_quote ? 'COTACAO' : 'O.S.', right, 15, { align: 'right' });
+  pdf.text(data.is_quote ? 'COTAÇÃO' : 'O.S.', right, 15, { align: 'right' });
   pdf.setFontSize(14);
   pdf.text(clean(code), right, 24, { align: 'right' });
   pdf.setFontSize(7);
-  pdf.text('EMISSAO', right, 34, { align: 'right' });
+  pdf.text('EMISSÃO', right, 34, { align: 'right' });
   pdf.setFontSize(8);
   pdf.text(format(new Date(), 'dd/MM/yyyy HH:mm'), right, 39, { align: 'right' });
   pdf.roundedRect(right - 27, 44, 27, 8, 4, 4);
   pdf.setFontSize(7);
-  pdf.text(data.is_quote ? 'PROPOSTA' : 'EXECUCAO', right - 13.5, 49.2, { align: 'center' });
+  pdf.text(data.is_quote ? 'PROPOSTA' : 'EXECUÇÃO', right - 13.5, 49.2, { align: 'center' });
 
   pdf.setLineWidth(1);
   pdf.line(margin, 58, right, 58);
@@ -286,8 +286,8 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   const fieldColumns = [
     { x: margin + 4, max: 44, rows: [['TIPO', data.event_type || '-'], ['LOCAL', halls || '-']] },
     { x: margin + 58, max: 38, rows: [['CONTRATANTE', data.client_category || '-'], ['PARTICIPANTES', data.attendees_count ? `${data.attendees_count} pessoas` : '-']] },
-    { x: margin + 106, max: 32, rows: [['INICIO', `${eventDate(data.start_date)} ${data.start_time || ''}`]] },
-    { x: margin + 146, max: 32, rows: [['TERMINO', `${eventDate(data.end_date)} ${data.end_time || ''}`]] },
+    { x: margin + 106, max: 32, rows: [['INÍCIO', `${eventDate(data.start_date)} ${data.start_time || ''}`]] },
+    { x: margin + 146, max: 32, rows: [['TÉRMINO', `${eventDate(data.end_date)} ${data.end_time || ''}`]] },
   ];
   fieldColumns.forEach((column) => {
     column.rows.forEach(([label, value], index) => {
@@ -303,8 +303,8 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   const metricY = 120;
   const metricW = (right - margin - 6) / 3;
   [
-    ['SALAO', halls || '-'],
-    ['HORARIO', data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'],
+    ['SALÃO', halls || '-'],
+    ['HORÁRIO', data.start_time && data.end_time ? `${data.start_time} - ${data.end_time}` : '-'],
     [data.is_quote ? 'VALOR PROPOSTO' : 'STATUS', data.is_quote ? eventMoney(totals.total) : (data.status || 'planned')],
   ].forEach(([label, value], index) => {
     const x = margin + index * (metricW + 3);
@@ -318,14 +318,14 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
 
   let y = 148;
   pdf.setFontSize(7);
-  pdf.text(data.is_quote ? 'ITENS DA COTACAO' : 'SERVICOS DA O.S.', margin, y);
-  pdf.text('Page 1 of 1', right, y, { align: 'right' });
+  pdf.text(data.is_quote ? 'ITENS DA COTAÇÃO' : 'SERVIÇOS DA O.S.', margin, y);
+  pdf.text('Página 1 de 1', right, y, { align: 'right' });
   y += 5;
   pdf.setFillColor(212, 212, 212);
   pdf.rect(margin, y, right - margin, 8, 'F');
   pdf.setFontSize(7);
   pdf.text('Data', margin + 3, y + 5.5);
-  pdf.text('Descricao', margin + 65, y + 5.5);
+  pdf.text('Descrição', margin + 65, y + 5.5);
   pdf.text(data.is_quote ? 'Valor' : 'Qtd/Status', right - 3, y + 5.5, { align: 'right' });
   y += 11;
   pdf.setFont('helvetica', 'normal');
@@ -342,10 +342,10 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   pdf.setFont('helvetica', 'bold');
   pdf.roundedRect(margin, notesY, 100, 18, 2, 2);
   pdf.setFontSize(6);
-  pdf.text('OBSERVACOES IMPORTANTES', margin + 3, notesY + 6);
+  pdf.text('OBSERVAÇÕES IMPORTANTES', margin + 3, notesY + 6);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(7);
-  pdf.text(pdf.splitTextToSize(clean(data.important_notes || 'Sem observacoes registradas.'), 92), margin + 3, notesY + 11);
+  pdf.text(pdf.splitTextToSize(clean(data.important_notes || 'Sem observações registradas.'), 92), margin + 3, notesY + 11);
 
   pdf.roundedRect(margin, notesY + 22, 100, 18, 2, 2);
   pdf.setFont('helvetica', 'bold');
@@ -360,7 +360,7 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   pdf.setFontSize(6);
   pdf.text('RESUMO FINANCEIRO', 122, notesY + 6);
   const totalsRows = [
-    ['Locacao', eventMoney(totals.hallPrice)],
+    ['Locação', eventMoney(totals.hallPrice)],
     ['Itens', eventMoney(totals.itemsTotal)],
     ...(data.iss_enabled ? [[`ISS ${data.iss_rate || 0}%`, eventMoney(totals.iss)]] : []),
     ['Total', eventMoney(totals.total)],
@@ -376,7 +376,7 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   pdf.line(margin, 258, margin + 86, 258);
   pdf.line(112, 258, right, 258);
   pdf.setFontSize(6);
-  pdf.text('RESPONSAVEL PELO EVENTO', margin, 264);
+  pdf.text('RESPONSÁVEL PELO EVENTO', margin, 264);
   pdf.text('Data: ____/____/________', margin, 270);
   pdf.text('CONTRATANTE', 112, 264);
   pdf.text('Data: ____/____/________', 112, 270);
@@ -893,7 +893,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   };
 
   const handleDownloadLivePreview = async () => {
-    const toastId = toast.loading(`Gerando ${formData.is_quote ? 'cotacao' : 'O.S.'} em PDF...`);
+    const toastId = toast.loading(`Gerando ${formData.is_quote ? 'cotação' : 'O.S.'} em PDF...`);
     try {
       const pdf = drawEventPdf(formData, totals);
       pdf.save(`${formData.is_quote ? 'COTACAO' : 'OS'}_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
