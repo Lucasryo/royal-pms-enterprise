@@ -1103,10 +1103,10 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start"
+            className="grid grid-cols-1 gap-6 xl:grid-cols-12 xl:gap-8 items-start"
           >
             {/* Form */}
-            <div className="xl:col-span-5 space-y-6">
+            <div className="min-w-0 space-y-6 xl:col-span-4">
               <div className="bg-white p-4 sm:p-8 rounded-3xl border border-neutral-200 shadow-sm">
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Quote vs O.S. toggle */}
@@ -1527,16 +1527,16 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
             </div>
 
             {/* O.S. Live Preview */}
-            <div className="xl:col-span-7 space-y-6">
-               <div className="bg-paper rounded-[2rem] border border-ink/10 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sticky top-24 overflow-hidden p-8">
+            <div className="min-w-0 space-y-6 xl:col-span-8">
+               <div className="bg-paper rounded-[2rem] border border-ink/10 shadow-[0_20px_60px_-15px_rgba(20,15,10,0.12)] sticky top-20 overflow-hidden p-4 sm:p-6">
 
                   <div>
-                     <div className="flex items-center justify-between mb-7">
+                     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                            <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Pré-visualização</p>
                            <p className="font-display text-lg font-light text-ink mt-0.5">{formData.is_quote ? 'Cotação' : 'Ordem de Serviço'} — Formato A4</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-2">
                            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-400 px-3 py-1.5 bg-ink/5 rounded-full">{formData.client_category}</span>
                            <button
                              onClick={async () => {
@@ -1559,9 +1559,14 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                      </div>
 
-                     <div className="mx-auto max-h-[680px] max-w-full overflow-auto rounded-xl bg-neutral-100 p-4">
-                       <div className="origin-top scale-[0.42] sm:scale-[0.55] lg:scale-[0.68]" style={{ width: '210mm', height: '297mm' }}>
-                         <EventRoyalDocument data={formData} totals={totals} />
+                     <div className="mx-auto max-h-[calc(100vh-190px)] w-full overflow-y-auto overflow-x-hidden rounded-2xl bg-neutral-100 p-2 sm:p-4 [scrollbar-gutter:stable]">
+                       <div
+                         className="relative mx-auto [--preview-scale:0.43] sm:[--preview-scale:0.55] lg:[--preview-scale:0.68] xl:[--preview-scale:0.78] 2xl:[--preview-scale:0.92]"
+                         style={{ width: 'calc(210mm * var(--preview-scale))', height: 'calc(297mm * var(--preview-scale))' }}
+                       >
+                         <div className="absolute left-0 top-0 origin-top-left" style={{ width: '210mm', minHeight: '297mm', transform: 'scale(var(--preview-scale))' }}>
+                           <EventRoyalDocument data={formData} totals={totals} />
+                         </div>
                        </div>
                      </div>
 
