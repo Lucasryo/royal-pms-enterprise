@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #f8fafc;
+}
+
+/* Quando imprimir, mostra apenas a area da etiqueta.
+   O tamanho exato (@page size) e injetado dinamicamente em PrintLabelPage. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-label-area,
+  #print-label-area * {
+    visibility: visible;
+  }
+  #print-label-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+}
