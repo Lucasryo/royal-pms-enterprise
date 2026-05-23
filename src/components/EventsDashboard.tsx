@@ -239,17 +239,12 @@ async function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: 
 
   try {
     const logo = await getRoyalLogoDataUrl();
-    pdf.addImage(logo, 'PNG', margin, 13, 28, 28, undefined, 'FAST');
+    pdf.addImage(logo, 'PNG', margin, 14, 34, 22);
   } catch (error) {
     console.warn('Logo could not be embedded in event PDF:', error);
   }
 
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(7);
-  pdf.text('ROYAL MACAÉ', margin, 20);
-  pdf.setFontSize(6);
-  pdf.text('PALACE HOTEL', margin, 23);
-
   pdf.setFontSize(8);
   pdf.text('EVENTOS ROYAL MACAÉ', 54, 15);
   pdf.setFontSize(18);
