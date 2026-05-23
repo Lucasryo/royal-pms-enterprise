@@ -29,7 +29,6 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import EventItemsManager from './EventItemsManager';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, startOfToday, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { RoyalDocumentTable } from './documents/RoyalDocument';
@@ -39,46 +38,6 @@ const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'S
 
 const eventMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const eventDate = (value?: string) => value ? format(parseISO(value), 'dd/MM/yyyy') : '-';
-
-function prepareEventPdfClone(doc: Document) {
-  const win = doc.defaultView;
-  if (!win) return;
-
-  doc.querySelectorAll<HTMLElement>(
-    '#event-live-preview-document, #event-live-preview-document *, #contract-pdf-template, #contract-pdf-template *'
-  ).forEach((el) => {
-    const computed = win.getComputedStyle(el);
-    const safe = (value: string, fallback: string) => value.includes('oklch') ? fallback : value;
-    const preserved: string[] = [];
-
-    for (const property of Array.from(computed)) {
-      const value = computed.getPropertyValue(property);
-      if (!value.includes('oklch')) {
-        preserved.push(`${property}: ${value};`);
-      }
-    }
-
-    el.setAttribute('style', preserved.join(' '));
-    const style = el.style;
-
-    style.background = safe(computed.background, 'transparent');
-    style.color = safe(computed.color, '#111827');
-    style.backgroundColor = safe(computed.backgroundColor, 'transparent');
-    style.backgroundImage = computed.backgroundImage.includes('oklch') ? 'none' : computed.backgroundImage;
-    style.borderTopColor = safe(computed.borderTopColor, '#e5e7eb');
-    style.borderRightColor = safe(computed.borderRightColor, '#e5e7eb');
-    style.borderBottomColor = safe(computed.borderBottomColor, '#e5e7eb');
-    style.borderLeftColor = safe(computed.borderLeftColor, '#e5e7eb');
-    style.borderColor = safe(computed.borderColor, '#e5e7eb');
-    style.outlineColor = safe(computed.outlineColor, '#e5e7eb');
-    style.textDecorationColor = safe(computed.textDecorationColor, 'currentColor');
-    style.boxShadow = computed.boxShadow.includes('oklch') ? 'none' : computed.boxShadow;
-    style.textShadow = computed.textShadow.includes('oklch') ? 'none' : computed.textShadow;
-    style.setProperty('fill', safe(computed.fill, 'currentColor'));
-    style.setProperty('stroke', safe(computed.stroke, 'currentColor'));
-    el.removeAttribute('class');
-  });
-}
 
 type PublicEventLead = {
   id: string;
@@ -118,6 +77,19 @@ function buildEventDocumentRows(data: any, totals: { hallPrice: number; itemsTot
   }
   if (!rows.length) rows.push([eventDate(data.start_date), data.name || 'Evento', data.is_quote ? eventMoney(totals.total) : '-']);
   return rows;
+}
+
+function getEventDocumentTotals(data: Partial<HotelEvent> & { quote_items?: QuoteItem[] }) {
+  const quoteItems = data.quote_items || [];
+  const hallPrice = Number(data.hall_price || 0);
+  const itemsTotal = quoteItems.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
+  const calculatedSubtotal = hallPrice + itemsTotal;
+  const subtotal = Number(data.subtotal_value ?? calculatedSubtotal);
+  const issRate = Number(data.iss_rate ?? 5);
+  const iss = Number(data.iss_amount ?? (data.iss_enabled ? subtotal * (issRate / 100) : 0));
+  const total = Number(data.total_value ?? subtotal + iss);
+
+  return { hallPrice, itemsTotal, subtotal, iss, total };
 }
 
 function eventOccursOnDay(event: HotelEvent, day: Date) {
@@ -855,39 +827,15 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   };
 
   const handleDownloadContract = async (event: HotelEvent) => {
-    const element = document.getElementById('contract-pdf-template');
-    if (!element) {
-      toast.error('Template para PDF não encontrado.');
-      return;
-    }
-
     setLoading(true);
-    const toastId = toast.loading('Gerando PDF do contrato...');
+    const toastId = toast.loading(`Gerando ${event.is_quote ? 'cotação' : 'O.S.'} em PDF real...`);
 
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        onclone: prepareEventPdfClone,
-      });
+      const pdf = drawEventPdf(event, getEventDocumentTotals(event));
+      const code = event.is_quote ? (event.quote_number || event.os_number || 'EVENTO') : (event.os_number || 'EVENTO');
+      pdf.save(`${event.is_quote ? 'COTACAO' : 'OS'}_${code}.pdf`);
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`CONTRATO_${event.os_number || 'EVENTO'}.pdf`);
-
-      toast.success('Contrato em PDF gerado com sucesso!', { id: toastId });
+      toast.success('PDF real gerado com sucesso.', { id: toastId });
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast.error('Falha ao gerar o PDF. Tente novamente.', { id: toastId });
@@ -2259,7 +2207,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
         )}
       </AnimatePresence>
 
-      {/* Hidden PDF Template - rendered off-screen for html2canvas */}
+      {/* Hidden document template kept for document preview parity */}
       {(viewingEvent || (activeTab === 'register' && formData.name)) && (() => {
         const d = viewingEvent || formData as any;
         const pdfSubtotal = d.subtotal_value ?? d.total_value ?? 0;
