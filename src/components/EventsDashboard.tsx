@@ -38,6 +38,20 @@ const HALLS = ['Salão Búzios', 'Salão Rio das Ostras', 'Salão Cabo Frio', 'S
 
 const eventMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const eventDate = (value?: string) => value ? format(parseISO(value), 'dd/MM/yyyy') : '-';
+let royalLogoDataUrl: string | null = null;
+
+async function getRoyalLogoDataUrl() {
+  if (royalLogoDataUrl) return royalLogoDataUrl;
+  const response = await fetch('/logo.png');
+  const blob = await response.blob();
+  royalLogoDataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return royalLogoDataUrl;
+}
 
 type PublicEventLead = {
   id: string;
@@ -208,7 +222,7 @@ function EventDocSignature({ label }: { label: string }) {
   return <div className="border-t border-neutral-900 pt-2"><p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{label}</p><p className="mt-1 text-[10px] text-neutral-500">Data: ____/____/________</p></div>;
 }
 
-function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
+async function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number; subtotal: number; iss: number; total: number }) {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const margin = 12;
@@ -222,6 +236,13 @@ function drawEventPdf(data: any, totals: { hallPrice: number; itemsTotal: number
   pdf.setTextColor(17, 24, 39);
   pdf.setDrawColor(17, 24, 39);
   pdf.setLineWidth(0.7);
+
+  try {
+    const logo = await getRoyalLogoDataUrl();
+    pdf.addImage(logo, 'PNG', margin, 13, 28, 28, undefined, 'FAST');
+  } catch (error) {
+    console.warn('Logo could not be embedded in event PDF:', error);
+  }
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(7);
@@ -831,7 +852,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
     const toastId = toast.loading(`Gerando ${event.is_quote ? 'cotação' : 'O.S.'} em PDF real...`);
 
     try {
-      const pdf = drawEventPdf(event, getEventDocumentTotals(event));
+      const pdf = await drawEventPdf(event, getEventDocumentTotals(event));
       const code = event.is_quote ? (event.quote_number || event.os_number || 'EVENTO') : (event.os_number || 'EVENTO');
       pdf.save(`${event.is_quote ? 'COTACAO' : 'OS'}_${code}.pdf`);
 
@@ -847,7 +868,7 @@ export default function EventsDashboard({ profile }: { profile: UserProfile }) {
   const handleDownloadLivePreview = async () => {
     const toastId = toast.loading(`Gerando ${formData.is_quote ? 'cotação' : 'O.S.'} em PDF...`);
     try {
-      const pdf = drawEventPdf(formData, totals);
+      const pdf = await drawEventPdf(formData, totals);
       pdf.save(`${formData.is_quote ? 'COTACAO' : 'OS'}_PREVIEW_${format(new Date(), 'ddMMyyyy')}.pdf`);
       toast.success('PDF gerado com sucesso.', { id: toastId });
     } catch (error) {
