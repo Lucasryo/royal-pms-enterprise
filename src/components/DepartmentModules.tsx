@@ -328,9 +328,9 @@ function MaintenanceEquipmentTab({ profile }: { profile: UserProfile }) {
       });
 
       try {
-        await callBotFunction({ type: 'manual_resend', ticket_id: ticket.id });
+        await callBotFunction({ type: 'parts_arrived', ticket_id: ticket.id, actor_name: profile.name });
       } catch {
-        toast.warning('Pecas recebidas, mas nao foi possivel atualizar o card Telegram agora.');
+        toast.warning('Pecas recebidas, mas nao foi possivel avisar o grupo Telegram agora.');
       }
 
       toast.success('Pecas recebidas. Chamado retomado.');

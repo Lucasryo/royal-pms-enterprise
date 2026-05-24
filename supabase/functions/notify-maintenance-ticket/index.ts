@@ -1193,6 +1193,58 @@ async function handleManualResend(payload: Record<string, unknown>) {
   return { ok: true };
 }
 
+async function sendPartsArrivedNotice(payload: Record<string, unknown>) {
+  const ticketId = payload.ticket_id as string;
+  const actorName = (payload.actor_name as string) ?? "Operador";
+  if (!ticketId) return { ok: false, error: "missing ticket_id" };
+
+  const { data: ticket } = await db
+    .from("maintenance_tickets")
+    .select("id,title,room_number,status,status_reason,telegram_user_id,telegram_chat_id,telegram_message_id")
+    .eq("id", ticketId)
+    .single();
+
+  if (!ticket) return { ok: false, error: "ticket not found" };
+
+  await updateTicketCard(ticketId, CHAT_ID);
+
+  const chatId = ticket.telegram_chat_id ?? CHAT_ID;
+  const messageId = Number(ticket.telegram_message_id);
+  const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number as string)}\\)` : "";
+  const techMention = ticket.telegram_user_id
+    ? `[${esc(ticket.status_reason as string || "Tecnico")}](tg://user?id=${ticket.telegram_user_id})`
+    : `*${esc((ticket.status_reason as string) || "Tecnico responsavel")}*`;
+
+  const result = await tg("sendMessage", {
+    chat_id: chatId,
+    reply_to_message_id: messageId || undefined,
+    allow_sending_without_reply: true,
+    text: [
+      `📦 *Peças recebidas — chamado retomado*`,
+      `Chamado: *${esc(ticket.title as string)}*${uhPart}`,
+      "",
+      `${techMention}\\, as peças chegaram\\. Retome o atendimento e resolva o chamado quando concluir\\.`,
+      "",
+      `📢 _Aviso registrado por ${esc(actorName)}_`,
+    ].join("\n"),
+    parse_mode: "MarkdownV2",
+    reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ? Number(ticket.telegram_user_id) : undefined),
+  });
+
+  await logTelegramCardEvent("parts_arrived_notice", result?.ok ? "sent" : "failed", {
+    ticketId,
+    telegramMethod: "sendMessage",
+    telegramResult: result,
+    payload: {
+      chat_id: chatId,
+      reply_to_message_id: messageId || null,
+      actor_name: actorName,
+    },
+  });
+
+  return { ok: result?.ok === true };
+}
+
 function extractLastTech(resolutionNotes: string): string | null {
   const m = resolutionNotes.match(/\(([^)]+)\)\s*$/);
   return m ? m[1] : null;
@@ -1201,13 +1253,14 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test", "telegram_permissions", "create_telegram_link_code", "revoke_telegram_binding"];
+  const internalTypes = ["daily_report", "manual_resend", "parts_arrived", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test", "telegram_permissions", "create_telegram_link_code", "revoke_telegram_binding"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
 
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
+  if ((body.type as string) === "parts_arrived")  return await sendPartsArrivedNotice(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
   if ((body.type as string) === "bot_self_test")  return await runBotSelfTest(authHeader);
 
@@ -2031,7 +2084,7 @@ async function handleCallback(query: Record<string, unknown>) {
         notes: "Pecas recebidas via Telegram.",
       });
     }
-    await updateTicketCard(ticketId, chatId);
+    await sendPartsArrivedNotice({ ticket_id: ticketId, actor_name: name });
     await callbackOk("Pecas recebidas. Chamado retomado.");
     return { ok: true };
 
