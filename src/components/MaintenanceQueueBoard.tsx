@@ -117,11 +117,15 @@ export default function MaintenanceQueueBoard() {
 
   useEffect(() => {
     fetchTickets();
+    const pollId = window.setInterval(fetchTickets, 15_000);
     const channel = supabase
       .channel('maint-board')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_tickets' }, fetchTickets)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      window.clearInterval(pollId);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
