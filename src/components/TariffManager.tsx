@@ -220,6 +220,8 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [importPreview, setImportPreview] = useState<{ rows: ImportRow[]; skipped: string[] } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [linkingCompanyName, setLinkingCompanyName] = useState<string | null>(null);
+  const [manualLinks, setManualLinks] = useState<Record<string, string>>({});
 
   // Form states
   const [companyName, setCompanyName] = useState('');
@@ -426,13 +428,62 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
     fetchTariffs();
   }
 
+  async function linkUnlinkedCompanyName(tariffCompanyName: string) {
+    const selectedCompanyId = manualLinks[tariffCompanyName];
+    const selectedCompany = companies.find(company => company.id === selectedCompanyId);
+    if (!selectedCompany) {
+      toast.error('Selecione uma empresa cadastrada para vincular.');
+      return;
+    }
+
+    setLinkingCompanyName(tariffCompanyName);
+    try {
+      const { error } = await supabase
+        .from('tariffs')
+        .update({
+          company_id: selectedCompany.id,
+          company_name: selectedCompany.name,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('company_name', tariffCompanyName)
+        .is('company_id', null);
+
+      if (error) throw error;
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Vinculo manual de tarifario',
+        details: `${tariffCompanyName} -> ${selectedCompany.name}`,
+        type: 'update',
+      });
+      toast.success(`Tarifas de ${tariffCompanyName} vinculadas a ${selectedCompany.name}.`);
+      setManualLinks(current => {
+        const next = { ...current };
+        delete next[tariffCompanyName];
+        return next;
+      });
+      fetchTariffs();
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao vincular tarifa: ' + (err.message || 'falha'));
+    } finally {
+      setLinkingCompanyName(null);
+    }
+  }
+
   function resetForm() {
     setCompanyName(''); setCompanyId(''); setBaseRate(''); setPercentage(''); setRoomType('single'); setCategory('executivo'); setDescription(''); setEditingId(null); setIsAdding(false);
   }
 
   const canManage = profile.role === 'admin' || profile.role === 'reservations';
   const linkedTariffs = tariffs.filter(t => t.company_id).length;
-  const unlinkedTariffCompanies = Array.from(new Set(tariffs.filter(t => !t.company_id).map(t => t.company_name))).length;
+  const unlinkedGroups = Array.from(new Set(tariffs.filter(t => !t.company_id).map(t => t.company_name)))
+    .sort((a, b) => a.localeCompare(b))
+    .map(name => ({
+      name,
+      rows: tariffs.filter(t => !t.company_id && t.company_name === name),
+    }));
+  const unlinkedTariffCompanies = unlinkedGroups.length;
 
   const groupedTariffs = tariffs.filter(t => t.company_name.toLowerCase().includes(searchTerm.toLowerCase())).reduce((acc, t) => {
     if (!acc[t.company_name]) acc[t.company_name] = [];
@@ -500,6 +551,53 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
           className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
         />
       </div>
+
+      {canManage && unlinkedGroups.length > 0 && (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Tarifas sem empresa vinculada</p>
+              <h3 className="mt-1 text-lg font-black text-amber-950">{unlinkedGroups.length} nome(s) aguardando vinculo</h3>
+            </div>
+            <p className="max-w-xl text-xs font-bold leading-5 text-amber-800">
+              Escolha a empresa cadastrada correta. Ao vincular, todas as tarifas daquele nome passam a aparecer automaticamente no portal do cliente.
+            </p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {unlinkedGroups.map(group => (
+              <div key={group.name} className="rounded-2xl border border-amber-100 bg-white p-3 shadow-sm">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-neutral-950">{group.name}</p>
+                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-neutral-400">{group.rows.length} tarifa(s)</p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Pendente</span>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select
+                    value={manualLinks[group.name] || ''}
+                    onChange={event => setManualLinks(current => ({ ...current, [group.name]: event.target.value }))}
+                    className="min-w-0 flex-1 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-neutral-900/10"
+                  >
+                    <option value="">Selecionar empresa cadastrada</option>
+                    {companies.map(company => (
+                      <option key={company.id} value={company.id}>{company.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={linkingCompanyName === group.name || !manualLinks[group.name]}
+                    onClick={() => linkUnlinkedCompanyName(group.name)}
+                    className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black uppercase tracking-widest text-white transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {linkingCompanyName === group.name ? 'Vinculando...' : 'Vincular'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {Object.entries(groupedTariffs).map(([name, items]) => (

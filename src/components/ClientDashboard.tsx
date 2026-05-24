@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { Company, CompanyBillingProfile, FiscalFile, UserProfile, Notification, Reservation, ReservationRequest, VoucherHotelProfile } from '../types';
+import { Company, CompanyBillingProfile, FiscalFile, UserProfile, Notification, Reservation, ReservationRequest, Tariff, VoucherHotelProfile } from '../types';
 import { FileText, Search, Loader2, Download, Filter, CheckCircle2, Clock, Sparkles, Eye, X, Bell, BellOff, Receipt, AlertTriangle, Image as ImageIcon, Send, Upload, Calendar, Plus, Mail, Building2, User, Printer, ShieldCheck, Ban, CreditCard, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -80,6 +80,25 @@ const paymentMethodLabel: Record<string, string> = {
   VIRTUAL_CARD: 'Cartao virtual',
 };
 
+const CATEGORY_TO_TARIFF_CATEGORY: Record<string, Tariff['category']> = {
+  executivo: 'executivo',
+  superior: 'superior',
+  premium: 'superior',
+  master: 'master',
+  luxo: 'master',
+  suite: 'suite presidencial',
+  'suite presidencial': 'suite presidencial',
+};
+
+const OCCUPANCY_TO_ROOM_TYPE: Record<string, Tariff['room_type']> = {
+  SGL: 'single',
+  DBL: 'duplo',
+  TPL: 'triplo',
+  QDL: 'quadruplo',
+};
+
+const getTariffDailyTotal = (tariff: Tariff) => Number(tariff.base_rate || 0) * (1 + Number(tariff.percentage || 0) / 100);
+
 export default function ClientDashboard({ profile, initialTab = 'active' }: { profile: UserProfile, initialTab?: 'active' | 'trash' | 'reservations' }) {
   const isExternalClient = profile.role === 'external_client';
   const canManageClientArchive = !!profile.permissions?.canUploadFiles && !isExternalClient;
@@ -100,6 +119,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [reservationRequests, setReservationRequests] = useState<ReservationRequest[]>([]);
   const [billingProfiles, setBillingProfiles] = useState<CompanyBillingProfile[]>([]);
+  const [corporateTariffs, setCorporateTariffs] = useState<Tariff[]>([]);
   const [hotelProfile, setHotelProfile] = useState<VoucherHotelProfile>(DEFAULT_VOUCHER_HOTEL_PROFILE);
   const [showReservationForm, setShowReservationForm] = useState(false);
   const [submittingReservation, setSubmittingReservation] = useState(false);
@@ -181,10 +201,26 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     }));
   };
 
+  const findCorporateTariff = (categoryValue = reservationForm.category, occupancyValue = reservationForm.occupancy_type) => {
+    const tariffCategory = CATEGORY_TO_TARIFF_CATEGORY[categoryValue] || categoryValue;
+    const roomType = OCCUPANCY_TO_ROOM_TYPE[occupancyValue] || 'single';
+    return corporateTariffs.find(item => item.category === tariffCategory && item.room_type === roomType) || null;
+  };
+
+  const selectedCorporateTariff = findCorporateTariff();
+
   // Filter states
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterPeriodStart, setFilterPeriodStart] = useState<string>('');
   const [filterPeriodEnd, setFilterPeriodEnd] = useState<string>('');
+
+  useEffect(() => {
+    if (!selectedCorporateTariff) return;
+    const agreedRate = Number(getTariffDailyTotal(selectedCorporateTariff).toFixed(2));
+    setReservationForm(prev => (
+      Number(prev.tariff || 0) === agreedRate ? prev : { ...prev, tariff: agreedRate }
+    ));
+  }, [selectedCorporateTariff?.id, selectedCorporateTariff?.base_rate, selectedCorporateTariff?.percentage]);
 
   useEffect(() => {
     if (!canManageClientArchive && activeTab === 'trash') {
@@ -339,6 +375,19 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         .order('name');
       if (!profileError && profileData) setBillingProfiles(profileData as CompanyBillingProfile[]);
 
+      const { data: tariffData, error: tariffError } = await supabase
+        .from('tariffs')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('category')
+        .order('room_type');
+      if (tariffError) {
+        console.error("ClientDashboard: Error fetching corporate tariffs:", tariffError);
+        setCorporateTariffs([]);
+      } else if (tariffData) {
+        setCorporateTariffs(tariffData as Tariff[]);
+      }
+
       const { data: hotelSetting, error: hotelError } = await supabase
         .from('app_settings')
         .select('value')
@@ -386,15 +435,25 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
     try {
       const resCode = generateReservationCode();
-      const reservationTotals = calculateReservationTotal(reservationForm);
       const paxNames = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
       if (paxNames.length === 0) {
         toast.error('Informe pelo menos um PAX.');
         return;
       }
+      const agreementTariff = findCorporateTariff();
+      if (corporateTariffs.length > 0 && !agreementTariff) {
+        toast.error('Nao ha tarifa acordo vinculada para esta categoria/ocupacao. Fale com Reservas para ajustar o tarifario.');
+        return;
+      }
+      const tariffValue = agreementTariff
+        ? Number(getTariffDailyTotal(agreementTariff).toFixed(2))
+        : Number(reservationForm.tariff || 0);
+      const requestForm = { ...reservationForm, tariff: tariffValue };
+      const reservationTotals = calculateReservationTotal(requestForm);
       const { iss_enabled, service_enabled, pax_names: _formPax, ...reservationValues } = reservationForm;
       const newRequest: ReservationRequest = {
         ...reservationValues,
+        tariff: tariffValue,
         guest_name: paxNames[0],
         pax_names: paxNames,
         iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
@@ -1817,9 +1876,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                     >
                       <option value="executivo">Executivo</option>
-                      <option value="premium">Premium</option>
-                      <option value="luxo">Luxo</option>
-                      <option value="suite">Suíte Presidencial</option>
+                      <option value="superior">Superior</option>
+                      <option value="master">Master</option>
+                      <option value="suite presidencial">Suíte Presidencial</option>
                     </select>
                   </div>
                   <div>
@@ -1857,9 +1916,23 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       type="number"
                       step="0.01"
                       value={reservationForm.tariff}
+                      readOnly={Boolean(selectedCorporateTariff)}
                       onChange={(e) => setReservationForm({...reservationForm, tariff: parseFloat(e.target.value)})}
-                      className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
+                      className={`w-full px-4 py-3 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all ${selectedCorporateTariff ? 'bg-emerald-50 font-black text-emerald-900' : 'bg-neutral-50'}`}
                     />
+                    {selectedCorporateTariff ? (
+                      <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                        Tarifa acordo aplicada automaticamente: {selectedCorporateTariff.company_name}
+                      </p>
+                    ) : corporateTariffs.length > 0 ? (
+                      <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                        Sem tarifa acordo para esta categoria/ocupacao.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                        Nenhuma tarifa acordo vinculada a esta empresa.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Telefone p/ Contato</label>
