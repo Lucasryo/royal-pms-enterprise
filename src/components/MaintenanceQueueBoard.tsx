@@ -240,8 +240,8 @@ export default function MaintenanceQueueBoard() {
           </div>
         </header>
 
-        <main className="grid flex-1 gap-5 py-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-          <section className="grid gap-5 lg:grid-rows-[minmax(360px,1fr)_auto]">
+        <main className="grid flex-1 gap-5 py-5 xl:grid-cols-3">
+          <section className="grid gap-5 xl:col-span-2">
             <FeaturedTicket ticket={featured} isFresh={Boolean(featured && freshTicketIds.includes(featured.id))} />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatusMetric label="Aguardando" value={stats.open} tone="amber" />
@@ -323,8 +323,8 @@ function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: b
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-amber-300 via-white to-blue-300" />
       <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
       {isFresh && <FreshBadge className="absolute right-5 top-5" />}
-      <div className="relative grid h-full gap-6 lg:grid-cols-[1fr_auto]">
-        <div className="min-w-0">
+      <div className="relative grid h-full gap-6 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2">
           <p className="text-[11px] font-black uppercase tracking-[0.3em] text-white/45">Chamado em destaque</p>
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <span className={`rounded-2xl border px-5 py-2 text-sm font-black uppercase tracking-[0.18em] shadow-lg ${PRIORITY_STYLE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
