@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, ShieldCheck, TrendingUp, UserCog, Users, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, CheckCircle2, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Loader2, Maximize2, Monitor, Package, QrCode, Search, ShieldCheck, Timer, TrendingUp, UserCog, Users, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -77,6 +77,7 @@ export function MaintenanceModuleDashboard({ profile }: { profile: UserProfile }
       tabs={[
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
         { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
+        { id: 'equipment', label: 'Equipamentos', icon: Package, render: () => <MaintenanceEquipmentTab profile={profile} /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
       ]}
@@ -94,6 +95,7 @@ type MaintTicket = {
   status_reason: string | null;
   resolution_notes: string | null;
   created_at: string;
+  updated_at: string | null;
   started_at: string | null;
   resolved_at: string | null;
   rating: number | null;
@@ -227,6 +229,282 @@ function BoardTab() {
   );
 }
 
+function cleanPartsText(text?: string | null) {
+  if (!text) return 'Sem descricao detalhada das pecas.';
+  return text
+    .replace(/^⚠️\s*/i, '')
+    .replace(/^Aguardando pecas:\s*/i, '')
+    .replace(/^Aguardando peças:\s*/i, '')
+    .trim() || 'Sem descricao detalhada das pecas.';
+}
+
+function partsWaitingStart(ticket: MaintTicket) {
+  return ticket.updated_at ?? ticket.started_at ?? ticket.created_at;
+}
+
+function MaintenanceEquipmentTab({ profile }: { profile: UserProfile }) {
+  const [tickets, setTickets] = useState<MaintTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [priority, setPriority] = useState('');
+  const [receivingId, setReceivingId] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    fetchPartsTickets();
+    const ch = supabase
+      .channel('maintenance-equipment-parts')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_tickets' }, fetchPartsTickets)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  async function fetchPartsTickets() {
+    const { data, error } = await supabase
+      .from('maintenance_tickets')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,updated_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_message_id,telegram_card_updated_at')
+      .eq('awaiting_parts', true)
+      .order('updated_at', { ascending: true, nullsFirst: false })
+      .limit(200);
+
+    if (error) {
+      toast.error('Erro ao carregar equipamentos: ' + error.message);
+      setLoading(false);
+      return;
+    }
+
+    setTickets((data ?? []) as MaintTicket[]);
+    setLoading(false);
+  }
+
+  async function callBotFunction(body: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sessao invalida.');
+    const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.ok === false) throw new Error(data?.error ?? `Falha ao chamar bot (${res.status}).`);
+    return data;
+  }
+
+  async function markPartsReceived(ticket: MaintTicket) {
+    setReceivingId(ticket.id);
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_tickets')
+        .update({
+          awaiting_parts: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', ticket.id)
+        .eq('awaiting_parts', true)
+        .select('id');
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error('Esse chamado ja saiu da fila de pecas.');
+        await fetchPartsTickets();
+        return;
+      }
+
+      await supabase.from('maintenance_ticket_events').insert({
+        ticket_id: ticket.id,
+        actor_type: 'pms_user',
+        actor_id: profile.id,
+        actor_name: profile.name,
+        event: 'parts_received_pms',
+        prev_status: ticket.status,
+        new_status: ticket.status,
+        notes: `Pecas recebidas via PMS por ${profile.name}.`,
+      });
+
+      try {
+        await callBotFunction({ type: 'manual_resend', ticket_id: ticket.id });
+      } catch {
+        toast.warning('Pecas recebidas, mas nao foi possivel atualizar o card Telegram agora.');
+      }
+
+      toast.success('Pecas recebidas. Chamado retomado.');
+      await fetchPartsTickets();
+    } catch (error: any) {
+      toast.error('Erro ao marcar pecas recebidas: ' + (error?.message ?? 'erro desconhecido'));
+    } finally {
+      setReceivingId(null);
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return tickets.filter(ticket => {
+      const matchesPriority = !priority || ticket.priority === priority;
+      const haystack = [
+        ticket.room_number,
+        ticket.title,
+        ticket.description,
+        ticket.status_reason,
+        cleanPartsText(ticket.resolution_notes),
+      ].filter(Boolean).join(' ').toLowerCase();
+      return matchesPriority && (!term || haystack.includes(term));
+    });
+  }, [tickets, search, priority]);
+
+  const oldestMinutes = tickets.reduce((max, ticket) => Math.max(max, Math.floor((Date.now() - new Date(partsWaitingStart(ticket)).getTime()) / 60_000)), 0);
+  const urgentCount = tickets.filter(ticket => ticket.priority === 'urgent').length;
+  const slaCount = tickets.filter(ticket => {
+    const wait = Math.floor((Date.now() - new Date(partsWaitingStart(ticket)).getTime()) / 60_000);
+    return wait > SLA_MIN[ticket.priority];
+  }).length;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-3xl border border-neutral-200 bg-white">
+        <Loader2 className="h-8 w-8 animate-spin text-neutral-300" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-[2rem] border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-neutral-50 p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.26em] text-orange-600">Equipamentos</p>
+            <h2 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Pecas pendentes da manutencao</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+              Chamados em andamento que dependem de material, peca ou equipamento para voltar ao fluxo normal.
+            </p>
+          </div>
+          <button
+            onClick={fetchPartsTickets}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-orange-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-orange-700 transition hover:bg-orange-50"
+          >
+            <Package className="h-4 w-4" />
+            Atualizar
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <EquipmentMetric label="Aguardando pecas" value={tickets.length} tone="orange" />
+          <EquipmentMetric label="Urgentes" value={urgentCount} tone="red" />
+          <EquipmentMetric label="SLA vencido" value={slaCount} tone={slaCount > 0 ? 'red' : 'green'} />
+          <EquipmentMetric label="Mais antigo" value={tickets.length ? fmtMins(oldestMinutes) : '-'} tone="slate" />
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-neutral-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              placeholder="Buscar por UH, tecnico, titulo ou peca..."
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 py-3 pl-10 pr-3 text-sm font-semibold outline-none transition focus:border-orange-300 focus:bg-white"
+            />
+          </label>
+          <select
+            value={priority}
+            onChange={event => setPriority(event.target.value)}
+            className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm font-bold text-neutral-700 outline-none transition focus:border-orange-300 focus:bg-white"
+          >
+            <option value="">Todas prioridades</option>
+            <option value="urgent">Urgente</option>
+            <option value="high">Alta</option>
+            <option value="medium">Media</option>
+            <option value="low">Baixa</option>
+          </select>
+        </div>
+      </section>
+
+      {filtered.length === 0 ? (
+        <section className="rounded-[2rem] border border-dashed border-neutral-200 bg-white py-16 text-center">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
+          <h3 className="mt-4 text-xl font-black text-neutral-950">Nenhum chamado aguardando pecas</h3>
+          <p className="mt-2 text-sm text-neutral-500">Quando um tecnico registrar falta de pecas, o chamado aparece aqui.</p>
+        </section>
+      ) : (
+        <section className="grid gap-4 xl:grid-cols-2">
+          {filtered.map(ticket => {
+            const waitStart = partsWaitingStart(ticket);
+            const waitMinutes = Math.floor((Date.now() - new Date(waitStart).getTime()) / 60_000);
+            const blockedSla = waitMinutes > SLA_MIN[ticket.priority];
+            return (
+              <article key={ticket.id} className={`rounded-[2rem] border bg-white p-5 shadow-sm ${blockedSla || ticket.priority === 'urgent' ? 'border-red-200' : 'border-orange-200'}`}>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
+                      {ticket.room_number && <span className="rounded-xl bg-neutral-950 px-2.5 py-1 text-xs font-black text-white">UH {ticket.room_number}</span>}
+                      {blockedSla && <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-black uppercase text-red-700"><AlertCircle className="h-3 w-3" /> SLA</span>}
+                    </div>
+                    <h3 className="mt-3 text-lg font-black leading-snug text-neutral-950">{ticket.title}</h3>
+                    {ticket.description && <p className="mt-1 line-clamp-2 text-sm leading-6 text-neutral-500">{ticket.description}</p>}
+                  </div>
+                  <button
+                    onClick={() => markPartsReceived(ticket)}
+                    disabled={receivingId === ticket.id}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {receivingId === ticket.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Pecas recebidas
+                  </button>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-orange-600">Pecas solicitadas</p>
+                  <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-orange-950">{cleanPartsText(ticket.resolution_notes)}</p>
+                </div>
+
+                <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+                  <EquipmentInfo icon={<Wrench className="h-4 w-4" />} label="Responsavel" value={ticket.status_reason || 'Sem tecnico'} />
+                  <EquipmentInfo icon={<Timer className="h-4 w-4" />} label="Aguardando ha" value={elapsed(waitStart)} />
+                  <EquipmentInfo icon={<CalendarDays className="h-4 w-4" />} label="Ultima atualizacao" value={ticket.updated_at ? new Date(ticket.updated_at).toLocaleString('pt-BR') : '-'} />
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function EquipmentMetric({ label, value, tone }: { label: string; value: string | number; tone: 'orange' | 'red' | 'green' | 'slate' }) {
+  const tones = {
+    orange: 'border-orange-200 bg-orange-50 text-orange-700',
+    red: 'border-red-200 bg-red-50 text-red-700',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    slate: 'border-neutral-200 bg-neutral-50 text-neutral-700',
+  };
+  return (
+    <div className={`rounded-3xl border p-4 ${tones[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-widest opacity-70">{label}</p>
+      <p className="mt-2 text-3xl font-black tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function EquipmentInfo({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-neutral-100 bg-neutral-50 p-3">
+      <div className="flex items-center gap-2 text-neutral-400">
+        {icon}
+        <p className="text-[10px] font-black uppercase tracking-widest">{label}</p>
+      </div>
+      <p className="mt-1 truncate text-xs font-black text-neutral-800">{value}</p>
+    </div>
+  );
+}
+
 function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   const [tickets, setTickets] = useState<MaintTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,7 +567,7 @@ function MaintenanceTicketsTab({ profile }: { profile: UserProfile }) {
   async function fetchTickets() {
     const { data, error } = await supabase
       .from('maintenance_tickets')
-      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_message_id,telegram_card_updated_at')
+      .select('id,room_number,title,description,priority,status,status_reason,resolution_notes,created_at,updated_at,started_at,resolved_at,rating,inspection_status,inspector_id,inspection_notes,inspected_at,awaiting_parts,telegram_user_id,telegram_message_id,telegram_card_updated_at')
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) { toast.error('Erro ao carregar chamados: ' + error.message); setLoading(false); return; }

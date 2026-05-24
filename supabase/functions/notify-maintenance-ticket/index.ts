@@ -2013,10 +2013,24 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert(`Chamado ja esta ${ticket.status}.`);
       return { ok: true };
     }
-    await db.from("maintenance_tickets").update({
+    const { count: receivedCount } = await db.from("maintenance_tickets").update({
       awaiting_parts: false,
       updated_at: new Date().toISOString(),
-    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .select("id", { count: "exact", head: true });
+    if (receivedCount && receivedCount > 0) {
+      await logEvent({
+        ticketId,
+        actorType: "telegram_user",
+        actorId: String(fromId),
+        actorName: name,
+        actorTgId: fromId,
+        event: "parts_received_telegram",
+        prevStatus: "in_progress",
+        newStatus: "in_progress",
+        notes: "Pecas recebidas via Telegram.",
+      });
+    }
     await updateTicketCard(ticketId, chatId);
     await callbackOk("Pecas recebidas. Chamado retomado.");
     return { ok: true };
@@ -2498,11 +2512,25 @@ async function handleReply(message: Record<string, unknown>) {
       return { ok: true };
     }
 
-    await db.from("maintenance_tickets").update({
+    const { count: partsCount } = await db.from("maintenance_tickets").update({
       updated_at: new Date().toISOString(),
       awaiting_parts: true,
       resolution_notes: `Aguardando pecas: ${replyValue} (${name})`,
-    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId);
+    }).eq("id", ticketId).eq("status", "in_progress").eq("telegram_user_id", fromId)
+      .select("id", { count: "exact", head: true });
+    if (partsCount && partsCount > 0) {
+      await logEvent({
+        ticketId,
+        actorType: "telegram_user",
+        actorId: String(fromId),
+        actorName: name,
+        actorTgId: fromId,
+        event: "parts_requested_telegram",
+        prevStatus: "in_progress",
+        newStatus: "in_progress",
+        notes: replyValue,
+      });
+    }
     await updateTicketCard(ticketId, chatId);
     await cleanupPromptAndReply(message);
   }
