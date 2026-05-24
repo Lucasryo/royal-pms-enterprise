@@ -1309,7 +1309,7 @@ function preventiveDescription(plan: Record<string, unknown>, dueDate: string): 
     ? (plan.checklist as unknown[]).map(item => String(item).trim()).filter(Boolean)
     : [];
   const lines = [
-    `Preventiva programada para ${dueDate}.`,
+    `Rotina preventiva programada para ${dueDate}.`,
     `Local/equipamento: ${preventiveTarget(plan)}.`,
   ];
   if (plan.instructions) lines.push(`Orientacao: ${plan.instructions}`);
@@ -1351,7 +1351,7 @@ async function generatePreventiveTicket(plan: Record<string, unknown>, run: Reco
     .from("maintenance_tickets")
     .insert({
       room_number: plan.target_type === "room" ? plan.room_number ?? null : null,
-      title: `Preventiva: ${plan.title}`,
+      title: `Rotina preventiva: ${plan.title}`,
       description: preventiveDescription(plan, dueDate),
       priority: plan.priority ?? "medium",
       status: "open",
@@ -1386,7 +1386,7 @@ async function generatePreventiveTicket(plan: Record<string, unknown>, run: Reco
     actor_name: actorName,
     prev_status: null,
     new_status: "open",
-    notes: `Preventiva gerada para ${target} em ${dueDate}.`,
+    notes: `Rotina preventiva criada para ${target} em ${dueDate}.`,
   });
 
   const sentCard = await sendTicketCard(ticket as Record<string, unknown>, CHAT_ID, { notifyNew: true, source: "preventive_due_scan" });

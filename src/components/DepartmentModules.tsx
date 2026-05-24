@@ -427,8 +427,8 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
         body: JSON.stringify({ type: 'preventive_due_scan', plan_id: plan.id, force: true, actor_name: profile.name || 'PMS' }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Falha ao gerar chamado preventivo.');
-      toast.success('Chamado preventivo gerado e enviado ao Telegram.');
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Falha ao gerar tarefa preventiva.');
+      toast.success('Tarefa preventiva criada e enviada ao Telegram.');
       void fetchPreventive();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro ao gerar preventiva.');
@@ -438,7 +438,7 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
   }
 
   async function completeWithoutTicket(plan: PreventivePlan) {
-    const notes = window.prompt('Observacao da preventiva concluida sem chamado:', 'Preventiva conferida sem necessidade de abertura de chamado.');
+    const notes = window.prompt('Observacao da rotina registrada como feita:', 'Rotina conferida pela equipe, sem necessidade de abrir tarefa no Telegram.');
     if (notes === null) return;
     const dueDate = plan.next_due_date;
     const nextDueDate = addPreventiveFrequency(dueDate, plan.frequency);
@@ -448,7 +448,7 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
       status: 'completed',
       completed_at: new Date().toISOString(),
       completed_by: profile.id,
-      notes: notes || 'Preventiva concluida sem chamado.',
+      notes: notes || 'Rotina preventiva registrada como feita.',
       updated_at: new Date().toISOString(),
     }, { onConflict: 'plan_id,due_date' });
 
@@ -459,8 +459,8 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
       updated_at: new Date().toISOString(),
     }).eq('id', plan.id);
 
-    if (planError) return toast.error('Erro ao atualizar proxima data: ' + planError.message);
-    toast.success('Preventiva concluida e proxima data calculada.');
+    if (planError) return toast.error('Erro ao atualizar proxima execucao: ' + planError.message);
+    toast.success('Rotina registrada e proxima execucao calculada.');
     void fetchPreventive();
   }
 
@@ -496,10 +496,10 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
-        <PreventiveMetric label="Vencidas" value={summary.overdue} tone={summary.overdue > 0 ? 'red' : 'green'} />
-        <PreventiveMetric label="Hoje" value={summary.today} tone={summary.today > 0 ? 'amber' : 'neutral'} />
-        <PreventiveMetric label="7 dias" value={summary.week} tone="blue" />
-        <PreventiveMetric label="30 dias" value={summary.month} tone="purple" />
+        <PreventiveMetric label="Atrasadas" value={summary.overdue} tone={summary.overdue > 0 ? 'red' : 'green'} />
+        <PreventiveMetric label="Programadas hoje" value={summary.today} tone={summary.today > 0 ? 'amber' : 'neutral'} />
+        <PreventiveMetric label="Proximos 7 dias" value={summary.week} tone="blue" />
+        <PreventiveMetric label="Proximos 30 dias" value={summary.month} tone="purple" />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
@@ -507,7 +507,7 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">Preventiva</p>
-              <h3 className="mt-1 text-xl font-black text-neutral-950">{editingId ? 'Editar rotina' : 'Nova rotina'}</h3>
+              <h3 className="mt-1 text-xl font-black text-neutral-950">{editingId ? 'Editar rotina operacional' : 'Nova rotina operacional'}</h3>
             </div>
             {editingId && <button onClick={resetForm} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-600">Cancelar</button>}
           </div>
@@ -537,7 +537,10 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
               <select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value as PreventivePlan['frequency'] })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
                 {Object.entries(PREVENTIVE_FREQUENCY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
-              <input type="date" value={form.next_due_date} onChange={e => setForm({ ...form, next_due_date: e.target.value })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+              <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">
+                Proxima execucao
+                <input type="date" value={form.next_due_date} onChange={e => setForm({ ...form, next_due_date: e.target.value })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none focus:ring-2 focus:ring-emerald-500" />
+              </label>
             </div>
             <textarea value={form.checklist} onChange={e => setForm({ ...form, checklist: e.target.value })} placeholder="Checklist, um item por linha" rows={4} className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
             <textarea value={form.instructions} onChange={e => setForm({ ...form, instructions: e.target.value })} placeholder="Orientacoes para o tecnico" rows={3} className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -556,7 +559,7 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
             </div>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'active' | 'due' | 'all')} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500">
               <option value="active">Ativas</option>
-              <option value="due">Vencidas/hoje</option>
+              <option value="due">Atrasadas/hoje</option>
               <option value="all">Todas</option>
             </select>
           </div>
@@ -592,7 +595,7 @@ function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
             <div key={run.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-100 bg-neutral-50 px-4 py-3">
               <div>
                 <p className="text-sm font-black text-neutral-900">{run.plan?.title || 'Preventiva'}</p>
-                <p className="text-xs font-bold text-neutral-500">{run.due_date} · {run.status === 'ticket_created' ? 'Chamado gerado' : run.status === 'completed' ? 'Concluida sem chamado' : run.status}</p>
+                <p className="text-xs font-bold text-neutral-500">{run.due_date} · {run.status === 'ticket_created' ? 'Tarefa enviada ao Telegram' : run.status === 'completed' ? 'Registrada como feita' : run.status}</p>
               </div>
               {run.ticket_id && <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">Chamado {run.ticket_id.slice(0, 6)}</span>}
             </div>
@@ -622,7 +625,7 @@ function PreventiveMetric({ label, value, tone }: { label: string; value: number
 
 function PreventivePlanCard({ plan, generating, onGenerate, onComplete, onEdit, onToggle }: { plan: PreventivePlan; generating: boolean; onGenerate: () => void; onComplete: () => void; onEdit: () => void; onToggle: () => void }) {
   const dueDays = daysUntil(plan.next_due_date);
-  const dueLabel = dueDays < 0 ? `${Math.abs(dueDays)}d vencida` : dueDays === 0 ? 'vence hoje' : `em ${dueDays}d`;
+  const dueLabel = dueDays < 0 ? `${Math.abs(dueDays)}d atrasada` : dueDays === 0 ? 'para hoje' : `em ${dueDays}d`;
   const dueTone = dueDays < 0 ? 'bg-red-100 text-red-700' : dueDays === 0 ? 'bg-amber-100 text-amber-700' : 'bg-neutral-100 text-neutral-600';
   return (
     <article className={`rounded-3xl border bg-white p-5 shadow-sm ${plan.active ? 'border-neutral-200' : 'border-neutral-200 opacity-60'}`}>
@@ -634,18 +637,18 @@ function PreventivePlanCard({ plan, generating, onGenerate, onComplete, onEdit, 
             <span className="rounded-full bg-neutral-100 px-3 py-1 text-[10px] font-black uppercase text-neutral-600">{PREVENTIVE_FREQUENCY_LABEL[plan.frequency]}</span>
           </div>
           <h4 className="mt-3 text-lg font-black text-neutral-950">{plan.title}</h4>
-          <p className="mt-1 text-sm font-bold text-neutral-500">{PREVENTIVE_TARGET_LABEL[plan.target_type]} · {preventiveTarget(plan)} · proxima em {new Date(plan.next_due_date).toLocaleDateString('pt-BR')}</p>
+          <p className="mt-1 text-sm font-bold text-neutral-500">{PREVENTIVE_TARGET_LABEL[plan.target_type]} · {preventiveTarget(plan)} · programada para {new Date(plan.next_due_date).toLocaleDateString('pt-BR')}</p>
           {plan.instructions && <p className="mt-2 line-clamp-2 text-sm text-neutral-500">{plan.instructions}</p>}
           {(plan.checklist?.length ?? 0) > 0 && <p className="mt-2 text-xs font-bold text-neutral-400">{plan.checklist?.length} itens de checklist</p>}
         </div>
         <div className="flex flex-wrap gap-2 lg:justify-end">
           <button onClick={onGenerate} disabled={generating || !plan.active} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
-            Gerar chamado
+            Criar tarefa agora
           </button>
           <button onClick={onComplete} disabled={!plan.active} className="flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-700 disabled:opacity-50">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Concluir sem chamado
+            Registrar como feita
           </button>
           <button onClick={onEdit} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-700">Editar</button>
           <button onClick={onToggle} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-500">{plan.active ? 'Pausar' : 'Ativar'}</button>
