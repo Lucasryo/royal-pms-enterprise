@@ -135,7 +135,7 @@ export default function MaintenanceQueueBoard() {
       .from('maintenance_tickets')
       .select('*')
       .neq('status', 'cancelled')
-      .neq('status', 'resolved')
+      .or('status.in.(open,in_progress),inspection_status.eq.pending')
       .order('created_at', { ascending: false });
 
     const incoming = (data ?? []) as Ticket[];
