@@ -37,10 +37,10 @@ const PRIORITY_LABEL: Record<Ticket['priority'], string> = {
 };
 
 const PRIORITY_STYLE: Record<Ticket['priority'], string> = {
-  urgent: 'border-red-300/70 bg-red-500 text-white shadow-red-500/30',
-  high: 'border-orange-300/70 bg-orange-500 text-white shadow-orange-500/25',
-  medium: 'border-amber-300/70 bg-amber-300 text-neutral-950 shadow-amber-400/20',
-  low: 'border-white/20 bg-white/12 text-white shadow-black/10',
+  urgent: 'border-red-300 bg-red-500 text-white shadow-red-950/40',
+  high: 'border-orange-300 bg-orange-500 text-white shadow-orange-950/35',
+  medium: 'border-amber-300 bg-amber-300 text-neutral-950 shadow-amber-950/20',
+  low: 'border-white/20 bg-white/12 text-white shadow-black/20',
 };
 
 const SLA_LIMIT_MIN: Record<Ticket['priority'], number> = {
@@ -50,66 +50,56 @@ const SLA_LIMIT_MIN: Record<Ticket['priority'], number> = {
   low: 1440,
 };
 
-const STATUS_COPY = {
-  open: { label: 'Aguardando', tone: 'amber' as const },
-  in_progress: { label: 'Em atendimento', tone: 'blue' as const },
-  awaiting_parts: { label: 'Aguardando pecas', tone: 'orange' as const },
-  inspection: { label: 'Aguardando vistoria', tone: 'purple' as const },
-};
+function minutesSince(start?: string | null) {
+  if (!start) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 60_000));
+}
 
 function formatElapsed(start?: string | null) {
-  if (!start) return '-';
-  const ms = Date.now() - new Date(start).getTime();
-  const min = Math.max(0, Math.floor(ms / 60_000));
+  const min = minutesSince(start);
   if (min < 1) return 'agora';
   if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60);
   const m = min % 60;
   if (h < 24) return `${h}h${m > 0 ? ` ${m}min` : ''}`;
-  const d = Math.floor(h / 24);
-  return `${d}d ${h % 24}h`;
-}
-
-function minutesSince(start?: string | null) {
-  if (!start) return 0;
-  return (Date.now() - new Date(start).getTime()) / 60_000;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
 function isSLABreached(ticket: Ticket) {
-  if (ticket.status !== 'open') return false;
-  return minutesSince(ticket.created_at) > SLA_LIMIT_MIN[ticket.priority];
+  return ticket.status === 'open' && minutesSince(ticket.created_at) > SLA_LIMIT_MIN[ticket.priority];
 }
 
 function shortCode(id: string) {
   return id.replace(/-/g, '').slice(0, 6).toUpperCase();
 }
 
-function ticketTime(ticket: Ticket) {
+function ticketClockStart(ticket: Ticket) {
   if (ticket.awaiting_parts) return ticket.updated_at ?? ticket.created_at;
   if (ticket.inspection_status === 'pending') return ticket.resolved_at ?? ticket.updated_at ?? ticket.created_at;
   if (ticket.status === 'in_progress') return ticket.started_at ?? ticket.created_at;
   return ticket.created_at;
 }
 
-function statusFor(ticket: Ticket) {
-  if (ticket.awaiting_parts) return STATUS_COPY.awaiting_parts;
-  if (ticket.inspection_status === 'pending') return STATUS_COPY.inspection;
-  if (ticket.status === 'in_progress') return STATUS_COPY.in_progress;
-  return STATUS_COPY.open;
+function ticketStatus(ticket: Ticket) {
+  if (ticket.awaiting_parts) return { label: 'Aguardando pecas', tone: 'orange' as const };
+  if (ticket.inspection_status === 'pending') return { label: 'Aguardando vistoria', tone: 'purple' as const };
+  if (ticket.status === 'in_progress') return { label: 'Em atendimento', tone: 'blue' as const };
+  return { label: 'Aguardando', tone: 'amber' as const };
 }
 
 function pickFeatured(open: Ticket[], inProgress: Ticket[]) {
-  const openCritical = [...open].sort((a, b) => {
-    const aSla = isSLABreached(a) ? 0 : 1;
-    const bSla = isSLABreached(b) ? 0 : 1;
+  const sortedOpen = [...open].sort((a, b) => {
     if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
     if (b.priority === 'urgent' && a.priority !== 'urgent') return 1;
+    const aSla = isSLABreached(a) ? 0 : 1;
+    const bSla = isSLABreached(b) ? 0 : 1;
     if (aSla !== bSla) return aSla - bSla;
     const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (priority !== 0) return priority;
     return a.created_at.localeCompare(b.created_at);
   });
-  return openCritical[0] ?? inProgress[0] ?? null;
+
+  return sortedOpen[0] ?? inProgress[0] ?? null;
 }
 
 export default function MaintenanceQueueBoard() {
@@ -151,10 +141,12 @@ export default function MaintenanceQueueBoard() {
     const incoming = (data ?? []) as Ticket[];
     const incomingIds = new Set(incoming.map((ticket) => ticket.id));
     const previousIds = previousIdsRef.current;
+
     if (previousIds) {
       const fresh = incoming.filter((ticket) => !previousIds.has(ticket.id)).map((ticket) => ticket.id);
       if (fresh.length > 0) setFreshTicketIds(fresh);
     }
+
     previousIdsRef.current = incomingIds;
     setTickets(incoming);
     setLastUpdate(new Date());
@@ -198,10 +190,11 @@ export default function MaintenanceQueueBoard() {
   );
 
   const featured = useMemo(() => pickFeatured(open, inProgress), [open, inProgress, now]);
-  const queue = useMemo(
-    () => [...open, ...inProgress].filter((ticket) => ticket.id !== featured?.id).slice(0, 7),
+  const mainQueue = useMemo(
+    () => [...open, ...inProgress].filter((ticket) => ticket.id !== featured?.id).slice(0, 8),
     [open, inProgress, featured],
   );
+  const dependencyQueue = useMemo(() => [...awaitingParts, ...awaitingInspection].slice(0, 8), [awaitingParts, awaitingInspection]);
 
   const stats = {
     open: open.length,
@@ -221,19 +214,19 @@ export default function MaintenanceQueueBoard() {
   }
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#06080d] text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.18),transparent_32%)]" />
+    <div className="min-h-screen overflow-hidden bg-[#070a10] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.18),transparent_32%)]" />
       <div className="relative flex min-h-screen flex-col p-4 sm:p-6 lg:p-8">
-        <header className="grid gap-4 border-b border-white/10 pb-5 lg:grid-cols-[1fr_auto] lg:items-end">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-emerald-200">
+        <header className="grid gap-4 border-b border-white/10 pb-5 lg:grid-cols-3 lg:items-end">
+          <div className="min-w-0 lg:col-span-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-emerald-100">
               <Radio className="h-3.5 w-3.5" />
               Ao vivo
             </div>
             <h1 className="mt-3 text-4xl font-black leading-none tracking-tight sm:text-6xl lg:text-7xl">Quadro de Manutencao</h1>
-            <p className="mt-2 text-sm font-semibold text-white/45 sm:text-base">Painel operacional interno para chamados, atendimentos e vistorias.</p>
+            <p className="mt-2 text-sm font-semibold text-white/45 sm:text-base">Painel de TV para chamados ativos, SLA e fila de atendimento.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <ClockPanel now={now} lastUpdate={lastUpdate} />
             <Stat label="Ativos" value={stats.active} tone="slate" />
             <Stat label="SLA" value={stats.breached} tone={stats.breached > 0 ? 'red' : 'green'} />
@@ -252,8 +245,8 @@ export default function MaintenanceQueueBoard() {
           </section>
 
           <aside className="grid min-h-0 gap-4 lg:grid-cols-2 xl:grid-cols-1">
-            <QueuePanel title="Proximos chamados" subtitle="Fila de atencao" tickets={queue} freshTicketIds={freshTicketIds} empty="Fila sem chamados aguardando." />
-            <QueuePanel title="Dependencias" subtitle="Pecas e vistoria" tickets={[...awaitingParts, ...awaitingInspection].slice(0, 8)} freshTicketIds={freshTicketIds} empty="Sem pendencias externas." compact />
+            <QueuePanel title="Proximos chamados" subtitle="Fila operacional" tickets={mainQueue} freshTicketIds={freshTicketIds} empty="Fila sem chamados aguardando." />
+            <QueuePanel title="Dependencias" subtitle="Pecas e vistoria" tickets={dependencyQueue} freshTicketIds={freshTicketIds} empty="Sem pendencias externas." compact />
           </aside>
         </main>
       </div>
@@ -315,7 +308,7 @@ function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: b
   }
 
   const breached = isSLABreached(ticket);
-  const status = statusFor(ticket);
+  const status = ticketStatus(ticket);
   const elapsedLabel = ticket.status === 'in_progress' ? 'Em atendimento ha' : 'Aberto ha';
 
   return (
@@ -339,8 +332,8 @@ function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: b
           {ticket.description && <p className="mt-4 max-w-4xl text-xl font-semibold leading-8 text-white/58 line-clamp-2">{ticket.description}</p>}
         </div>
 
-        <div className="grid content-end gap-3 lg:w-72">
-          <InfoTile icon={<Timer className="h-5 w-5" />} label={elapsedLabel} value={formatElapsed(ticketTime(ticket))} />
+        <div className="grid content-end gap-3">
+          <InfoTile icon={<Timer className="h-5 w-5" />} label={elapsedLabel} value={formatElapsed(ticketClockStart(ticket))} />
           <InfoTile icon={<Wrench className="h-5 w-5" />} label="Responsavel" value={ticket.status_reason || 'Aguardando equipe'} />
         </div>
       </div>
@@ -401,7 +394,7 @@ function QueuePanel({ title, subtitle, tickets, freshTicketIds, empty, compact =
 }
 
 function QueueTicket({ ticket, fresh, compact }: { ticket: Ticket; fresh: boolean; compact?: boolean }) {
-  const status = statusFor(ticket);
+  const status = ticketStatus(ticket);
   const breached = isSLABreached(ticket);
 
   return (
@@ -419,7 +412,7 @@ function QueueTicket({ ticket, fresh, compact }: { ticket: Ticket; fresh: boolea
         </div>
         <div className="shrink-0 text-right">
           <StatusIcon tone={status.tone} />
-          <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-white/40">{formatElapsed(ticketTime(ticket))}</p>
+          <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-white/40">{formatElapsed(ticketClockStart(ticket))}</p>
         </div>
       </div>
       {ticket.status_reason && <p className="mt-3 truncate border-t border-white/10 pt-3 text-xs font-bold text-white/48">{ticket.status_reason}</p>}

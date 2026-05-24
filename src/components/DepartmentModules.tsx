@@ -1,5 +1,5 @@
 import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Minimize2, Monitor, QrCode, ShieldCheck, TrendingUp, UserCog, Users, Utensils, Wrench } from 'lucide-react';
+import { Activity, AlertCircle, BarChart3, Bell, BedDouble, Building2, CalendarDays, ClipboardList, CreditCard, DollarSign, FileText, Globe, Hotel, KeyRound, Maximize2, Monitor, QrCode, ShieldCheck, TrendingUp, UserCog, Users, Utensils, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { UserProfile } from '../types';
@@ -196,91 +196,24 @@ type BotSelfTestResult = {
 };
 
 function BoardTab() {
-  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
-  const [isPresentationMode, setIsPresentationMode] = useState(false);
-
-  useEffect(() => {
-    const syncFullscreen = () => {
-      const fullscreenActive = Boolean(document.fullscreenElement || (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement);
-      setIsNativeFullscreen(fullscreenActive);
-    };
-    document.addEventListener('fullscreenchange', syncFullscreen);
-    document.addEventListener('webkitfullscreenchange', syncFullscreen);
-    syncFullscreen();
-    return () => {
-      document.removeEventListener('fullscreenchange', syncFullscreen);
-      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isPresentationMode && !isNativeFullscreen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeFullscreen();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [isPresentationMode, isNativeFullscreen]);
-
-  async function closeFullscreen() {
-    const legacyDocument = document as unknown as {
-      webkitExitFullscreen?: () => Promise<void> | void;
-      webkitFullscreenElement?: Element;
-    };
-
-    setIsPresentationMode(false);
-
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen?.();
-      else if (legacyDocument.webkitFullscreenElement) await legacyDocument.webkitExitFullscreen?.();
-    } catch (error) {
-      console.error('Exit fullscreen error:', error);
-    }
+  function openFullscreen() {
+    const el = document.getElementById('maint-board-embed');
+    if (!el) return;
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if ((el as unknown as { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen)
+      (el as unknown as { webkitRequestFullscreen: () => void }).webkitRequestFullscreen();
   }
-
-  async function toggleFullscreen() {
-    if (isNativeFullscreen || isPresentationMode) {
-      await closeFullscreen();
-      return;
-    }
-
-    setIsPresentationMode(true);
-
-    const el = document.documentElement as HTMLElement & {
-      webkitRequestFullscreen?: () => Promise<void> | void;
-      msRequestFullscreen?: () => Promise<void> | void;
-    };
-
-    try {
-      if (el.requestFullscreen) await el.requestFullscreen();
-      else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
-      else if (el.msRequestFullscreen) await el.msRequestFullscreen();
-      else throw new Error('Este navegador nao liberou o modo tela cheia.');
-    } catch (error) {
-      console.error('Fullscreen error:', error);
-      toast.info('Modo TV aberto dentro do PMS. Para fullscreen nativo, use F11 neste navegador.');
-    }
-  }
-
-  const isFullscreen = isNativeFullscreen || isPresentationMode;
-  const board = <MaintenanceQueueBoard />;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-neutral-500">Atualização em tempo real — ideal para TV da manutenção ou gerência.</p>
         <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="flex cursor-pointer select-none items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black text-white transition hover:bg-neutral-700"
+          onClick={openFullscreen}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 text-xs font-black transition"
         >
-          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          {isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+          <Maximize2 className="w-4 h-4" />
+          Tela cheia
         </button>
       </div>
       <div
@@ -288,20 +221,8 @@ function BoardTab() {
         className="rounded-3xl overflow-hidden border border-neutral-200 shadow-sm"
         style={{ minHeight: '80vh' }}
       >
-        {board}
+        <MaintenanceQueueBoard />
       </div>
-      {isPresentationMode && (
-        <div className="fixed inset-0 z-[9999] bg-neutral-950">
-          <button
-            onClick={closeFullscreen}
-            className="absolute right-5 top-5 z-10 flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-widest text-white backdrop-blur transition hover:bg-white/20"
-          >
-            <Minimize2 className="h-4 w-4" />
-            Sair
-          </button>
-          {board}
-        </div>
-      )}
     </div>
   );
 }
