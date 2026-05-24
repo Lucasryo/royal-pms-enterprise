@@ -1,6 +1,6 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
-import { AlertCircle, Clock, Loader2, Package, SearchCheck, Wrench } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Loader2, Package, Radio, SearchCheck, Timer, Wrench } from 'lucide-react';
 
 type Ticket = {
   id: string;
@@ -29,23 +29,38 @@ const PRIORITY_RANK: Record<Ticket['priority'], number> = {
   low: 3,
 };
 
-const PRIORITY_BADGE: Record<Ticket['priority'], string> = {
-  urgent: 'bg-red-500 text-white border-red-300',
-  high:   'bg-orange-500 text-white border-orange-300',
-  medium: 'bg-amber-400 text-amber-950 border-amber-200',
-  low:    'bg-neutral-200 text-neutral-700 border-neutral-300',
-};
-
 const PRIORITY_LABEL: Record<Ticket['priority'], string> = {
-  urgent: 'URGENTE',
-  high:   'ALTA',
-  medium: 'MEDIA',
-  low:    'BAIXA',
+  urgent: 'Urgente',
+  high: 'Alta',
+  medium: 'Media',
+  low: 'Baixa',
 };
 
-const formatElapsed = (start: string) => {
+const PRIORITY_STYLE: Record<Ticket['priority'], string> = {
+  urgent: 'border-red-300/70 bg-red-500 text-white shadow-red-500/30',
+  high: 'border-orange-300/70 bg-orange-500 text-white shadow-orange-500/25',
+  medium: 'border-amber-300/70 bg-amber-300 text-neutral-950 shadow-amber-400/20',
+  low: 'border-white/20 bg-white/12 text-white shadow-black/10',
+};
+
+const SLA_LIMIT_MIN: Record<Ticket['priority'], number> = {
+  urgent: 15,
+  high: 60,
+  medium: 240,
+  low: 1440,
+};
+
+const STATUS_COPY = {
+  open: { label: 'Aguardando', tone: 'amber' as const },
+  in_progress: { label: 'Em atendimento', tone: 'blue' as const },
+  awaiting_parts: { label: 'Aguardando pecas', tone: 'orange' as const },
+  inspection: { label: 'Aguardando vistoria', tone: 'purple' as const },
+};
+
+function formatElapsed(start?: string | null) {
+  if (!start) return '-';
   const ms = Date.now() - new Date(start).getTime();
-  const min = Math.floor(ms / 60_000);
+  const min = Math.max(0, Math.floor(ms / 60_000));
   if (min < 1) return 'agora';
   if (min < 60) return `${min} min`;
   const h = Math.floor(min / 60);
@@ -53,28 +68,60 @@ const formatElapsed = (start: string) => {
   if (h < 24) return `${h}h${m > 0 ? ` ${m}min` : ''}`;
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
-};
+}
 
-const SLA_LIMIT_MIN: Record<Ticket['priority'], number> = {
-  urgent: 15,
-  high:   60,
-  medium: 240,
-  low:    1440,
-};
+function minutesSince(start?: string | null) {
+  if (!start) return 0;
+  return (Date.now() - new Date(start).getTime()) / 60_000;
+}
 
-const isSLABreached = (ticket: Ticket) => {
+function isSLABreached(ticket: Ticket) {
   if (ticket.status !== 'open') return false;
-  const min = (Date.now() - new Date(ticket.created_at).getTime()) / 60_000;
-  return min > SLA_LIMIT_MIN[ticket.priority];
-};
+  return minutesSince(ticket.created_at) > SLA_LIMIT_MIN[ticket.priority];
+}
+
+function shortCode(id: string) {
+  return id.replace(/-/g, '').slice(0, 6).toUpperCase();
+}
+
+function ticketTime(ticket: Ticket) {
+  if (ticket.awaiting_parts) return ticket.updated_at ?? ticket.created_at;
+  if (ticket.inspection_status === 'pending') return ticket.resolved_at ?? ticket.updated_at ?? ticket.created_at;
+  if (ticket.status === 'in_progress') return ticket.started_at ?? ticket.created_at;
+  return ticket.created_at;
+}
+
+function statusFor(ticket: Ticket) {
+  if (ticket.awaiting_parts) return STATUS_COPY.awaiting_parts;
+  if (ticket.inspection_status === 'pending') return STATUS_COPY.inspection;
+  if (ticket.status === 'in_progress') return STATUS_COPY.in_progress;
+  return STATUS_COPY.open;
+}
+
+function pickFeatured(open: Ticket[], inProgress: Ticket[]) {
+  const openCritical = [...open].sort((a, b) => {
+    const aSla = isSLABreached(a) ? 0 : 1;
+    const bSla = isSLABreached(b) ? 0 : 1;
+    if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+    if (b.priority === 'urgent' && a.priority !== 'urgent') return 1;
+    if (aSla !== bSla) return aSla - bSla;
+    const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    if (priority !== 0) return priority;
+    return a.created_at.localeCompare(b.created_at);
+  });
+  return openCritical[0] ?? inProgress[0] ?? null;
+}
 
 export default function MaintenanceQueueBoard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(new Date());
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [freshTicketIds, setFreshTicketIds] = useState<string[]>([]);
+  const previousIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
-    const id = setInterval(() => setLastUpdate(new Date()), 30_000);
+    const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
   }, []);
 
@@ -87,6 +134,12 @@ export default function MaintenanceQueueBoard() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  useEffect(() => {
+    if (freshTicketIds.length === 0) return;
+    const timeout = window.setTimeout(() => setFreshTicketIds([]), 9000);
+    return () => window.clearTimeout(timeout);
+  }, [freshTicketIds]);
+
   async function fetchTickets() {
     const { data } = await supabase
       .from('maintenance_tickets')
@@ -94,320 +147,290 @@ export default function MaintenanceQueueBoard() {
       .neq('status', 'cancelled')
       .neq('status', 'resolved')
       .order('created_at', { ascending: false });
-    setTickets((data ?? []) as Ticket[]);
+
+    const incoming = (data ?? []) as Ticket[];
+    const incomingIds = new Set(incoming.map((ticket) => ticket.id));
+    const previousIds = previousIdsRef.current;
+    if (previousIds) {
+      const fresh = incoming.filter((ticket) => !previousIds.has(ticket.id)).map((ticket) => ticket.id);
+      if (fresh.length > 0) setFreshTicketIds(fresh);
+    }
+    previousIdsRef.current = incomingIds;
+    setTickets(incoming);
+    setLastUpdate(new Date());
     setLoading(false);
   }
 
-  const sortedOpen = useMemo(
+  const open = useMemo(
     () =>
       tickets
-        .filter((t) => t.status === 'open' && !t.awaiting_parts)
+        .filter((ticket) => ticket.status === 'open' && !ticket.awaiting_parts)
         .sort((a, b) => {
-          const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-          if (p !== 0) return p;
+          const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+          if (priority !== 0) return priority;
           return a.created_at.localeCompare(b.created_at);
         }),
     [tickets],
   );
 
-  const sortedInProgress = useMemo(
+  const inProgress = useMemo(
     () =>
       tickets
-        .filter((t) => t.status === 'in_progress' && !t.awaiting_parts && t.inspection_status !== 'pending')
+        .filter((ticket) => ticket.status === 'in_progress' && !ticket.awaiting_parts && ticket.inspection_status !== 'pending')
         .sort((a, b) => (a.started_at ?? a.created_at).localeCompare(b.started_at ?? b.created_at)),
     [tickets],
   );
 
-  const sortedAwaitingParts = useMemo(
+  const awaitingParts = useMemo(
     () =>
       tickets
-        .filter((t) => t.awaiting_parts)
+        .filter((ticket) => ticket.awaiting_parts)
         .sort((a, b) => (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at)),
     [tickets],
   );
 
-  const sortedAwaitingInspection = useMemo(
+  const awaitingInspection = useMemo(
     () =>
       tickets
-        .filter((t) => t.inspection_status === 'pending')
+        .filter((ticket) => ticket.inspection_status === 'pending')
         .sort((a, b) => (a.resolved_at ?? a.created_at).localeCompare(b.resolved_at ?? b.created_at)),
     [tickets],
   );
 
+  const featured = useMemo(() => pickFeatured(open, inProgress), [open, inProgress, now]);
+  const queue = useMemo(
+    () => [...open, ...inProgress].filter((ticket) => ticket.id !== featured?.id).slice(0, 7),
+    [open, inProgress, featured],
+  );
+
   const stats = {
-    open: sortedOpen.length,
-    inProgress: sortedInProgress.length,
-    awaitingParts: sortedAwaitingParts.length,
-    awaitingInspection: sortedAwaitingInspection.length,
+    open: open.length,
+    inProgress: inProgress.length,
+    awaitingParts: awaitingParts.length,
+    awaitingInspection: awaitingInspection.length,
     breached: tickets.filter(isSLABreached).length,
+    active: tickets.length,
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-neutral-600 animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+        <Loader2 className="h-10 w-10 animate-spin text-white/35" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 text-white p-4 sm:p-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6 sm:mb-8">
-        <div>
-          <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.32em] text-amber-400">Royal PMS · Manutencao</p>
-          <h1 className="mt-1 text-3xl sm:text-5xl font-black tracking-tight">Quadro de Chamados</h1>
-          <p className="mt-1 text-xs sm:text-sm text-neutral-400">Atualizacao em tempo real · {lastUpdate.toLocaleString('pt-BR')}</p>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-          <Stat label="Abertos" value={stats.open} tone="amber" />
-          <Stat label="Em andamento" value={stats.inProgress} tone="blue" />
-          <Stat label="Ag. Peças" value={stats.awaitingParts} tone="orange" />
-          <Stat label="Vistoria" value={stats.awaitingInspection} tone="purple" />
-        </div>
-      </header>
+    <div className="min-h-screen overflow-hidden bg-[#06080d] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.18),transparent_32%)]" />
+      <div className="relative flex min-h-screen flex-col p-4 sm:p-6 lg:p-8">
+        <header className="grid gap-4 border-b border-white/10 pb-5 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-emerald-200">
+              <Radio className="h-3.5 w-3.5" />
+              Ao vivo
+            </div>
+            <h1 className="mt-3 text-4xl font-black leading-none tracking-tight sm:text-6xl lg:text-7xl">Quadro de Manutencao</h1>
+            <p className="mt-2 text-sm font-semibold text-white/45 sm:text-base">Painel operacional interno para chamados, atendimentos e vistorias.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+            <ClockPanel now={now} lastUpdate={lastUpdate} />
+            <Stat label="Ativos" value={stats.active} tone="slate" />
+            <Stat label="SLA" value={stats.breached} tone={stats.breached > 0 ? 'red' : 'green'} />
+          </div>
+        </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
-        <Column
-          title="Aberto"
-          subtitle="Aguardando assumir"
-          accent="bg-amber-500"
-          tickets={sortedOpen}
-          renderTicket={(t) => <OpenTicketCard ticket={t} />}
-          empty="Nenhum chamado aberto!"
-        />
+        <main className="grid flex-1 gap-5 py-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <section className="grid gap-5 lg:grid-rows-[minmax(360px,1fr)_auto]">
+            <FeaturedTicket ticket={featured} isFresh={Boolean(featured && freshTicketIds.includes(featured.id))} />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatusMetric label="Aguardando" value={stats.open} tone="amber" />
+              <StatusMetric label="Em atendimento" value={stats.inProgress} tone="blue" />
+              <StatusMetric label="Aguardando pecas" value={stats.awaitingParts} tone="orange" />
+              <StatusMetric label="Vistoria" value={stats.awaitingInspection} tone="purple" />
+            </div>
+          </section>
 
-        <Column
-          title="Em Andamento"
-          subtitle="Sendo atendidos agora"
-          accent="bg-blue-500"
-          tickets={sortedInProgress}
-          renderTicket={(t) => <InProgressTicketCard ticket={t} />}
-          empty="Nenhum chamado em andamento."
-        />
-
-        <Column
-          title="Aguardando Peças"
-          subtitle="Material em falta"
-          accent="bg-orange-500"
-          tickets={sortedAwaitingParts}
-          renderTicket={(t) => <AwaitingPartsCard ticket={t} />}
-          empty="Nenhum chamado aguardando peças."
-          icon={<Package className="w-4 h-4 text-orange-400" />}
-        />
-
-        <Column
-          title="Aguardando Vistoria"
-          subtitle="Concluído — pendente vistoria"
-          accent="bg-purple-500"
-          tickets={sortedAwaitingInspection}
-          renderTicket={(t) => <AwaitingInspectionCard ticket={t} />}
-          empty="Nenhum chamado aguardando vistoria."
-          icon={<SearchCheck className="w-4 h-4 text-purple-400" />}
-        />
+          <aside className="grid min-h-0 gap-4 lg:grid-cols-2 xl:grid-cols-1">
+            <QueuePanel title="Proximos chamados" subtitle="Fila de atencao" tickets={queue} freshTicketIds={freshTicketIds} empty="Fila sem chamados aguardando." />
+            <QueuePanel title="Dependencias" subtitle="Pecas e vistoria" tickets={[...awaitingParts, ...awaitingInspection].slice(0, 8)} freshTicketIds={freshTicketIds} empty="Sem pendencias externas." compact />
+          </aside>
+        </main>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: 'amber' | 'blue' | 'red' | 'orange' | 'purple' }) {
+function ClockPanel({ now, lastUpdate }: { now: Date; lastUpdate: Date }) {
+  return (
+    <div className="col-span-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4 sm:col-span-1">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/35">Agora</p>
+      <p className="mt-1 text-3xl font-black tabular-nums tracking-tight">{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+      <p className="mt-1 text-[11px] font-semibold text-white/40">Atualizado {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'red' | 'green' }) {
   const tones = {
-    amber:  'border-amber-500/40 bg-amber-500/10 text-amber-200',
-    blue:   'border-blue-500/40 bg-blue-500/10 text-blue-200',
-    red:    'border-red-500/40 bg-red-500/10 text-red-300',
-    orange: 'border-orange-500/40 bg-orange-500/10 text-orange-200',
-    purple: 'border-purple-500/40 bg-purple-500/10 text-purple-200',
+    slate: 'border-white/10 bg-white/[0.06] text-white',
+    red: 'border-red-400/30 bg-red-500/15 text-red-100',
+    green: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
   };
   return (
-    <div className={`rounded-2xl border px-3 sm:px-5 py-3 ${tones[tone]}`}>
-      <p className="text-[9px] font-black uppercase tracking-widest opacity-80">{label}</p>
-      <p className="mt-1 text-2xl sm:text-4xl font-black tabular-nums">{value}</p>
+    <div className={`rounded-3xl border p-4 ${tones[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-55">{label}</p>
+      <p className="mt-1 text-4xl font-black tabular-nums tracking-tight">{value}</p>
     </div>
   );
 }
 
-function Column({
-  title, subtitle, accent, tickets, renderTicket, empty, icon,
-}: {
-  title: string; subtitle: string; accent: string;
-  tickets: Ticket[]; renderTicket: (t: Ticket) => ReactNode;
-  empty: string; icon?: ReactNode;
-}) {
+function StatusMetric({ label, value, tone }: { label: string; value: number; tone: 'amber' | 'blue' | 'orange' | 'purple' }) {
+  const tones = {
+    amber: 'from-amber-400/22 to-amber-500/5 text-amber-100',
+    blue: 'from-blue-400/22 to-blue-500/5 text-blue-100',
+    orange: 'from-orange-400/22 to-orange-500/5 text-orange-100',
+    purple: 'from-purple-400/22 to-purple-500/5 text-purple-100',
+  };
   return (
-    <section className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-4 sm:p-6">
-      <div className="flex items-center gap-3 mb-4">
-        {icon ?? <div className={`w-2.5 h-2.5 rounded-full ${accent} animate-pulse`} />}
+    <div className={`rounded-3xl border border-white/10 bg-gradient-to-br ${tones[tone]} p-5`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-60">{label}</p>
+      <p className="mt-2 text-5xl font-black tabular-nums tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: boolean }) {
+  if (!ticket) {
+    return (
+      <section className="flex min-h-[360px] items-center justify-center rounded-[2rem] border border-emerald-400/20 bg-emerald-400/10 p-8 text-center">
         <div>
-          <h2 className="text-base sm:text-lg font-black tracking-tight">{title}</h2>
-          <p className="text-[10px] text-neutral-400">{subtitle}</p>
+          <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-200" />
+          <p className="mt-5 text-[11px] font-black uppercase tracking-[0.28em] text-emerald-100/60">Operacao tranquila</p>
+          <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-6xl">Nenhum chamado ativo</h2>
+          <p className="mt-3 text-sm font-semibold text-white/45">A equipe esta sem pendencias no quadro ao vivo.</p>
         </div>
-        <span className="ml-auto px-2.5 py-1 bg-white/10 rounded-full text-xs font-black tabular-nums">{tickets.length}</span>
+      </section>
+    );
+  }
+
+  const breached = isSLABreached(ticket);
+  const status = statusFor(ticket);
+  const elapsedLabel = ticket.status === 'in_progress' ? 'Em atendimento ha' : 'Aberto ha';
+
+  return (
+    <section className={`relative overflow-hidden rounded-[2rem] border p-6 shadow-2xl transition ${breached || ticket.priority === 'urgent' ? 'border-red-300/35 bg-red-500/[0.13] shadow-red-950/30' : 'border-white/10 bg-white/[0.075] shadow-black/30'} ${isFresh ? 'ring-4 ring-emerald-300/55' : ''}`}>
+      <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-amber-300 via-white to-blue-300" />
+      <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
+      {isFresh && <FreshBadge className="absolute right-5 top-5" />}
+      <div className="relative grid h-full gap-6 lg:grid-cols-[1fr_auto]">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.3em] text-white/45">Chamado em destaque</p>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <span className={`rounded-2xl border px-5 py-2 text-sm font-black uppercase tracking-[0.18em] shadow-lg ${PRIORITY_STYLE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
+            <StatusPill status={status.label} tone={status.tone} />
+            {breached && <span className="inline-flex items-center gap-2 rounded-2xl border border-red-300/40 bg-red-500/20 px-4 py-2 text-sm font-black uppercase tracking-wider text-red-100"><AlertTriangle className="h-4 w-4" /> SLA vencido</span>}
+          </div>
+          <div className="mt-7 flex flex-wrap items-end gap-5">
+            <p className="text-6xl font-black leading-none tracking-tight text-white sm:text-8xl">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</p>
+            {ticket.room_number && <p className="pb-2 text-2xl font-black uppercase tracking-[0.18em] text-white/35">#{shortCode(ticket.id)}</p>}
+          </div>
+          <h2 className="mt-6 max-w-5xl text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl">{ticket.title}</h2>
+          {ticket.description && <p className="mt-4 max-w-4xl text-xl font-semibold leading-8 text-white/58 line-clamp-2">{ticket.description}</p>}
+        </div>
+
+        <div className="grid content-end gap-3 lg:w-72">
+          <InfoTile icon={<Timer className="h-5 w-5" />} label={elapsedLabel} value={formatElapsed(ticketTime(ticket))} />
+          <InfoTile icon={<Wrench className="h-5 w-5" />} label="Responsavel" value={ticket.status_reason || 'Aguardando equipe'} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FreshBadge({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border border-emerald-200/45 bg-emerald-300/20 px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-emerald-100 shadow-lg shadow-emerald-950/20 ${className}`}>
+      <span className="h-2 w-2 rounded-full bg-emerald-200" />
+      Novo chamado
+    </span>
+  );
+}
+
+function StatusPill({ status, tone }: { status: string; tone: 'amber' | 'blue' | 'orange' | 'purple' }) {
+  const tones = {
+    amber: 'border-amber-300/35 bg-amber-300/15 text-amber-100',
+    blue: 'border-blue-300/35 bg-blue-300/15 text-blue-100',
+    orange: 'border-orange-300/35 bg-orange-300/15 text-orange-100',
+    purple: 'border-purple-300/35 bg-purple-300/15 text-purple-100',
+  };
+  return <span className={`rounded-2xl border px-4 py-2 text-sm font-black uppercase tracking-wider ${tones[tone]}`}>{status}</span>;
+}
+
+function InfoTile({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/18 p-5">
+      <div className="flex items-center gap-2 text-white/45">
+        {icon}
+        <p className="text-[10px] font-black uppercase tracking-[0.22em]">{label}</p>
+      </div>
+      <p className="mt-2 truncate text-2xl font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function QueuePanel({ title, subtitle, tickets, freshTicketIds, empty, compact = false }: { title: string; subtitle: string; tickets: Ticket[]; freshTicketIds: string[]; empty: string; compact?: boolean }) {
+  return (
+    <section className="min-h-0 rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 sm:p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/35">{subtitle}</p>
+          <h3 className="mt-1 text-2xl font-black tracking-tight">{title}</h3>
+        </div>
+        <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-black tabular-nums">{tickets.length}</span>
       </div>
       {tickets.length === 0 ? (
-        <div className="py-10 text-center text-neutral-500 text-sm">{empty}</div>
+        <div className="flex min-h-36 items-center justify-center rounded-3xl border border-dashed border-white/10 text-center text-sm font-semibold text-white/32">{empty}</div>
       ) : (
-        <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-          {tickets.map((ticket) => (
-            <div key={ticket.id}>{renderTicket(ticket)}</div>
-          ))}
+        <div className="grid max-h-[54vh] gap-3 overflow-y-auto pr-1">
+          {tickets.map((ticket) => <QueueTicket key={ticket.id} ticket={ticket} fresh={freshTicketIds.includes(ticket.id)} compact={compact} />)}
         </div>
       )}
     </section>
   );
 }
 
-function OpenTicketCard({ ticket }: { ticket: Ticket }) {
+function QueueTicket({ ticket, fresh, compact }: { ticket: Ticket; fresh: boolean; compact?: boolean }) {
+  const status = statusFor(ticket);
   const breached = isSLABreached(ticket);
 
-  async function assume() {
-    const name = prompt('Seu nome (para registro):')?.trim();
-    if (name === null) return;
-    const { data, error } = await supabase
-      .from('maintenance_tickets')
-      .update({
-        status: 'in_progress',
-        started_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status_reason: name || null,
-        awaiting_parts: false,
-      })
-      .eq('id', ticket.id)
-      .eq('status', 'open')
-      .select();
-    if (error) {
-      alert('Erro ao assumir: ' + error.message);
-    } else if (!data || data.length === 0) {
-      alert('Chamado já foi assumido por outra pessoa.');
-    }
-  }
-
   return (
-    <article className={`relative rounded-2xl p-3 sm:p-4 border transition-shadow ${
-      ticket.priority === 'urgent'
-        ? 'bg-red-950/40 border-red-500/50 shadow-lg shadow-red-500/10'
-        : breached ? 'bg-orange-950/30 border-orange-500/40' : 'bg-neutral-900 border-white/10'
-    }`}>
-      {ticket.priority === 'urgent' && (
-        <div className="absolute -top-2 -right-2 bg-red-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">Urgente</div>
-      )}
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
-            {ticket.room_number && <span className="bg-white text-neutral-900 px-2 py-0.5 rounded font-black text-xs">UH {ticket.room_number}</span>}
-            {breached && <span className="flex items-center gap-1 text-orange-300 text-[10px] font-bold"><AlertCircle className="w-3 h-3" /> SLA</span>}
+    <article className={`rounded-3xl border p-4 transition ${fresh ? 'border-emerald-200/60 bg-emerald-300/12' : breached ? 'border-red-300/30 bg-red-500/12' : 'border-white/10 bg-black/16'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-xl border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${PRIORITY_STYLE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
+            {fresh && <span className="rounded-xl bg-emerald-300/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-100">Novo</span>}
+            {breached && <span className="rounded-xl bg-red-300/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-red-100">SLA</span>}
           </div>
-          <h3 className="mt-2 font-black text-sm text-white">{ticket.title}</h3>
-          {ticket.description && <p className="mt-1 text-xs text-neutral-400 line-clamp-2">{ticket.description}</p>}
+          <p className="mt-3 text-2xl font-black leading-none">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</p>
+          <h4 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-white/90">{ticket.title}</h4>
+          {!compact && ticket.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-white/40">{ticket.description}</p>}
+        </div>
+        <div className="shrink-0 text-right">
+          <StatusIcon tone={status.tone} />
+          <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-white/40">{formatElapsed(ticketTime(ticket))}</p>
         </div>
       </div>
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
-        <div className="flex items-center gap-1.5 text-neutral-400 text-[11px]">
-          <Clock className="w-3 h-3" />
-          <span>aberto ha {formatElapsed(ticket.created_at)}</span>
-        </div>
-        <button onClick={assume} className="bg-white text-neutral-900 hover:bg-amber-300 transition px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider">Assumir</button>
-      </div>
+      {ticket.status_reason && <p className="mt-3 truncate border-t border-white/10 pt-3 text-xs font-bold text-white/48">{ticket.status_reason}</p>}
     </article>
   );
 }
 
-function InProgressTicketCard({ ticket }: { ticket: Ticket }) {
-  const start = ticket.started_at ?? ticket.created_at;
-
-  async function resolve() {
-    const note = prompt('Nota de resolucao (opcional):') ?? '';
-    const { data, error } = await supabase
-      .from('maintenance_tickets')
-      .update({
-        status: 'resolved',
-        resolved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        ...(note ? { resolution_notes: note } : {}),
-        inspection_status: null,
-        inspector_tg_id: null,
-        awaiting_parts: false,
-        inspection_requested_at: new Date().toISOString(),
-      })
-      .eq('id', ticket.id)
-      .eq('status', 'in_progress')
-      .select();
-    if (error) {
-      alert('Erro ao resolver: ' + error.message);
-    } else if (!data || data.length === 0) {
-      alert('Chamado não está mais em andamento.');
-    }
-  }
-
-  return (
-    <article className="rounded-2xl p-3 sm:p-4 border border-blue-500/30 bg-blue-950/30">
-      <div className="flex items-start gap-3">
-        <div className="bg-blue-500/20 text-blue-300 p-2 rounded-xl shrink-0"><Wrench className="w-4 h-4" /></div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
-            {ticket.room_number && <span className="bg-white text-neutral-900 px-2 py-0.5 rounded font-black text-xs">UH {ticket.room_number}</span>}
-          </div>
-          <h3 className="mt-1.5 font-black text-sm text-white">{ticket.title}</h3>
-          {ticket.status_reason && <p className="mt-1 text-[11px] text-blue-200 font-semibold">👷 {ticket.status_reason}</p>}
-          <div className="mt-1.5 inline-flex items-center gap-1.5 text-blue-300 text-[11px] font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-            em andamento ha <span className="tabular-nums ml-1">{formatElapsed(start)}</span>
-          </div>
-        </div>
-        <button onClick={resolve} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">Resolver</button>
-      </div>
-    </article>
-  );
-}
-
-function AwaitingPartsCard({ ticket }: { ticket: Ticket }) {
-  const since = ticket.updated_at ?? ticket.created_at;
-
-  return (
-    <article className="rounded-2xl p-3 sm:p-4 border border-orange-500/30 bg-orange-950/20">
-      <div className="flex items-start gap-3">
-        <div className="bg-orange-500/20 text-orange-300 p-2 rounded-xl shrink-0"><Package className="w-4 h-4" /></div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
-            {ticket.room_number && <span className="bg-white text-neutral-900 px-2 py-0.5 rounded font-black text-xs">UH {ticket.room_number}</span>}
-          </div>
-          <h3 className="mt-1.5 font-black text-sm text-white">{ticket.title}</h3>
-          {ticket.status_reason && <p className="mt-1 text-[11px] text-orange-200 font-semibold">👷 {ticket.status_reason}</p>}
-          {ticket.resolution_notes && (
-            <p className="mt-1 text-[10px] text-orange-300 line-clamp-2">🔩 {ticket.resolution_notes.replace(/^⚠️ Aguardando pecas:\s*/i, '')}</p>
-          )}
-          <div className="mt-1.5 inline-flex items-center gap-1.5 text-orange-300 text-[11px] font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-            aguardando ha <span className="tabular-nums ml-1">{formatElapsed(since)}</span>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function AwaitingInspectionCard({ ticket }: { ticket: Ticket }) {
-  const since = ticket.resolved_at ?? ticket.updated_at ?? ticket.created_at;
-
-  return (
-    <article className="rounded-2xl p-3 sm:p-4 border border-purple-500/30 bg-purple-950/20">
-      <div className="flex items-start gap-3">
-        <div className="bg-purple-500/20 text-purple-300 p-2 rounded-xl shrink-0"><SearchCheck className="w-4 h-4" /></div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${PRIORITY_BADGE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
-            {ticket.room_number && <span className="bg-white text-neutral-900 px-2 py-0.5 rounded font-black text-xs">UH {ticket.room_number}</span>}
-          </div>
-          <h3 className="mt-1.5 font-black text-sm text-white">{ticket.title}</h3>
-          {ticket.status_reason && <p className="mt-1 text-[11px] text-purple-200 font-semibold">👷 Concluído por {ticket.status_reason}</p>}
-          {ticket.resolution_notes && <p className="mt-1 text-[11px] text-purple-300 line-clamp-2">📝 {ticket.resolution_notes}</p>}
-          <div className="mt-1.5 inline-flex items-center gap-1.5 text-purple-300 text-[11px] font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-            aguardando vistoriador ha <span className="tabular-nums ml-1">{formatElapsed(since)}</span>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
+function StatusIcon({ tone }: { tone: 'amber' | 'blue' | 'orange' | 'purple' }) {
+  const common = 'h-10 w-10 rounded-2xl p-2';
+  if (tone === 'blue') return <Wrench className={`${common} bg-blue-400/18 text-blue-200`} />;
+  if (tone === 'orange') return <Package className={`${common} bg-orange-400/18 text-orange-200`} />;
+  if (tone === 'purple') return <SearchCheck className={`${common} bg-purple-400/18 text-purple-200`} />;
+  return <Clock3 className={`${common} bg-amber-400/18 text-amber-200`} />;
 }
