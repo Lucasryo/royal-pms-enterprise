@@ -258,6 +258,49 @@ const OCCUPANCY_TO_ROOM_TYPE: Record<string, Tariff['room_type']> = {
 
 const getTariffDailyTotal = (tariff: Tariff) => Number(tariff.base_rate || 0) * (1 + Number(tariff.percentage || 0) / 100);
 
+type ClientBlockedDate = {
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+  category?: string | null;
+};
+
+const dateOnly = (date: Date) => format(date, 'yyyy-MM-dd');
+const localDate = (value: string) => new Date(`${value}T12:00:00`);
+const todayISO = () => dateOnly(new Date());
+
+const getStayDates = (checkIn?: string, checkOut?: string) => {
+  if (!checkIn || !checkOut) return [];
+  const start = localDate(checkIn);
+  const end = localDate(checkOut);
+  if (end <= start) return [];
+
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  while (cursor < end) {
+    dates.push(dateOnly(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+};
+
+const categoryMatchesBlock = (blockCategory: string | null | undefined, selectedCategory: string) => {
+  if (!blockCategory) return true;
+  const normalizedBlock = blockCategory.toLowerCase().trim();
+  const normalizedSelected = selectedCategory.toLowerCase().trim();
+  const selectedTariffCategory = (CATEGORY_TO_TARIFF_CATEGORY[normalizedSelected] || normalizedSelected).toLowerCase();
+  const blockTariffCategory = (CATEGORY_TO_TARIFF_CATEGORY[normalizedBlock] || normalizedBlock).toLowerCase();
+  return normalizedBlock === normalizedSelected || blockTariffCategory === selectedTariffCategory;
+};
+
+const findBlockedDate = (date: string, category: string, blockedDates: ClientBlockedDate[]) => {
+  return blockedDates.find(block =>
+    categoryMatchesBlock(block.category, category) &&
+    date >= block.start_date &&
+    date <= block.end_date
+  );
+};
+
 export default function ClientDashboard({ profile, initialTab = 'active' }: { profile: UserProfile, initialTab?: 'active' | 'trash' | 'reservations' }) {
   const isExternalClient = profile.role === 'external_client';
   const canManageClientArchive = !!profile.permissions?.canUploadFiles && !isExternalClient;
@@ -279,6 +322,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const [reservationRequests, setReservationRequests] = useState<ReservationRequest[]>([]);
   const [billingProfiles, setBillingProfiles] = useState<CompanyBillingProfile[]>([]);
   const [corporateTariffs, setCorporateTariffs] = useState<Tariff[]>([]);
+  const [blockedDates, setBlockedDates] = useState<ClientBlockedDate[]>([]);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [hotelProfile, setHotelProfile] = useState<VoucherHotelProfile>(DEFAULT_VOUCHER_HOTEL_PROFILE);
   const [showReservationForm, setShowReservationForm] = useState(false);
   const [submittingReservation, setSubmittingReservation] = useState(false);
@@ -367,6 +415,92 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   };
 
   const selectedCorporateTariff = findCorporateTariff();
+  const selectedStayDates = getStayDates(reservationForm.check_in, reservationForm.check_out);
+  const selectedRangeBlock = selectedStayDates
+    .map(date => findBlockedDate(date, reservationForm.category, blockedDates))
+    .find(Boolean);
+  const selectedRangeUnavailable = reservationForm.check_in && reservationForm.check_out && (
+    localDate(reservationForm.check_out) <= localDate(reservationForm.check_in) ||
+    Boolean(selectedRangeBlock)
+  );
+
+  const calendarStart = (() => {
+    const first = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const start = new Date(first);
+    start.setDate(first.getDate() - first.getDay());
+    return start;
+  })();
+  const reservationCalendarDays = Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(calendarStart);
+    current.setDate(calendarStart.getDate() + index);
+    const iso = dateOnly(current);
+    const block = findBlockedDate(iso, reservationForm.category, blockedDates);
+    const isPast = iso < todayISO();
+    const inStay = selectedStayDates.includes(iso);
+    return {
+      date: current,
+      iso,
+      block,
+      isPast,
+      inMonth: current.getMonth() === calendarMonth.getMonth(),
+      inStay,
+      isCheckIn: reservationForm.check_in === iso,
+      isCheckOut: reservationForm.check_out === iso,
+      available: !isPast && !block,
+    };
+  });
+
+  const validateReservationRange = (checkIn: string, checkOut: string, category = reservationForm.category) => {
+    if (!checkIn || !checkOut) return { available: true, message: '' };
+    if (localDate(checkOut) <= localDate(checkIn)) {
+      return { available: false, message: 'O check-out precisa ser posterior ao check-in.' };
+    }
+    const stayDates = getStayDates(checkIn, checkOut);
+    const blocked = stayDates
+      .map(date => ({ date, block: findBlockedDate(date, category, blockedDates) }))
+      .find(item => item.block);
+    if (blocked?.block) {
+      return {
+        available: false,
+        message: `Periodo indisponivel em ${clientDate(blocked.date)}${blocked.block.reason ? `: ${blocked.block.reason}` : '.'}`,
+      };
+    }
+    return { available: true, message: '' };
+  };
+
+  const updateReservationDate = (field: 'check_in' | 'check_out', value: string) => {
+    setReservationForm(prev => {
+      const next = { ...prev, [field]: value };
+      if (field === 'check_in' && next.check_out && localDate(next.check_out) <= localDate(value)) {
+        next.check_out = '';
+      }
+      return next;
+    });
+  };
+
+  const handleCalendarDayClick = (iso: string) => {
+    const blocked = findBlockedDate(iso, reservationForm.category, blockedDates);
+    if (iso < todayISO()) {
+      toast.error('Escolha uma data futura.');
+      return;
+    }
+    if (blocked) {
+      toast.error(`Data indisponivel${blocked.reason ? `: ${blocked.reason}` : '.'}`);
+      return;
+    }
+
+    if (!reservationForm.check_in || (reservationForm.check_in && reservationForm.check_out) || iso <= reservationForm.check_in) {
+      setReservationForm(prev => ({ ...prev, check_in: iso, check_out: '' }));
+      return;
+    }
+
+    const range = validateReservationRange(reservationForm.check_in, iso);
+    if (!range.available) {
+      toast.error(range.message);
+      return;
+    }
+    setReservationForm(prev => ({ ...prev, check_out: iso }));
+  };
 
   // Filter states
   const [filterType, setFilterType] = useState<string>('ALL');
@@ -547,6 +681,18 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         setCorporateTariffs(tariffData as Tariff[]);
       }
 
+      const { data: blockedData, error: blockedError } = await supabase
+        .from('booking_blocked_dates')
+        .select('start_date,end_date,reason,category')
+        .eq('active', true)
+        .order('start_date', { ascending: true });
+      if (blockedError) {
+        console.error("ClientDashboard: Error fetching blocked dates:", blockedError);
+        setBlockedDates([]);
+      } else {
+        setBlockedDates((blockedData || []) as ClientBlockedDate[]);
+      }
+
       const { data: hotelSetting, error: hotelError } = await supabase
         .from('app_settings')
         .select('value')
@@ -597,6 +743,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       const paxNames = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
       if (paxNames.length === 0) {
         toast.error('Informe pelo menos um PAX.');
+        return;
+      }
+      const availability = validateReservationRange(reservationForm.check_in, reservationForm.check_out);
+      if (!availability.available) {
+        toast.error(availability.message);
         return;
       }
       const agreementTariff = findCorporateTariff();
@@ -2245,8 +2396,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     <input
                       required
                       type="date"
+                      min={todayISO()}
                       value={reservationForm.check_in}
-                      onChange={(e) => setReservationForm({...reservationForm, check_in: e.target.value})}
+                      onChange={(e) => updateReservationDate('check_in', e.target.value)}
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                     />
                   </div>
@@ -2255,10 +2407,89 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     <input
                       required
                       type="date"
+                      min={reservationForm.check_in || todayISO()}
                       value={reservationForm.check_out}
-                      onChange={(e) => setReservationForm({...reservationForm, check_out: e.target.value})}
+                      onChange={(e) => updateReservationDate('check_out', e.target.value)}
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                     />
+                  </div>
+
+                  <div className="md:col-span-2 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+                    <div className="flex flex-col gap-3 border-b border-neutral-100 bg-neutral-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Calendario de disponibilidade</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-500">
+                          Verde disponivel. Vermelho bloqueado em Reservas &gt; Bloqueio de Datas.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                          className="h-9 w-9 rounded-full border border-neutral-200 bg-white text-sm font-black text-neutral-700 hover:bg-neutral-100"
+                          aria-label="Mes anterior"
+                        >
+                          &lt;
+                        </button>
+                        <div className="min-w-[150px] text-center text-sm font-black uppercase tracking-widest text-neutral-900">
+                          {calendarMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                          className="h-9 w-9 rounded-full border border-neutral-200 bg-white text-sm font-black text-neutral-700 hover:bg-neutral-100"
+                          aria-label="Proximo mes"
+                        >
+                          &gt;
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map(day => <div key={day}>{day}</div>)}
+                      </div>
+                      <div className="mt-2 grid grid-cols-7 gap-1">
+                        {reservationCalendarDays.map(day => {
+                          const tone = day.isPast
+                            ? 'border-neutral-100 bg-neutral-100 text-neutral-300 cursor-not-allowed'
+                            : day.block
+                              ? 'border-red-200 bg-red-50 text-red-700 cursor-not-allowed'
+                              : day.inStay || day.isCheckIn || day.isCheckOut
+                                ? 'border-neutral-950 bg-neutral-950 text-white'
+                                : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-400 hover:bg-emerald-100';
+                          return (
+                            <button
+                              key={day.iso}
+                              type="button"
+                              onClick={() => handleCalendarDayClick(day.iso)}
+                              className={`min-h-[54px] rounded-xl border p-2 text-left transition-all ${tone} ${day.inMonth ? '' : 'opacity-40'}`}
+                              title={day.block?.reason || (day.available ? 'Disponivel' : 'Indisponivel')}
+                            >
+                              <span className="block text-sm font-black">{day.date.getDate()}</span>
+                              <span className="mt-1 block truncate text-[9px] font-black uppercase tracking-widest opacity-70">
+                                {day.isCheckIn ? 'Entrada' : day.isCheckOut ? 'Saida' : day.block ? 'Bloq.' : 'Livre'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-4 flex flex-col gap-2 text-xs font-bold text-neutral-500 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap gap-3">
+                          <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-emerald-500" /> Disponivel</span>
+                          <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-red-500" /> Bloqueado</span>
+                          <span className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-neutral-950" /> Selecionado</span>
+                        </div>
+                        {selectedRangeUnavailable ? (
+                          <span className="font-black text-red-600">
+                            {selectedRangeBlock?.reason || 'Periodo indisponivel para reserva.'}
+                          </span>
+                        ) : reservationForm.check_in && reservationForm.check_out ? (
+                          <span className="font-black text-emerald-700">Periodo liberado para solicitacao.</span>
+                        ) : (
+                          <span>Clique primeiro na entrada e depois na saida.</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Corporate Details */}
@@ -2462,9 +2693,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
                 <div className="pt-4">
                   <button
-                    disabled={submittingReservation}
+                    disabled={submittingReservation || Boolean(selectedRangeUnavailable)}
                     type="submit"
-                    className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-neutral-800 transition-all shadow-xl flex items-center justify-center gap-2 group"
+                    className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-neutral-800 transition-all shadow-xl flex items-center justify-center gap-2 group disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500"
                   >
                     {submittingReservation ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
