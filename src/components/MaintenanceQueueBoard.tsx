@@ -50,6 +50,8 @@ const SLA_LIMIT_MIN: Record<Ticket['priority'], number> = {
   low: 1440,
 };
 
+const BOARD_PAGE_SIZE = 3;
+
 function minutesSince(start?: string | null) {
   if (!start) return 0;
   return Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 60_000));
@@ -108,6 +110,7 @@ export default function MaintenanceQueueBoard() {
   const [now, setNow] = useState(new Date());
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [freshTicketIds, setFreshTicketIds] = useState<string[]>([]);
+  const [boardPage, setBoardPage] = useState(0);
   const previousIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -193,19 +196,51 @@ export default function MaintenanceQueueBoard() {
     [tickets],
   );
 
-  const featured = useMemo(() => pickFeatured(open, inProgress), [open, inProgress, now]);
-  const mainQueue = useMemo(
-    () => [...open, ...inProgress].filter((ticket) => ticket.id !== featured?.id).slice(0, 8),
-    [open, inProgress, featured],
+  const slaBreached = useMemo(
+    () =>
+      tickets
+        .filter(isSLABreached)
+        .sort((a, b) => {
+          const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+          if (priority !== 0) return priority;
+          return a.created_at.localeCompare(b.created_at);
+        }),
+    [tickets],
   );
-  const dependencyQueue = useMemo(() => [...awaitingParts, ...awaitingInspection].slice(0, 8), [awaitingParts, awaitingInspection]);
+
+  const featured = useMemo(() => pickFeatured(open, inProgress), [open, inProgress, now]);
+
+  const compactColumns = useMemo(
+    () => [
+      { id: 'open', title: 'Aguardando', tone: 'amber' as const, tickets: open },
+      { id: 'progress', title: 'Em andamento', tone: 'blue' as const, tickets: inProgress },
+      { id: 'inspection', title: 'Vistoria', tone: 'purple' as const, tickets: awaitingInspection },
+      { id: 'parts', title: 'Falta pecas', tone: 'orange' as const, tickets: awaitingParts },
+      { id: 'sla', title: 'SLA', tone: 'red' as const, tickets: slaBreached },
+    ],
+    [open, inProgress, awaitingInspection, awaitingParts, slaBreached],
+  );
+
+  const boardPageCount = useMemo(
+    () => Math.max(1, ...compactColumns.map((column) => Math.ceil(column.tickets.length / BOARD_PAGE_SIZE))),
+    [compactColumns],
+  );
+
+  useEffect(() => {
+    setBoardPage((page) => (page >= boardPageCount ? 0 : page));
+    if (boardPageCount <= 1) return;
+    const id = window.setInterval(() => {
+      setBoardPage((page) => (page + 1) % boardPageCount);
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [boardPageCount]);
 
   const stats = {
     open: open.length,
     inProgress: inProgress.length,
     awaitingParts: awaitingParts.length,
     awaitingInspection: awaitingInspection.length,
-    breached: tickets.filter(isSLABreached).length,
+    breached: slaBreached.length,
     active: tickets.length,
   };
 
@@ -221,13 +256,13 @@ export default function MaintenanceQueueBoard() {
     <div className="relative min-h-screen overflow-hidden bg-[#070a10] text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.18),transparent_32%)]" />
       <div className="relative flex min-h-screen flex-col p-4 sm:p-6 lg:p-8">
-        <header className="grid gap-4 border-b border-white/10 pb-5 lg:grid-cols-3 lg:items-end">
+        <header className="grid gap-4 border-b border-white/10 pb-4 lg:grid-cols-3 lg:items-end">
           <div className="min-w-0 lg:col-span-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-emerald-100">
               <Radio className="h-3.5 w-3.5" />
               Ao vivo
             </div>
-            <h1 className="mt-3 text-4xl font-black leading-none tracking-tight sm:text-6xl lg:text-7xl">Quadro de Manutencao</h1>
+            <h1 className="mt-3 text-4xl font-black leading-none tracking-tight sm:text-6xl">Quadro de Manutencao</h1>
             <p className="mt-2 text-sm font-semibold text-white/45 sm:text-base">Painel de TV para chamados ativos, SLA e fila de atendimento.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -237,10 +272,10 @@ export default function MaintenanceQueueBoard() {
           </div>
         </header>
 
-        <main className="grid flex-1 gap-5 py-5 xl:grid-cols-3">
-          <section className="grid gap-5 xl:col-span-2">
+        <main className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-4 py-4">
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch">
             <FeaturedTicket ticket={featured} isFresh={Boolean(featured && freshTicketIds.includes(featured.id))} />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <StatusMetric label="Aguardando" value={stats.open} tone="amber" />
               <StatusMetric label="Em atendimento" value={stats.inProgress} tone="blue" />
               <StatusMetric label="Aguardando pecas" value={stats.awaitingParts} tone="orange" />
@@ -248,10 +283,7 @@ export default function MaintenanceQueueBoard() {
             </div>
           </section>
 
-          <aside className="grid min-h-0 gap-4 lg:grid-cols-2 xl:grid-cols-1">
-            <QueuePanel title="Proximos chamados" subtitle="Fila operacional" tickets={mainQueue} freshTicketIds={freshTicketIds} empty="Fila sem chamados aguardando." />
-            <QueuePanel title="Dependencias" subtitle="Pecas e vistoria" tickets={dependencyQueue} freshTicketIds={freshTicketIds} empty="Sem pendencias externas." compact />
-          </aside>
+          <CompactOperationsBoard columns={compactColumns} page={boardPage} pageCount={boardPageCount} freshTicketIds={freshTicketIds} />
         </main>
       </div>
     </div>
@@ -260,7 +292,7 @@ export default function MaintenanceQueueBoard() {
 
 function ClockPanel({ now, lastUpdate }: { now: Date; lastUpdate: Date }) {
   return (
-    <div className="col-span-2 rounded-3xl border border-white/10 bg-white/[0.06] p-4 sm:col-span-1">
+    <div className="col-span-2 rounded-3xl border border-white/10 bg-white/[0.06] p-3.5 sm:col-span-1">
       <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/35">Agora</p>
       <p className="mt-1 text-3xl font-black tabular-nums tracking-tight">{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
       <p className="mt-1 text-[11px] font-semibold text-white/40">Atualizado {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
@@ -275,9 +307,9 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: 'sla
     green: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
   };
   return (
-    <div className={`rounded-3xl border p-4 ${tones[tone]}`}>
+    <div className={`rounded-3xl border p-3.5 ${tones[tone]}`}>
       <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-55">{label}</p>
-      <p className="mt-1 text-4xl font-black tabular-nums tracking-tight">{value}</p>
+      <p className="mt-1 text-3xl font-black tabular-nums tracking-tight">{value}</p>
     </div>
   );
 }
@@ -290,9 +322,9 @@ function StatusMetric({ label, value, tone }: { label: string; value: number; to
     purple: 'from-purple-400/22 to-purple-500/5 text-purple-100',
   };
   return (
-    <div className={`rounded-3xl border border-white/10 bg-gradient-to-br ${tones[tone]} p-5`}>
+    <div className={`rounded-3xl border border-white/10 bg-gradient-to-br ${tones[tone]} p-3.5`}>
       <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-60">{label}</p>
-      <p className="mt-2 text-5xl font-black tabular-nums tracking-tight">{value}</p>
+      <p className="mt-1 text-3xl font-black tabular-nums tracking-tight">{value}</p>
     </div>
   );
 }
@@ -316,7 +348,7 @@ function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: b
   const elapsedLabel = ticket.status === 'in_progress' ? 'Em atendimento ha' : 'Aberto ha';
 
   return (
-    <section className={`relative overflow-hidden rounded-[2rem] border p-6 shadow-2xl transition ${breached || ticket.priority === 'urgent' ? 'border-red-300/35 bg-red-500/[0.13] shadow-red-950/30' : 'border-white/10 bg-white/[0.075] shadow-black/30'} ${isFresh ? 'ring-4 ring-emerald-300/55' : ''}`}>
+    <section className={`relative overflow-hidden rounded-[2rem] border p-4 shadow-2xl transition ${breached || ticket.priority === 'urgent' ? 'border-red-300/35 bg-red-500/[0.13] shadow-red-950/30' : 'border-white/10 bg-white/[0.075] shadow-black/30'} ${isFresh ? 'ring-4 ring-emerald-300/55' : ''}`}>
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-amber-300 via-white to-blue-300" />
       <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
       {isFresh && <FreshBadge className="absolute right-5 top-5" />}
@@ -328,11 +360,11 @@ function FeaturedTicket({ ticket, isFresh }: { ticket: Ticket | null; isFresh: b
             <StatusPill status={status.label} tone={status.tone} />
             {breached && <span className="inline-flex items-center gap-2 rounded-2xl border border-red-300/40 bg-red-500/20 px-4 py-2 text-sm font-black uppercase tracking-wider text-red-100"><AlertTriangle className="h-4 w-4" /> SLA vencido</span>}
           </div>
-          <div className="mt-7 flex flex-wrap items-end gap-5">
-            <p className="text-6xl font-black leading-none tracking-tight text-white sm:text-8xl">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</p>
+          <div className="mt-6 flex flex-wrap items-end gap-5">
+            <p className="text-6xl font-black leading-none tracking-tight text-white sm:text-7xl">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</p>
             {ticket.room_number && <p className="pb-2 text-2xl font-black uppercase tracking-[0.18em] text-white/35">#{shortCode(ticket.id)}</p>}
           </div>
-          <h2 className="mt-6 max-w-5xl text-4xl font-black leading-[1.05] tracking-tight sm:text-6xl">{ticket.title}</h2>
+          <h2 className="mt-5 max-w-5xl text-4xl font-black leading-[1.05] tracking-tight sm:text-5xl">{ticket.title}</h2>
           {ticket.description && <p className="mt-4 max-w-4xl text-xl font-semibold leading-8 text-white/58 line-clamp-2">{ticket.description}</p>}
         </div>
 
@@ -366,60 +398,110 @@ function StatusPill({ status, tone }: { status: string; tone: 'amber' | 'blue' |
 
 function InfoTile({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/18 p-5">
+    <div className="rounded-3xl border border-white/10 bg-black/18 p-4">
       <div className="flex items-center gap-2 text-white/45">
         {icon}
         <p className="text-[10px] font-black uppercase tracking-[0.22em]">{label}</p>
       </div>
-      <p className="mt-2 truncate text-2xl font-black text-white">{value}</p>
+      <p className="mt-2 truncate text-xl font-black text-white">{value}</p>
     </div>
   );
 }
 
-function QueuePanel({ title, subtitle, tickets, freshTicketIds, empty, compact = false }: { title: string; subtitle: string; tickets: Ticket[]; freshTicketIds: string[]; empty: string; compact?: boolean }) {
+function CompactOperationsBoard({
+  columns,
+  page,
+  pageCount,
+  freshTicketIds,
+}: {
+  columns: { id: string; title: string; tone: 'amber' | 'blue' | 'purple' | 'orange' | 'red'; tickets: Ticket[] }[];
+  page: number;
+  pageCount: number;
+  freshTicketIds: string[];
+}) {
   return (
-    <section className="min-h-0 rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 sm:p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <section className="min-h-0 rounded-[2rem] border border-white/10 bg-white/[0.055] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/35">{subtitle}</p>
-          <h3 className="mt-1 text-2xl font-black tracking-tight">{title}</h3>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/35">Grade operacional</p>
+          <h3 className="mt-1 text-2xl font-black tracking-tight">Fila compacta da manutencao</h3>
         </div>
-        <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-black tabular-nums">{tickets.length}</span>
+        {pageCount > 1 && (
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-black uppercase tracking-wider text-white/55">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+            Pagina {page + 1}/{pageCount}
+          </div>
+        )}
       </div>
-      {tickets.length === 0 ? (
-        <div className="flex min-h-36 items-center justify-center rounded-3xl border border-dashed border-white/10 text-center text-sm font-semibold text-white/32">{empty}</div>
-      ) : (
-        <div className="grid max-h-[54vh] gap-3 overflow-y-auto pr-1">
-          {tickets.map((ticket) => <QueueTicket key={ticket.id} ticket={ticket} fresh={freshTicketIds.includes(ticket.id)} compact={compact} />)}
-        </div>
-      )}
+      <div className="grid min-h-0 gap-3 xl:grid-cols-5">
+        {columns.map((column) => (
+          <CompactColumn key={column.id} column={column} page={page} freshTicketIds={freshTicketIds} />
+        ))}
+      </div>
     </section>
   );
 }
 
-function QueueTicket({ ticket, fresh, compact }: { ticket: Ticket; fresh: boolean; compact?: boolean }) {
+function CompactColumn({
+  column,
+  page,
+  freshTicketIds,
+}: {
+  column: { title: string; tone: 'amber' | 'blue' | 'purple' | 'orange' | 'red'; tickets: Ticket[] };
+  page: number;
+  freshTicketIds: string[];
+}) {
+  const start = (page * BOARD_PAGE_SIZE) % Math.max(column.tickets.length, 1);
+  const visible = column.tickets.slice(start, start + BOARD_PAGE_SIZE);
+  const wrapped = visible.length < BOARD_PAGE_SIZE && column.tickets.length > visible.length
+    ? [...visible, ...column.tickets.slice(0, BOARD_PAGE_SIZE - visible.length)]
+    : visible;
+  const tones = {
+    amber: 'border-amber-300/20 bg-amber-300/8 text-amber-100',
+    blue: 'border-blue-300/20 bg-blue-300/8 text-blue-100',
+    purple: 'border-purple-300/20 bg-purple-300/8 text-purple-100',
+    orange: 'border-orange-300/20 bg-orange-300/8 text-orange-100',
+    red: 'border-red-300/25 bg-red-500/10 text-red-100',
+  };
+
+  return (
+    <div className={`min-h-[286px] rounded-3xl border p-3 ${tones[column.tone]}`}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-black uppercase tracking-[0.16em]">{column.title}</h4>
+        <span className="rounded-full bg-white/12 px-2.5 py-1 text-sm font-black tabular-nums text-white">{column.tickets.length}</span>
+      </div>
+      {column.tickets.length === 0 ? (
+        <div className="flex h-[218px] items-center justify-center rounded-2xl border border-dashed border-white/10 text-center text-xs font-bold text-white/30">Sem chamados</div>
+      ) : (
+        <div className="grid gap-2">
+          {wrapped.map((ticket) => <CompactTicket key={`${column.title}-${ticket.id}`} ticket={ticket} fresh={freshTicketIds.includes(ticket.id)} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompactTicket({ ticket, fresh }: { ticket: Ticket; fresh: boolean }) {
   const status = ticketStatus(ticket);
   const breached = isSLABreached(ticket);
 
   return (
-    <article className={`rounded-3xl border p-4 transition ${fresh ? 'border-emerald-200/60 bg-emerald-300/12' : breached ? 'border-red-300/30 bg-red-500/12' : 'border-white/10 bg-black/16'}`}>
-      <div className="flex items-start justify-between gap-3">
+    <article className={`min-h-[68px] rounded-2xl border p-3 transition ${fresh ? 'border-emerald-200/60 bg-emerald-300/12' : breached ? 'border-red-300/30 bg-red-500/12' : 'border-white/10 bg-black/18'}`}>
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-xl border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${PRIORITY_STYLE[ticket.priority]}`}>{PRIORITY_LABEL[ticket.priority]}</span>
-            {fresh && <span className="rounded-xl bg-emerald-300/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-100">Novo</span>}
-            {breached && <span className="rounded-xl bg-red-300/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-red-100">SLA</span>}
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-black leading-none tracking-tight">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</span>
+            <span className={`h-2.5 w-2.5 rounded-full ${ticket.priority === 'urgent' ? 'bg-red-300' : ticket.priority === 'high' ? 'bg-orange-300' : ticket.priority === 'medium' ? 'bg-amber-300' : 'bg-white/35'}`} />
           </div>
-          <p className="mt-3 text-2xl font-black leading-none">{ticket.room_number ? `UH ${ticket.room_number}` : `#${shortCode(ticket.id)}`}</p>
-          <h4 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-white/90">{ticket.title}</h4>
-          {!compact && ticket.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-white/40">{ticket.description}</p>}
+          <h5 className="mt-1 line-clamp-1 text-sm font-black leading-5 text-white/90">{ticket.title}</h5>
+          <p className="mt-1 truncate text-[11px] font-bold text-white/42">{ticket.status_reason || status.label}</p>
         </div>
-        <div className="shrink-0 text-right">
-          <StatusIcon tone={status.tone} />
-          <p className="mt-2 text-[10px] font-black uppercase tracking-wider text-white/40">{formatElapsed(ticketClockStart(ticket))}</p>
+        <div className="shrink-0 text-right text-[10px] font-black uppercase tracking-wider text-white/45">
+          {fresh && <p className="text-emerald-100">Novo</p>}
+          {breached && <p className="text-red-100">SLA</p>}
+          <p>{formatElapsed(ticketClockStart(ticket))}</p>
         </div>
       </div>
-      {ticket.status_reason && <p className="mt-3 truncate border-t border-white/10 pt-3 text-xs font-bold text-white/48">{ticket.status_reason}</p>}
     </article>
   );
 }
