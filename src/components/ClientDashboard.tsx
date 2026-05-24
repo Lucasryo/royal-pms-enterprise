@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { Company, FiscalFile, UserProfile, Notification, Reservation, ReservationRequest } from '../types';
-import { FileText, Search, Loader2, Download, Filter, CheckCircle2, Clock, Sparkles, Eye, X, Bell, BellOff, Receipt, AlertTriangle, Image as ImageIcon, Send, Upload, Calendar, Plus, Mail, Building2, User, Printer, ShieldCheck } from 'lucide-react';
+import { Company, CompanyBillingProfile, FiscalFile, UserProfile, Notification, Reservation, ReservationRequest, VoucherHotelProfile } from '../types';
+import { FileText, Search, Loader2, Download, Filter, CheckCircle2, Clock, Sparkles, Eye, X, Bell, BellOff, Receipt, AlertTriangle, Image as ImageIcon, Send, Upload, Calendar, Plus, Mail, Building2, User, Printer, ShieldCheck, Ban, CreditCard, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { logAudit, sendNotification } from '../lib/audit';
 import { format, addDays } from 'date-fns';
 import jsPDF from 'jspdf';
+import { DEFAULT_VOUCHER_HOTEL_PROFILE, deriveOccupancyType, getReservationPaxNames, OCCUPANCY_LABELS } from '../lib/voucher';
 
 const FINANCIAL_TYPES = ['FATURA', 'Hospedagem', 'Alimentação', 'Lavanderia', 'Eventos', 'Transporte'];
 
@@ -63,6 +64,22 @@ function calculateReservationTotal(value: { tariff: number; iss_enabled?: boolea
   return { tariff, iss, service, total: tariff + iss + service };
 }
 
+const reservationStatusLabel: Record<string, string> = {
+  PENDING: 'Pendente',
+  CONFIRMED: 'Confirmada',
+  CHECKED_IN: 'Em hospedagem',
+  CHECKED_OUT: 'A faturar',
+  CANCELLED: 'Cancelada',
+  REQUESTED: 'Em analise',
+  APPROVED: 'Aprovada',
+  REJECTED: 'Negada',
+};
+
+const paymentMethodLabel: Record<string, string> = {
+  BILLED: 'Faturado',
+  VIRTUAL_CARD: 'Cartao virtual',
+};
+
 export default function ClientDashboard({ profile, initialTab = 'active' }: { profile: UserProfile, initialTab?: 'active' | 'trash' | 'reservations' }) {
   const isExternalClient = profile.role === 'external_client';
   const canManageClientArchive = !!profile.permissions?.canUploadFiles && !isExternalClient;
@@ -82,13 +99,18 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const [activeTab, setActiveTab] = useState<'active' | 'trash' | 'reservations'>(initialTab);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [reservationRequests, setReservationRequests] = useState<ReservationRequest[]>([]);
+  const [billingProfiles, setBillingProfiles] = useState<CompanyBillingProfile[]>([]);
+  const [hotelProfile, setHotelProfile] = useState<VoucherHotelProfile>(DEFAULT_VOUCHER_HOTEL_PROFILE);
   const [showReservationForm, setShowReservationForm] = useState(false);
   const [submittingReservation, setSubmittingReservation] = useState(false);
   const [viewingVoucher, setViewingVoucher] = useState<Reservation | ReservationRequest | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<{ item: Reservation | ReservationRequest; reason: string } | null>(null);
+  const [sendingCancelRequest, setSendingCancelRequest] = useState(false);
 
   // Reservation form state
   const [reservationForm, setReservationForm] = useState({
     guest_name: '',
+    pax_names: [''],
     check_in: '',
     check_out: '',
     cost_center: '',
@@ -101,6 +123,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     iss_tax: 5,
     service_enabled: false,
     service_tax: 10,
+    occupancy_type: 'SGL' as 'SGL' | 'DBL' | 'TPL' | 'QDL',
+    billing_profile_id: '',
     payment_method: 'BILLED' as 'BILLED' | 'VIRTUAL_CARD',
     billing_info: ''
   });
@@ -112,6 +136,49 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;
+  };
+
+  const setPaxName = (index: number, value: string) => {
+    setReservationForm(prev => {
+      const pax = [...prev.pax_names];
+      pax[index] = value;
+      return { ...prev, pax_names: pax, guest_name: index === 0 ? value : prev.guest_name };
+    });
+  };
+
+  const addPaxName = () => {
+    setReservationForm(prev => ({ ...prev, pax_names: [...prev.pax_names, ''] }));
+  };
+
+  const removePaxName = (index: number) => {
+    setReservationForm(prev => {
+      const pax = prev.pax_names.filter((_, idx) => idx !== index);
+      const nextPax = pax.length > 0 ? pax : [''];
+      return { ...prev, pax_names: nextPax, guest_name: nextPax[0] || '' };
+    });
+  };
+
+  const applyBillingProfile = (profileId: string) => {
+    const selected = billingProfiles.find(item => item.id === profileId);
+    if (!selected) {
+      setReservationForm(prev => ({ ...prev, billing_profile_id: profileId }));
+      return;
+    }
+
+    const billingInfo = [
+      selected.legal_name ? `Razao social: ${selected.legal_name}` : '',
+      selected.cnpj ? `CNPJ: ${selected.cnpj}` : '',
+      selected.fiscal_address ? `Endereco fiscal: ${selected.fiscal_address}` : '',
+      selected.fiscal_email ? `E-mail fiscal: ${selected.fiscal_email}` : '',
+    ].filter(Boolean).join('\n');
+
+    setReservationForm(prev => ({
+      ...prev,
+      billing_profile_id: profileId,
+      cost_center: selected.cost_center || prev.cost_center,
+      billing_obs: selected.billing_instructions || prev.billing_obs,
+      billing_info: billingInfo || prev.billing_info,
+    }));
   };
 
   // Filter states
@@ -263,6 +330,24 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         }));
         setFiles(filesList);
       }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('company_billing_profiles')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .eq('active', true)
+        .order('name');
+      if (!profileError && profileData) setBillingProfiles(profileData as CompanyBillingProfile[]);
+
+      const { data: hotelSetting, error: hotelError } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('id', 'voucher_hotel_profile')
+        .maybeSingle();
+      if (!hotelError && hotelSetting?.value) {
+        const value = typeof hotelSetting.value === 'string' ? JSON.parse(hotelSetting.value) : hotelSetting.value;
+        setHotelProfile({ ...DEFAULT_VOUCHER_HOTEL_PROFILE, ...value });
+      }
       console.log("ClientDashboard: fetchData completed successfully");
     } catch (error) {
       console.error("ClientDashboard: Error in fetchData:", error);
@@ -302,11 +387,20 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     try {
       const resCode = generateReservationCode();
       const reservationTotals = calculateReservationTotal(reservationForm);
-      const { iss_enabled, service_enabled, ...reservationValues } = reservationForm;
+      const paxNames = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
+      if (paxNames.length === 0) {
+        toast.error('Informe pelo menos um PAX.');
+        return;
+      }
+      const { iss_enabled, service_enabled, pax_names: _formPax, ...reservationValues } = reservationForm;
       const newRequest: ReservationRequest = {
         ...reservationValues,
+        guest_name: paxNames[0],
+        pax_names: paxNames,
         iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
         service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
+        occupancy_type: reservationForm.occupancy_type,
+        billing_profile_id: reservationForm.billing_profile_id || undefined,
         company_id: profile.company_id!,
         reservation_code: resCode,
         requested_by: profile.name,
@@ -354,6 +448,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
     setReservationForm({
       guest_name: existingRes.guest_name,
+      pax_names: getReservationPaxNames(existingRes),
       check_in: newCheckIn,
       check_out: newCheckOut,
       cost_center: existingRes.cost_center || '',
@@ -365,6 +460,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       iss_tax: existingRes.iss_tax || 5,
       service_enabled: Number(existingRes.service_tax || 0) > 0,
       service_tax: existingRes.service_tax || 10,
+      occupancy_type: existingRes.occupancy_type || deriveOccupancyType(existingRes.guests_per_uh),
+      billing_profile_id: existingRes.billing_profile_id || '',
       payment_method: existingRes.payment_method || 'BILLED',
       billing_obs: existingRes.billing_obs || '',
       billing_info: existingRes.billing_info || ''
@@ -372,6 +469,46 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     
     setShowReservationForm(true);
     toast.info('Formulário preenchido para prorrogação do hóspede ' + existingRes.guest_name);
+  };
+
+  const handleRequestCancellation = async () => {
+    if (!cancelRequest) return;
+    setSendingCancelRequest(true);
+
+    const item = cancelRequest.item;
+    const reason = cancelRequest.reason.trim() || 'Cliente solicitou cancelamento sem detalhar motivo.';
+    const isConfirmedReservation = 'id' in item && reservations.some(res => res.id === item.id);
+
+    try {
+      const { data: staffToNotify } = await supabase.from('profiles').select('id, role');
+      const notifyRoles = ['admin', 'reservations', 'reception'];
+      const recipients = (staffToNotify || []).filter((u: any) => notifyRoles.includes(u.role));
+
+      for (const recipient of recipients) {
+        await sendNotification({
+          user_id: recipient.id,
+          title: 'Solicitacao de cancelamento de reserva',
+          message: `Cliente ${profile.name} (${company?.name || 'sem empresa'}) solicitou cancelamento da reserva ${item.reservation_code} - ${item.guest_name}. Motivo: ${reason}`,
+          link: '/dashboard'
+        });
+      }
+
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Solicitacao de cancelamento pelo cliente',
+        details: `Reserva: ${item.reservation_code}; Hospede: ${item.guest_name}; Tipo: ${isConfirmedReservation ? 'reserva confirmada' : 'solicitacao'}; Motivo: ${reason}`,
+        type: 'update'
+      });
+
+      toast.success('Solicitacao de cancelamento enviada para a equipe de reservas.');
+      setCancelRequest(null);
+    } catch (error) {
+      console.error('Error requesting cancellation:', error);
+      toast.error('Nao foi possivel enviar o pedido de cancelamento.');
+    } finally {
+      setSendingCancelRequest(false);
+    }
   };
 
   const filteredFiles = files.filter(file => {
@@ -388,6 +525,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const activeReservations = reservations.filter(r => !['CANCELLED', 'CHECKED_OUT'].includes(r.status));
   const checkedOutReservations = reservations.filter(r => r.status === 'CHECKED_OUT');
   const pendingRequests = reservationRequests.filter(r => r.status === 'REQUESTED');
+  const rejectedRequests = reservationRequests.filter(r => r.status === 'REJECTED');
+  const checkedOutTotal = checkedOutReservations.reduce((sum, res) => sum + Number(res.total_amount || 0), 0);
   const activeFiles = files.filter(file => !file.is_deleted);
   const openInvoices = activeFiles.filter(file => FINANCIAL_TYPES.includes(file.type) && file.status !== 'PAID' && file.status !== 'CANCELLED');
   const overdueInvoices = openInvoices.filter(file => file.due_date && new Date(file.due_date + 'T12:00:00') < new Date(new Date().toDateString()));
@@ -681,22 +820,30 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     const right = 198;
     const status = (viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'EM ANÁLISE' : 'CONFIRMADA';
     const code = viewingVoucher.reservation_code || 'PENDENTE';
+    const paxNames = getReservationPaxNames(viewingVoucher);
+    const occupancy = viewingVoucher.occupancy_type || deriveOccupancyType(viewingVoucher.guests_per_uh);
+    const requestDate = (viewingVoucher as ReservationRequest).created_at || (viewingVoucher as Reservation).created_at;
+    const hotelName = hotelProfile.trade_name || hotelProfile.legal_name || 'Royal Macae';
+    const hotelAddress = hotelProfile.address || 'Endereco nao informado';
+    const hotelContacts = [hotelProfile.cnpj ? `CNPJ ${hotelProfile.cnpj}` : '', hotelProfile.phone, hotelProfile.email].filter(Boolean).join(' - ');
+    const fiscalInfo = viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agencia.';
+    const billingInstructions = viewingVoucher.billing_obs || 'Sem observacoes adicionais.';
 
     pdf.setTextColor(17, 24, 39);
     pdf.setDrawColor(17, 24, 39);
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(7);
-    pdf.text('ROYAL MACAÉ', margin, 20);
+    pdf.text(hotelName.toUpperCase(), margin, 20, { maxWidth: 36 });
     pdf.setFontSize(6);
-    pdf.text('PALACE HOTEL', margin, 23);
+    pdf.text((hotelProfile.legal_name || 'HOTEL').toUpperCase(), margin, 26, { maxWidth: 36 });
     pdf.setFontSize(8);
-    pdf.text('PORTAL CORPORATIVO ROYAL MACAÉ', 54, 15);
+    pdf.text('PORTAL CORPORATIVO B2B', 54, 15);
     pdf.setFontSize(18);
-    pdf.text('AUTORIZAÇÃO DE HOSPEDAGEM', 54, 23);
+    pdf.text('AUTORIZACAO DE HOSPEDAGEM', 54, 23);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7);
-    pdf.text('Royal Macaé Palace Hotel - AV. ATLÂNTICA, 1642 - PR. DOS CAVALEIROS', 54, 29);
-    pdf.text('CNPJ 07.116.901/0001-92 - (22)2123-9650 - reservas@royalmacae.com.br', 54, 34);
+    pdf.text(`${hotelName} - ${hotelAddress}`, 54, 29, { maxWidth: 118 });
+    pdf.text(hotelContacts || 'Dados oficiais do hotel configuraveis pelo admin', 54, 34, { maxWidth: 118 });
 
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(7);
@@ -713,12 +860,12 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     pdf.setFontSize(7);
     pdf.text('HÓSPEDE E PERÍODO', margin + 4, 72);
     pdf.setFontSize(15);
-    pdf.text(String(viewingVoucher.guest_name || '-'), margin + 4, 82, { maxWidth: 104 });
+    pdf.text(String(paxNames[0] || viewingVoucher.guest_name || '-'), margin + 4, 82, { maxWidth: 104 });
     const guestRows = [
       ['ENTRADA', clientDate(viewingVoucher.check_in)],
       ['SAÍDA', clientDate(viewingVoucher.check_out)],
       ['CATEGORIA', viewingVoucher.category || '-'],
-      ['PESSOAS/UH', String(viewingVoucher.guests_per_uh || '-')],
+      ['OCUPACAO', OCCUPANCY_LABELS[occupancy] || occupancy],
     ];
     guestRows.forEach(([label, value], index) => {
       const x = margin + 4 + (index % 2) * 54;
@@ -757,7 +904,22 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       pdf.setTextColor(17, 24, 39);
     });
 
-    let y = 150;
+    let y = 146;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text('PAX AUTORIZADOS', margin, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text(pdf.splitTextToSize(paxNames.map((name, index) => `${index + 1}. ${name}`).join('  |  ') || '-', right - margin - 6), margin + 3, y + 7);
+    y += 22;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('DADOS DA SOLICITACAO', margin, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Solicitado em: ${requestDate ? clientDate(requestDate) : '-'}`, margin + 3, y + 7);
+    pdf.text(`Tipo UH: ${viewingVoucher.category || '-'} | Pessoas/UH: ${viewingVoucher.guests_per_uh || '-'}`, 104, y + 7);
+    y += 18;
+
+    pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(7);
     pdf.text('COMPOSIÇÃO PREVISTA', margin, y);
     pdf.text('Página 1 de 1', right, y, { align: 'right' });
@@ -782,25 +944,25 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     pdf.text('INSTRUÇÕES DE FATURAMENTO', margin + 3, notesY + 6);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7);
-    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_obs || 'Sem observações adicionais.'), 78), margin + 3, notesY + 12);
+    pdf.text(pdf.splitTextToSize(String(billingInstructions), 78), margin + 3, notesY + 12);
     pdf.setFont('helvetica', 'bold');
     pdf.roundedRect(104, notesY, 94, 35, 2, 2);
     pdf.setFontSize(6);
     pdf.text('DADOS PARA EMISSÃO DE NOTA', 107, notesY + 6);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7);
-    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agência.'), 86), 107, notesY + 12);
+    pdf.text(pdf.splitTextToSize(String(fiscalInfo), 86), 107, notesY + 12);
 
     pdf.setFont('helvetica', 'bold');
     pdf.line(margin, 258, margin + 86, 258);
     pdf.line(112, 258, right, 258);
     pdf.setFontSize(6);
-    pdf.text('ROYAL MACAÉ - RESERVAS / RECEPÇÃO', margin, 264);
+    pdf.text(`${hotelName.toUpperCase()} - RESERVAS / RECEPCAO`, margin, 264, { maxWidth: 82 });
     pdf.text('CLIENTE CORPORATIVO', 112, 264);
     pdf.line(margin, 282, right, 282);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7);
-    pdf.text('www.royalmacae.com.br - reservas@royalmacae.com.br', 105, 288, { align: 'center' });
+    pdf.text([hotelProfile.website, hotelProfile.email].filter(Boolean).join(' - ') || 'Voucher corporativo de hospedagem', 105, 288, { align: 'center' });
     pdf.save(`AUTORIZACAO_HOSPEDAGEM_${code}.pdf`);
   };
 
@@ -972,9 +1134,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white p-4 sm:p-6 rounded-xl border border-neutral-200">
             <div>
-              <h3 className="text-xl font-bold text-neutral-900">Portal de Reservas</h3>
-              <p className="text-neutral-400 text-xs mt-2">Solicite hospedagens, acompanhe aprovacoes e consulte vouchers sem depender da equipe interna.</p>
-              <p className="text-neutral-500 text-sm">Gerencie solicitacoes corporativas e acompanhe hospedagens.</p>
+              <h3 className="text-xl font-bold text-neutral-900">Portal corporativo de reservas</h3>
+              <p className="text-neutral-400 text-xs mt-2">Solicite hospedagens, acompanhe aprovacoes, veja vouchers e peça cancelamento com registro para a equipe.</p>
+              <p className="text-neutral-500 text-sm">Tudo separado por etapa: em analise, ativa, a faturar/debitar e historico.</p>
             </div>
             <button 
               onClick={() => setShowReservationForm(true)}
@@ -983,6 +1145,13 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               <Plus className="w-5 h-5" />
               Solicitar Reserva
             </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <ClientPortalKpi label="Em analise" value={pendingRequests.length} tone="amber" />
+            <ClientPortalKpi label="Ativas" value={activeReservations.length} tone="emerald" />
+            <ClientPortalKpi label="A faturar/debitar" value={checkedOutReservations.length} tone="neutral" />
+            <ClientPortalKpi label="Previsto faturar" value={clientMoney(checkedOutTotal)} tone={checkedOutReservations.length ? 'ink' : 'neutral'} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1016,18 +1185,34 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                         <p className="font-bold text-neutral-700">{new Date(res.check_out + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-2 text-neutral-500 text-[10px] font-black uppercase tracking-widest">
                         <Building2 className="w-4 h-4 text-amber-500" />
-                        {res.category} - {res.guests_per_uh} Pessoa(s)
+                        {res.category} - {res.guests_per_uh} Pessoa(s) - {paymentMethodLabel[res.payment_method] || res.payment_method}
                       </div>
-                      <button 
-                        onClick={() => setViewingVoucher(res)}
-                        className="text-neutral-900 border border-neutral-200 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-neutral-100 transition-all shadow-sm flex items-center gap-2"
-                      >
-                        <Eye className="w-3 h-3" />
-                        Ver Voucher
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          onClick={() => setCancelRequest({ item: res, reason: '' })}
+                          className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-xs font-black uppercase tracking-widest text-red-600 transition-all hover:bg-red-100"
+                        >
+                          <Ban className="h-3 w-3" />
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={() => handlePrepareExtension(res)}
+                          className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-4 py-2 text-xs font-black uppercase tracking-widest text-amber-700 transition-all hover:bg-amber-100"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          Prorrogar
+                        </button>
+                        <button 
+                          onClick={() => setViewingVoucher(res)}
+                          className="text-neutral-900 border border-neutral-200 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-neutral-100 transition-all shadow-sm flex items-center gap-2"
+                        >
+                          <Eye className="w-3 h-3" />
+                          Ver Voucher
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )) : (
@@ -1039,12 +1224,12 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               </div>
             </div>
 
-            {/* Billed Reservations - For Extension */}
+            {/* Reservations ready for billing/debit */}
             <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden flex flex-col h-full shadow-sm">
               <div className="p-6 border-b border-neutral-100 bg-neutral-50/50 flex justify-between items-center">
                 <h4 className="font-bold flex items-center gap-2 text-neutral-500">
-                  <FileText className="w-5 h-5 text-neutral-400" />
-                  Reservas Faturadas / Historico
+                  <CreditCard className="w-5 h-5 text-neutral-400" />
+                  A faturar / debitar
                 </h4>
               </div>
               <div className="divide-y divide-neutral-100 flex-1 overflow-y-auto max-h-[600px]">
@@ -1055,27 +1240,36 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                         <p className="font-bold text-neutral-700 text-base uppercase tracking-tight">{res.guest_name}</p>
                         <p className="text-[10px] text-neutral-400 font-mono tracking-widest">{res.reservation_code}</p>
                       </div>
-                      <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-neutral-100 text-neutral-500">
-                        FATURADA
+                      <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-700">
+                        {paymentMethodLabel[res.payment_method] || 'A COBRAR'}
                       </span>
                     </div>
                     
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-[10px] text-neutral-500 font-medium">
-                        Saida em {new Date(res.check_out + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        Saida em {new Date(res.check_out + 'T12:00:00').toLocaleDateString('pt-BR')} - Total {clientMoney(Number(res.total_amount || 0))}
                       </div>
-                      <button 
-                        onClick={() => handlePrepareExtension(res)}
-                        className="text-amber-600 bg-amber-50 border border-amber-100 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-100 transition-all shadow-sm flex items-center gap-2"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Prorrogar
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button 
+                          onClick={() => setViewingVoucher(res)}
+                          className="text-neutral-900 border border-neutral-200 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-neutral-100 transition-all shadow-sm flex items-center gap-2"
+                        >
+                          <Eye className="w-3 h-3" />
+                          Voucher
+                        </button>
+                        <button 
+                          onClick={() => handlePrepareExtension(res)}
+                          className="text-amber-600 bg-amber-50 border border-amber-100 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-amber-100 transition-all shadow-sm flex items-center gap-2"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Nova diaria
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )) : (
                   <div className="p-12 text-center text-neutral-400">
-                    <p className="text-[10px] font-bold uppercase tracking-widest italic">Nenhuma reserva faturada no historico</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest italic">Nenhuma hospedagem aguardando faturamento/debito</p>
                   </div>
                 )}
               </div>
@@ -1088,6 +1282,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   <Clock className="w-5 h-5" />
                   Solicitacoes em Analise
                 </h4>
+                {rejectedRequests.length > 0 && (
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-red-500">
+                    {rejectedRequests.length} negada(s) no historico
+                  </p>
+                )}
               </div>
               <div className="divide-y divide-neutral-100 flex-1 overflow-y-auto max-h-[600px]">
                 {reservationRequests.length > 0 ? reservationRequests.map(req => (
@@ -1100,20 +1299,31 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${
                         req.status === 'REJECTED' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-amber-50 text-amber-600 border border-amber-100 animate-pulse'
                       }`}>
-                        {req.status === 'REQUESTED' ? 'EM ANALISE' : req.status === 'REJECTED' ? 'NEGADA' : req.status}
+                        {reservationStatusLabel[req.status] || req.status}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-[10px] text-neutral-400 flex items-center gap-2 font-black uppercase tracking-widest bg-neutral-50 px-3 py-1 rounded-lg">
                         <Calendar className="w-3.5 h-3.5" />
                         Solicitado em {new Date(req.created_at).toLocaleDateString('pt-BR')}
                       </div>
-                      <button 
-                        onClick={() => setViewingVoucher(req)}
-                        className="text-neutral-900 border border-neutral-200 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-neutral-100 transition-all shadow-sm"
-                      >
-                        Ver Detalhes
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {req.status === 'REQUESTED' && (
+                          <button
+                            onClick={() => setCancelRequest({ item: req, reason: '' })}
+                            className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-xs font-black uppercase tracking-widest text-red-600 transition-all hover:bg-red-100"
+                          >
+                            <Ban className="h-3 w-3" />
+                            Cancelar
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => setViewingVoucher(req)}
+                          className="text-neutral-900 border border-neutral-200 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-neutral-100 transition-all shadow-sm"
+                        >
+                          Ver Detalhes
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )) : (
@@ -1383,6 +1593,82 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         </>
       )}
 
+      {/* Cancellation Request Modal */}
+      <AnimatePresence>
+        {cancelRequest && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[115] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"
+            >
+              <div className="border-b border-red-100 bg-red-50 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-500">Pedido de cancelamento</p>
+                    <h3 className="mt-2 text-2xl font-black text-neutral-950">{cancelRequest.item.reservation_code}</h3>
+                    <p className="mt-1 text-sm font-bold text-neutral-600">{cancelRequest.item.guest_name}</p>
+                  </div>
+                  <button onClick={() => setCancelRequest(null)} className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-white hover:text-neutral-900">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <VoucherField label="Entrada" value={clientDate(cancelRequest.item.check_in)} />
+                  <VoucherField label="Saida" value={clientDate(cancelRequest.item.check_out)} />
+                  <VoucherField label="Status" value={reservationStatusLabel[cancelRequest.item.status] || cancelRequest.item.status} />
+                  <VoucherField label="Pagamento" value={paymentMethodLabel[cancelRequest.item.payment_method] || cancelRequest.item.payment_method} />
+                </div>
+
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                  <p className="text-xs font-bold leading-5 text-amber-900">
+                    O portal nao cancela automaticamente para evitar conflito com disponibilidade, no-show, faturamento e possiveis taxas. A equipe de reservas recebera o pedido e confirmara o retorno.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-neutral-400">Motivo do cancelamento</label>
+                  <textarea
+                    value={cancelRequest.reason}
+                    onChange={(event) => setCancelRequest({ ...cancelRequest, reason: event.target.value })}
+                    placeholder="Ex: viagem cancelada, troca de data, hospede nao ira comparecer..."
+                    className="min-h-[120px] w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setCancelRequest(null)}
+                    className="flex-1 rounded-xl border border-neutral-200 px-6 py-3 text-sm font-black text-neutral-600 transition-colors hover:bg-neutral-50"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={sendingCancelRequest}
+                    onClick={handleRequestCancellation}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-6 py-3 text-sm font-black text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                  >
+                    {sendingCancelRequest ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Enviar pedido
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Reservation Request Modal */}
       <AnimatePresence>
         {showReservationForm && (
@@ -1420,10 +1706,46 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                         required
                         type="text"
                         value={reservationForm.guest_name}
-                        onChange={(e) => setReservationForm({...reservationForm, guest_name: e.target.value})}
+                        onChange={(e) => {
+                          const pax = [...reservationForm.pax_names];
+                          pax[0] = e.target.value;
+                          setReservationForm({...reservationForm, guest_name: e.target.value, pax_names: pax});
+                        }}
                         className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                         placeholder="Ex: João Silva"
                       />
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 rounded-2xl border border-neutral-100 bg-neutral-50 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Lista de PAX no voucher</p>
+                        <p className="mt-1 text-xs text-neutral-500">O primeiro PAX continua como hospede principal para compatibilidade.</p>
+                      </div>
+                      <button type="button" onClick={addPaxName} className="rounded-lg bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-700 ring-1 ring-neutral-200">
+                        + PAX
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {reservationForm.pax_names.map((pax, index) => (
+                        <div key={index} className="relative">
+                          <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                          <input
+                            required={index === 0}
+                            type="text"
+                            value={pax}
+                            onChange={(e) => setPaxName(index, e.target.value)}
+                            className="w-full pl-12 pr-12 py-3 bg-white border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
+                            placeholder={index === 0 ? 'PAX principal / responsavel' : `PAX adicional ${index + 1}`}
+                          />
+                          {reservationForm.pax_names.length > 1 && (
+                            <button type="button" onClick={() => removePaxName(index)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-neutral-400 hover:bg-red-50 hover:text-red-600">
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -1462,6 +1784,19 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     />
                   </div>
                   <div>
+                    <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Perfil fiscal / CC salvo</label>
+                    <select
+                      value={reservationForm.billing_profile_id}
+                      onChange={(e) => applyBillingProfile(e.target.value)}
+                      className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
+                    >
+                      <option value="">Preencher manualmente</option>
+                      {billingProfiles.map(item => (
+                        <option key={item.id} value={item.id}>{item.name}{item.cost_center ? ` - ${item.cost_center}` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Forma de Pagamento</label>
                     <select
                       value={reservationForm.payment_method}
@@ -1498,6 +1833,20 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       onChange={(e) => setReservationForm({...reservationForm, guests_per_uh: parseInt(e.target.value)})}
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Ocupacao</label>
+                    <select
+                      value={reservationForm.occupancy_type}
+                      onChange={(e) => setReservationForm({ ...reservationForm, occupancy_type: e.target.value as any })}
+                      className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
+                    >
+                      <option value="SGL">SGL - Single</option>
+                      <option value="DBL">DBL - Double</option>
+                      <option value="TPL">TPL - Triple</option>
+                      <option value="QDL">QDL - Quadruplo</option>
+                    </select>
                   </div>
 
                   {/* Financials */}
@@ -1650,9 +1999,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     <div className="flex min-w-0 items-start gap-4">
                       <img src="/logo.png" alt="Royal Macaé" className="h-12 w-20 object-contain" />
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-neutral-500">Portal Corporativo Royal Macaé</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-neutral-500">Portal Corporativo B2B</p>
                         <h2 className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-neutral-950 sm:text-3xl">Autorização de Hospedagem</h2>
-                        <p className="mt-2 text-xs font-bold text-neutral-500">Documento operacional para reserva B2B, faturamento e recepção.</p>
+                        <p className="mt-2 text-xs font-bold text-neutral-500">{hotelProfile.trade_name || hotelProfile.legal_name || 'Hotel'} - documento operacional para reserva B2B, faturamento e recepção.</p>
                       </div>
                     </div>
                     <div className="rounded-2xl bg-neutral-950 p-4 text-left text-white sm:text-right">
@@ -1663,15 +2012,32 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     </div>
                   </div>
 
+                  <div className="mt-5 grid gap-3 rounded-2xl bg-neutral-950 p-4 text-white sm:grid-cols-3">
+                    {[
+                      ['Hotel', hotelProfile.trade_name || hotelProfile.legal_name || 'Hotel'],
+                      ['CNPJ hotel', hotelProfile.cnpj || '-'],
+                      ['Contato hotel', hotelProfile.phone || hotelProfile.email || '-'],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{label}</p>
+                        <p className="mt-1 font-black text-white">{value}</p>
+                      </div>
+                    ))}
+                    <div className="sm:col-span-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Endereco oficial</p>
+                      <p className="mt-1 text-xs font-bold text-white">{hotelProfile.address || '-'}</p>
+                    </div>
+                  </div>
+
                   <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
                     <div className="rounded-2xl border-2 border-neutral-950 p-4">
                       <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Hóspede e período</p>
-                      <h3 className="mt-2 text-2xl font-black text-neutral-950">{viewingVoucher.guest_name}</h3>
+                      <h3 className="mt-2 text-2xl font-black text-neutral-950">{getReservationPaxNames(viewingVoucher)[0] || viewingVoucher.guest_name}</h3>
                       <div className="mt-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                         <VoucherField label="Entrada" value={clientDate(viewingVoucher.check_in)} />
                         <VoucherField label="Saída" value={clientDate(viewingVoucher.check_out)} />
                         <VoucherField label="Categoria" value={viewingVoucher.category} />
-                        <VoucherField label="Pessoas/UH" value={viewingVoucher.guests_per_uh} />
+                        <VoucherField label="Ocupação" value={OCCUPANCY_LABELS[viewingVoucher.occupancy_type || deriveOccupancyType(viewingVoucher.guests_per_uh)]} />
                       </div>
                     </div>
                     <div className="rounded-2xl bg-neutral-100 p-4">
@@ -1685,10 +2051,22 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <div className="mt-4 grid gap-4 sm:grid-cols-4">
+                    <VoucherMetric label="Solicitação" value={(viewingVoucher as ReservationRequest).created_at ? clientDate((viewingVoucher as ReservationRequest).created_at) : '-'} />
                     <VoucherMetric label="Pagamento" value={viewingVoucher.payment_method === 'BILLED' ? 'Faturado' : 'Cartão virtual'} />
                     <VoucherMetric label="Tarifa" value={clientMoney(Number(viewingVoucher.tariff || 0))} />
                     <VoucherMetric label="Total previsto" value={clientMoney(Number(viewingVoucher.total_amount || 0))} strong />
+                  </div>
+
+                  <div className="mt-6 rounded-2xl border border-neutral-200 p-4">
+                    <p className="text-[9px] font-black uppercase tracking-[0.22em] text-neutral-500">PAX autorizados</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {getReservationPaxNames(viewingVoucher).map((pax, index) => (
+                        <p key={`${pax}-${index}`} className="rounded-xl bg-neutral-50 px-3 py-2 text-xs font-black text-neutral-800">
+                          {index + 1}. {pax}
+                        </p>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -1698,7 +2076,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
                   <div className="mt-8 grid grid-cols-2 gap-8 pt-8">
                     <div className="border-t border-neutral-900 pt-2">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">Royal Macaé</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-500">{hotelProfile.trade_name || hotelProfile.legal_name || 'Hotel'}</p>
                       <p className="mt-1 text-[10px] text-neutral-500">Reservas / Recepção</p>
                     </div>
                     <div className="border-t border-neutral-900 pt-2">
@@ -1708,7 +2086,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   </div>
 
                   <p className="mt-6 border-t border-neutral-200 pt-3 text-center text-[10px] font-bold text-neutral-400">
-                    Emitido em {new Date().toLocaleString('pt-BR')} - reservas@royalmacae.com.br - www.royalmacae.com.br
+                    Emitido em {new Date().toLocaleString('pt-BR')} - {[hotelProfile.email, hotelProfile.website].filter(Boolean).join(' - ') || 'Voucher corporativo'}
                   </p>
                 </div>
               </div>

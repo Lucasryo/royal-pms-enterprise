@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+
+Disallow: /board/
+Disallow: /report/
+Disallow: /dashboard
+Disallow: /reservations
+Disallow: /reception
+Disallow: /maintenance
+Disallow: /finance
+Disallow: /events
+Disallow: /admin-control
+Disallow: /profile
+Disallow: /qr/
+
+Sitemap: https://royal.app.br/sitemap.xml
+Sitemap: https://royal.app.br/sitemap-system.xml

@@ -13,6 +13,8 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
+import SeoHead from './components/SeoHead';
+import SystemSeoPage from './components/SystemSeoPage';
 import ResetPassword from './components/ResetPassword';
 import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
@@ -51,6 +53,7 @@ import {
 import { Toaster, toast } from 'sonner';
 import { tryFocusElement, consumeFocusTarget } from './lib/focusTarget';
 import { motion, AnimatePresence } from 'motion/react';
+import { getHotelSeoConfig, getNoIndexSeoConfig, getSystemSeoConfig, getSystemSeoPage } from './seo';
 
 type User = { id: string; email?: string; [key: string]: any };
 type NavItem = {
@@ -426,21 +429,34 @@ export default function App() {
   const reportMatch = path.match(/^\/report\/([^/?#]+)\/?$/);
   if (reportMatch) {
     const qrToken = new URLSearchParams(window.location.search).get('k') ?? '';
-    return <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} qrToken={qrToken} />;
+    return (
+      <>
+        <SeoHead config={getNoIndexSeoConfig('Chamado de manutencao | Royal PMS')} />
+        <PublicMaintenanceReport roomNumber={decodeURIComponent(reportMatch[1])} qrToken={qrToken} />
+      </>
+    );
   }
   if (path === '/board/maintenance') {
     // Requires authentication — do not expose active tickets publicly
     if (!user) {
       return (
+        <>
+        <SeoHead config={getNoIndexSeoConfig('Quadro ao vivo de manutencao | Royal PMS')} />
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
           <div className="text-center bg-white/5 border border-white/10 rounded-3xl p-8 max-w-sm">
             <h1 className="text-xl font-black text-white">Acesso restrito</h1>
             <p className="mt-2 text-sm text-neutral-400">Faça login para visualizar o quadro de manutenção.</p>
           </div>
         </div>
+        </>
       );
     }
-    return <MaintenanceQueueBoard />;
+    return (
+      <>
+        <SeoHead config={getNoIndexSeoConfig('Quadro ao vivo de manutencao | Royal PMS')} />
+        <MaintenanceQueueBoard />
+      </>
+    );
   }
 
   if (!isSupabaseConfigured) {
@@ -497,11 +513,14 @@ export default function App() {
   }
 
   if (!user || !profile) {
-    const isSystemLanding = window.location.pathname.replace(/\/+$/, '') === '/sistema';
+    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const isSystemRoute = normalizedPath === '/sistema' || normalizedPath.startsWith('/sistema/');
+    const systemSeoPage = getSystemSeoPage(normalizedPath);
     return (
       <>
         <Toaster position="top-right" richColors />
-        {isSystemLanding ? <Landing3D /> : <HotelLanding />}
+        <SeoHead config={isSystemRoute ? getSystemSeoConfig(normalizedPath) : getHotelSeoConfig()} />
+        {isSystemRoute ? (systemSeoPage ? <SystemSeoPage page={systemSeoPage} /> : <Landing3D />) : <HotelLanding />}
       </>
     );
   }
@@ -548,6 +567,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
+      <SeoHead config={getNoIndexSeoConfig()} />
       <Toaster position="top-right" richColors />
       <PushNotificationBanner status={pushStatus} onSubscribe={subscribePush} />
 

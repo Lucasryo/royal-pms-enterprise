@@ -1,0 +1,23 @@
+# Royal PMS
+
+Royal PMS is a web-based hotel management platform for independent hotels, inns, corporate hotels and local hotel groups.
+
+Public product pages live under:
+- https://royal.app.br/sistema
+- https://royal.app.br/sistema/pms-hotelaria
+- https://royal.app.br/sistema/sistema-para-hoteis
+- https://royal.app.br/sistema/sistema-para-pousadas
+- https://royal.app.br/sistema/manutencao-hotelaria
+- https://royal.app.br/sistema/governanca-hotelaria
+- https://royal.app.br/sistema/eventos-hotelaria
+- https://royal.app.br/sistema/financeiro-hotelaria
+
+Core modules:
+- Reservations and reception
+- Housekeeping
+- Maintenance tickets, live board, pending parts and preventive maintenance
+- Events, leads, quotes and service orders
+- Finance, invoices, corporate clients and documents
+- Marketing, direct booking and operational visibility
+
+The hotel website remains at https://royal.app.br/. Operational PMS routes, maintenance boards, QR/report pages and authenticated dashboards should not be indexed.

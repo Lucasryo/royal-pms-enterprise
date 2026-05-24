@@ -127,6 +127,34 @@ export interface Company {
   status?: 'active' | 'inactive' | 'ACTIVE' | 'INACTIVE';
 }
 
+export interface VoucherHotelProfile {
+  trade_name: string;
+  legal_name?: string;
+  cnpj?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  logo_url?: string;
+  notes?: string;
+}
+
+export interface CompanyBillingProfile {
+  id: string;
+  company_id: string;
+  name: string;
+  legal_name?: string;
+  cnpj?: string;
+  fiscal_address?: string;
+  fiscal_email?: string;
+  cost_center?: string;
+  billing_instructions?: string;
+  notes?: string;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface UserPermissions {
   canViewDashboard: boolean;
   canViewReservations: boolean;
@@ -307,6 +335,9 @@ export interface Reservation {
   requested_by?: string;
   source_message_id?: string;
   external_reservation_code?: string;
+  pax_names?: string[];
+  occupancy_type?: 'SGL' | 'DBL' | 'TPL' | 'QDL';
+  billing_profile_id?: string;
 }
 
 export interface ReservationRequest extends Omit<Reservation, 'id' | 'status'> {

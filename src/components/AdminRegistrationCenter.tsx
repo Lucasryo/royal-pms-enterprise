@@ -2,14 +2,15 @@ import React, { ComponentType, useEffect, useMemo, useState } from 'react';
 import { Building2, CheckCircle2, KeyRound, Link2, Loader2, Mail, Pencil, Phone, RefreshCw, Save, Search, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
-import { Company, UserPermissions, UserProfile, UserRole } from '../types';
+import { Company, CompanyBillingProfile, UserPermissions, UserProfile, UserRole, VoucherHotelProfile } from '../types';
 import { DEFAULT_PERMISSIONS } from '../lib/defaultPermissions';
 import { logAudit } from '../lib/audit';
 import PermissionsSelector from './PermissionsSelector';
 import ProfileAccessMatrix from './ProfileAccessMatrix';
 import TelegramPermissionsManager from './TelegramPermissionsManager';
+import { DEFAULT_VOUCHER_HOTEL_PROFILE } from '../lib/voucher';
 
-type CadastroTab = 'user' | 'company' | 'link' | 'telegram';
+type CadastroTab = 'user' | 'company' | 'voucher' | 'link' | 'telegram';
 
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string; detail: string }> = [
   { value: 'client', label: 'Cliente', detail: 'Portal financeiro e documentos' },
@@ -54,6 +55,20 @@ const emptyCompanyForm = {
   parserBlockReply: '',
 };
 
+const emptyBillingProfileForm = {
+  id: '',
+  company_id: '',
+  name: '',
+  legal_name: '',
+  cnpj: '',
+  fiscal_address: '',
+  fiscal_email: '',
+  cost_center: '',
+  billing_instructions: '',
+  notes: '',
+  active: true,
+};
+
 export default function AdminRegistrationCenter({ profile }: { profile: UserProfile }) {
   const [activeTab, setActiveTab] = useState<CadastroTab>('user');
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -65,6 +80,11 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
   const [companySearch, setCompanySearch] = useState('');
   const [companyListLimit, setCompanyListLimit] = useState(80);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [hotelProfile, setHotelProfile] = useState<VoucherHotelProfile>(DEFAULT_VOUCHER_HOTEL_PROFILE);
+  const [billingProfiles, setBillingProfiles] = useState<CompanyBillingProfile[]>([]);
+  const [billingProfileForm, setBillingProfileForm] = useState(emptyBillingProfileForm);
+  const [savingVoucher, setSavingVoucher] = useState(false);
+  const [savingBillingProfile, setSavingBillingProfile] = useState(false);
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [permissions, setPermissions] = useState<UserPermissions>(DEFAULT_PERMISSIONS.client);
@@ -125,9 +145,11 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
 
   async function fetchCadastroData() {
     setLoading(true);
-    const [companiesRes, usersRes] = await Promise.all([
+    const [companiesRes, usersRes, hotelProfileRes, billingProfilesRes] = await Promise.all([
       supabase.from('companies').select('*').order('name'),
       supabase.from('profiles').select('*').order('name'),
+      supabase.from('app_settings').select('value').eq('id', 'voucher_hotel_profile').maybeSingle(),
+      supabase.from('company_billing_profiles').select('*').order('name'),
     ]);
 
     if (companiesRes.error) {
@@ -140,6 +162,15 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
       toast.error('Erro ao carregar usuarios.');
     } else {
       setUsers((usersRes.data ?? []) as UserProfile[]);
+    }
+
+    if (!hotelProfileRes.error && hotelProfileRes.data?.value) {
+      const value = typeof hotelProfileRes.data.value === 'string' ? JSON.parse(hotelProfileRes.data.value) : hotelProfileRes.data.value;
+      setHotelProfile({ ...DEFAULT_VOUCHER_HOTEL_PROFILE, ...value });
+    }
+
+    if (!billingProfilesRes.error) {
+      setBillingProfiles((billingProfilesRes.data ?? []) as CompanyBillingProfile[]);
     }
     setLoading(false);
   }
@@ -301,9 +332,86 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
     setUsers(prev => prev.map(user => user.id === userId ? { ...user, company_id: companyId || undefined } : user));
   }
 
+  async function handleSaveVoucherHotelProfile(event: React.FormEvent) {
+    event.preventDefault();
+    setSavingVoucher(true);
+    try {
+      const { error } = await supabase.from('app_settings').upsert({
+        id: 'voucher_hotel_profile',
+        value: JSON.stringify(hotelProfile),
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      toast.success('Dados do hotel no voucher atualizados.');
+      logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Atualizou dados do voucher B2B',
+        details: JSON.stringify({ hotel: hotelProfile.trade_name }),
+        type: 'update',
+      });
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao salvar dados do voucher.');
+    } finally {
+      setSavingVoucher(false);
+    }
+  }
+
+  function editBillingProfile(item: CompanyBillingProfile) {
+    setBillingProfileForm({
+      id: item.id,
+      company_id: item.company_id,
+      name: item.name || '',
+      legal_name: item.legal_name || '',
+      cnpj: item.cnpj || '',
+      fiscal_address: item.fiscal_address || '',
+      fiscal_email: item.fiscal_email || '',
+      cost_center: item.cost_center || '',
+      billing_instructions: item.billing_instructions || '',
+      notes: item.notes || '',
+      active: item.active !== false,
+    });
+  }
+
+  async function handleSaveBillingProfile(event: React.FormEvent) {
+    event.preventDefault();
+    if (!billingProfileForm.company_id || !billingProfileForm.name.trim()) {
+      toast.error('Selecione empresa e nome do perfil.');
+      return;
+    }
+    setSavingBillingProfile(true);
+    try {
+      const payload = {
+        company_id: billingProfileForm.company_id,
+        name: billingProfileForm.name.trim(),
+        legal_name: billingProfileForm.legal_name.trim() || null,
+        cnpj: billingProfileForm.cnpj.trim() || null,
+        fiscal_address: billingProfileForm.fiscal_address.trim() || null,
+        fiscal_email: billingProfileForm.fiscal_email.trim() || null,
+        cost_center: billingProfileForm.cost_center.trim() || null,
+        billing_instructions: billingProfileForm.billing_instructions.trim() || null,
+        notes: billingProfileForm.notes.trim() || null,
+        active: billingProfileForm.active,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = billingProfileForm.id
+        ? await supabase.from('company_billing_profiles').update(payload).eq('id', billingProfileForm.id)
+        : await supabase.from('company_billing_profiles').insert([payload]);
+      if (error) throw error;
+      toast.success(billingProfileForm.id ? 'Perfil atualizado.' : 'Perfil criado.');
+      setBillingProfileForm(emptyBillingProfileForm);
+      await fetchCadastroData();
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao salvar perfil fiscal.');
+    } finally {
+      setSavingBillingProfile(false);
+    }
+  }
+
   const tabs: Array<{ id: CadastroTab; label: string; icon: ComponentType<{ className?: string }>; metric: string }> = [
     { id: 'user', label: 'Usuario PMS', icon: UserPlus, metric: `${users.length} usuarios` },
     { id: 'company', label: 'Empresa', icon: Building2, metric: `${companies.length} empresas` },
+    { id: 'voucher', label: 'Voucher B2B', icon: Save, metric: `${billingProfiles.length} perfis` },
     { id: 'link', label: 'Vinculos', icon: Link2, metric: `${linkedClients}/${clients.length} clientes` },
     { id: 'telegram', label: 'Telegram', icon: ShieldCheck, metric: 'bot' },
   ];
@@ -682,6 +790,105 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'voucher' && (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
+          <form onSubmit={handleSaveVoucherHotelProfile} className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Dados oficiais</p>
+            <h3 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">Hotel no voucher</h3>
+            <p className="mt-2 text-sm font-bold leading-6 text-neutral-500">Essas informacoes aparecem no preview e PDF da autorizacao corporativa.</p>
+            <div className="mt-5 grid gap-3">
+              <CadastroText label="Nome fantasia" value={hotelProfile.trade_name || ''} onChange={value => setHotelProfile(prev => ({ ...prev, trade_name: value }))} required />
+              <CadastroText label="Razao social" value={hotelProfile.legal_name || ''} onChange={value => setHotelProfile(prev => ({ ...prev, legal_name: value }))} />
+              <CadastroText label="CNPJ" value={hotelProfile.cnpj || ''} onChange={value => setHotelProfile(prev => ({ ...prev, cnpj: value }))} />
+              <CadastroText label="Telefone" value={hotelProfile.phone || ''} onChange={value => setHotelProfile(prev => ({ ...prev, phone: value }))} />
+              <CadastroText label="E-mail" value={hotelProfile.email || ''} onChange={value => setHotelProfile(prev => ({ ...prev, email: value }))} />
+              <CadastroText label="Site" value={hotelProfile.website || ''} onChange={value => setHotelProfile(prev => ({ ...prev, website: value }))} />
+              <CadastroText label="Logo URL" value={hotelProfile.logo_url || ''} onChange={value => setHotelProfile(prev => ({ ...prev, logo_url: value }))} />
+              <label className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Endereco</span>
+                <textarea value={hotelProfile.address || ''} onChange={event => setHotelProfile(prev => ({ ...prev, address: event.target.value }))} className={`${plainInputClass} min-h-20 resize-y`} />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Observacoes institucionais</span>
+                <textarea value={hotelProfile.notes || ''} onChange={event => setHotelProfile(prev => ({ ...prev, notes: event.target.value }))} className={`${plainInputClass} min-h-24 resize-y`} />
+              </label>
+              <button type="submit" disabled={savingVoucher} className="flex items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white disabled:opacity-60">
+                {savingVoucher ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Salvar dados do hotel
+              </button>
+            </div>
+          </form>
+
+          <section className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Empresas</p>
+            <h3 className="mt-1 text-xl font-black text-neutral-950 sm:text-2xl">Perfis fiscais e centros de custo</h3>
+            <form onSubmit={handleSaveBillingProfile} className="mt-5 grid gap-3 lg:grid-cols-2">
+              <label className="space-y-1 lg:col-span-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Empresa</span>
+                <select value={billingProfileForm.company_id} onChange={event => setBillingProfileForm(prev => ({ ...prev, company_id: event.target.value }))} className={selectClass} required>
+                  <option value="">Selecione</option>
+                  {companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+              <CadastroText label="Nome do perfil" value={billingProfileForm.name} onChange={value => setBillingProfileForm(prev => ({ ...prev, name: value }))} required />
+              <CadastroText label="Centro de custo" value={billingProfileForm.cost_center} onChange={value => setBillingProfileForm(prev => ({ ...prev, cost_center: value }))} />
+              <CadastroText label="Razao social / tomador" value={billingProfileForm.legal_name} onChange={value => setBillingProfileForm(prev => ({ ...prev, legal_name: value }))} />
+              <CadastroText label="CNPJ tomador" value={billingProfileForm.cnpj} onChange={value => setBillingProfileForm(prev => ({ ...prev, cnpj: value }))} />
+              <CadastroText label="E-mail fiscal" value={billingProfileForm.fiscal_email} onChange={value => setBillingProfileForm(prev => ({ ...prev, fiscal_email: value }))} />
+              <label className="flex items-center gap-3 rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                <input type="checkbox" checked={billingProfileForm.active} onChange={event => setBillingProfileForm(prev => ({ ...prev, active: event.target.checked }))} />
+                <span className="text-xs font-black uppercase tracking-widest text-neutral-600">Perfil ativo para cliente</span>
+              </label>
+              <label className="space-y-1 lg:col-span-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Endereco fiscal</span>
+                <textarea value={billingProfileForm.fiscal_address} onChange={event => setBillingProfileForm(prev => ({ ...prev, fiscal_address: event.target.value }))} className={`${plainInputClass} min-h-20 resize-y`} />
+              </label>
+              <label className="space-y-1 lg:col-span-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Instrucoes de faturamento</span>
+                <textarea value={billingProfileForm.billing_instructions} onChange={event => setBillingProfileForm(prev => ({ ...prev, billing_instructions: event.target.value }))} className={`${plainInputClass} min-h-24 resize-y`} />
+              </label>
+              <label className="space-y-1 lg:col-span-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Observacoes internas</span>
+                <textarea value={billingProfileForm.notes} onChange={event => setBillingProfileForm(prev => ({ ...prev, notes: event.target.value }))} className={`${plainInputClass} min-h-20 resize-y`} />
+              </label>
+              <div className="flex gap-2 lg:col-span-2">
+                <button type="submit" disabled={savingBillingProfile} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white disabled:opacity-60">
+                  {savingBillingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {billingProfileForm.id ? 'Salvar perfil' : 'Criar perfil'}
+                </button>
+                {billingProfileForm.id && (
+                  <button type="button" onClick={() => setBillingProfileForm(emptyBillingProfileForm)} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-black uppercase tracking-widest text-neutral-600">
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <div className="mt-6 grid gap-3">
+              {billingProfiles.map(item => (
+                <button key={item.id} type="button" onClick={() => editBillingProfile(item)} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-left transition hover:border-neutral-400 hover:bg-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-neutral-950">{item.name}</p>
+                      <p className="mt-1 text-xs font-bold text-neutral-500">{companies.find(company => company.id === item.company_id)?.name || 'Empresa'} - {item.cost_center || 'Sem CC'}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest ${item.active ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-200 text-neutral-600'}`}>
+                      {item.active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-bold leading-5 text-neutral-500">{item.legal_name || item.cnpj || item.fiscal_email || 'Sem dados fiscais adicionais'}</p>
+                </button>
+              ))}
+              {!billingProfiles.length && (
+                <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 p-6 text-center text-sm font-bold text-neutral-400">
+                  Nenhum perfil fiscal cadastrado.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
