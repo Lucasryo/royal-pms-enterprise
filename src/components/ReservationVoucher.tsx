@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Reservation, Company, VoucherHotelProfile } from '../types';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Building2, CalendarDays, CreditCard, MapPin, Moon, Phone, ShieldCheck, UserRound } from 'lucide-react';
 import { RoyalDocumentModal } from './documents/RoyalDocument';
 import { supabase } from '../supabase';
 import { DEFAULT_VOUCHER_HOTEL_PROFILE, deriveOccupancyType, getReservationPaxNames, OCCUPANCY_LABELS } from '../lib/voucher';
@@ -37,21 +36,59 @@ const formatBRL = (value: number) =>
 const formatDate = (value?: string) =>
   value ? format(new Date(value), 'dd/MM/yyyy', { locale: ptBR }) : '-';
 
-function VoucherMiniCard({ label, value }: { label: string; value: React.ReactNode }) {
+function Barcode({ value }: { value: string }) {
+  const chars = value.padEnd(18, '0').slice(0, 18).split('');
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-3">
-      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-neutral-400">{label}</p>
-      <p className="mt-1 text-sm font-black text-neutral-950">{value || '-'}</p>
+    <div className="flex h-12 items-end gap-[2px]">
+      {chars.map((char, index) => {
+        const digit = char.charCodeAt(0) % 5;
+        const width = digit % 2 === 0 ? 'w-[2px]' : 'w-[4px]';
+        const height = digit < 2 ? 'h-10' : 'h-12';
+        return <span key={`${char}-${index}`} className={`${width} ${height} bg-neutral-950`} />;
+      })}
     </div>
   );
 }
 
-function VoucherSection({ title, children }: { title: string; children: React.ReactNode }) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <section className="mt-6">
-      <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-amber-700">{title}</h3>
+    <div className="grid grid-cols-[31mm_1fr] gap-2 border-b border-neutral-200 py-1.5 text-[10px]">
+      <span className="font-black uppercase text-neutral-900">{label}</span>
+      <span className="font-bold text-neutral-700">{value || '-'}</span>
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-5 border-y border-blue-300 bg-blue-50 px-2 py-1 text-[12px] font-black uppercase text-neutral-950">
       {children}
-    </section>
+    </div>
+  );
+}
+
+function CompactTable({ rows }: { rows: Array<[React.ReactNode, React.ReactNode, React.ReactNode, React.ReactNode]> }) {
+  return (
+    <table className="w-full border-collapse text-[10px]">
+      <thead>
+        <tr className="bg-blue-100 text-left font-black">
+          <th className="px-2 py-1">Item</th>
+          <th className="px-2 py-1">Detalhe</th>
+          <th className="px-2 py-1 text-right">Quantidade</th>
+          <th className="px-2 py-1 text-right">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, index) => (
+          <tr key={index} className="border-b border-neutral-100">
+            <td className="px-2 py-1.5 font-bold">{row[0]}</td>
+            <td className="px-2 py-1.5">{row[1]}</td>
+            <td className="px-2 py-1.5 text-right">{row[2]}</td>
+            <td className="px-2 py-1.5 text-right font-bold tabular-nums">{row[3]}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -94,157 +131,125 @@ export default function ReservationVoucher({ reservation, company, onClose }: Re
       onClose={onClose}
     >
       <section
-        className="nota-printable relative mx-auto overflow-hidden bg-white text-neutral-950 shadow-sm"
-        style={{ width: '210mm', minHeight: '297mm', fontFamily: 'Arial, Helvetica, sans-serif' }}
+        className="nota-printable mx-auto bg-white text-neutral-950 shadow-sm"
+        style={{ width: '210mm', minHeight: '297mm', padding: '9mm 9mm 7mm', fontFamily: 'Arial, Helvetica, sans-serif' }}
       >
-        <div className="absolute inset-y-0 left-0 w-[18mm] bg-neutral-950" />
-        <div className="absolute left-[18mm] top-0 h-[8mm] w-[192mm] bg-amber-600" />
-
-        <div className="relative ml-[18mm] px-[12mm] pb-[10mm] pt-[16mm]">
-          <header className="grid grid-cols-[1fr_54mm] gap-8 border-b border-neutral-200 pb-7">
+        <header className="border-b-2 border-blue-400 pb-3">
+          <div className="grid grid-cols-[42mm_1fr_58mm] items-start gap-4">
             <div>
-              <img src={hotelProfile.logo_url || '/logo.png'} alt="Royal Macae" className="mb-5 h-14 w-28 object-contain" />
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-700">Voucher oficial de reserva</p>
-              <h1 className="mt-2 text-[30px] font-black uppercase leading-none tracking-tight text-neutral-950">Hospedagem Confirmada</h1>
-              <p className="mt-3 max-w-[112mm] text-sm font-bold leading-6 text-neutral-600">
-                Documento de apresentacao para recepcao, reservas e faturamento corporativo.
-              </p>
+              <img src={hotelProfile.logo_url || '/logo.png'} alt="Royal Macae" className="h-16 w-32 object-contain object-left" />
             </div>
-            <div className="rounded-2xl bg-neutral-950 p-4 text-white">
-              <p className="text-[9px] font-black uppercase tracking-[0.22em] text-white/50">Localizador</p>
-              <p className="mt-1 break-all font-mono text-2xl font-black tracking-widest">{code}</p>
-              <div className="mt-5 rounded-xl bg-emerald-500/15 px-3 py-2 text-emerald-100 ring-1 ring-emerald-400/20">
-                <p className="text-[9px] font-black uppercase tracking-widest">Status</p>
-                <p className="mt-1 text-sm font-black">{status}</p>
-              </div>
+            <div className="pt-2">
+              <h1 className="text-[25px] font-black leading-none text-blue-950">Voucher</h1>
+              <p className="mt-1 text-[13px] font-black text-blue-950">Documentacao de Hospedagem</p>
+              <p className="mt-3 text-[10px] font-bold text-neutral-600">{hotelProfile.trade_name || hotelProfile.legal_name}</p>
             </div>
-          </header>
-
-          <div className="mt-6 grid grid-cols-[1.1fr_0.9fr] gap-5">
-            <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5">
-              <div className="flex items-start gap-3">
-                <div className="rounded-2xl bg-white p-3 text-amber-700 ring-1 ring-neutral-200">
-                  <CalendarDays className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-400">Periodo da estadia</p>
-                  <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                    <div>
-                      <p className="text-xs font-black uppercase text-neutral-400">Entrada</p>
-                      <p className="mt-1 text-2xl font-black">{formatDate(reservation.check_in)}</p>
-                    </div>
-                    <div className="rounded-full bg-neutral-950 px-3 py-1 text-[10px] font-black uppercase text-white">{nights} noite(s)</div>
-                    <div>
-                      <p className="text-xs font-black uppercase text-neutral-400">Saida</p>
-                      <p className="mt-1 text-2xl font-black">{formatDate(reservation.check_out)}</p>
-                    </div>
-                  </div>
-                </div>
+            <div className="text-right">
+              <div className="flex justify-end">
+                <Barcode value={code} />
               </div>
-            </div>
-
-            <div className="rounded-3xl border border-neutral-200 p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-400">Hospede principal</p>
-              <div className="mt-3 flex items-start gap-3">
-                <div className="rounded-2xl bg-amber-50 p-3 text-amber-700">
-                  <UserRound className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xl font-black leading-tight">{paxNames[0] || reservation.guest_name}</p>
-                  <p className="mt-1 text-xs font-bold text-neutral-500">{OCCUPANCY_LABELS[occupancy] || occupancy}</p>
-                </div>
-              </div>
+              <p className="mt-1 text-[9px] font-bold text-neutral-500">{code}</p>
+              <p className="text-[8px] text-neutral-500">Este numero garante a validade deste documento</p>
             </div>
           </div>
+        </header>
 
-          <VoucherSection title="Detalhes da reserva">
-            <div className="grid grid-cols-4 gap-3">
-              <VoucherMiniCard label="Tipo de UH" value={category} />
-              <VoucherMiniCard label="UH" value={reservation.room_number || 'A definir'} />
-              <VoucherMiniCard label="Pessoas/UH" value={reservation.guests_per_uh || paxNames.length || 1} />
-              <VoucherMiniCard label="Telefone" value={reservation.contact_phone || company?.phone || '-'} />
-            </div>
-          </VoucherSection>
+        <section className="mt-3 grid grid-cols-[62mm_1fr] gap-4">
+          <div>
+            <InfoRow label="Codigo da reserva" value={code} />
+            <InfoRow label="Status" value={status} />
+            <InfoRow label="Empresa" value={company?.name || 'Particular'} />
+            <InfoRow label="Emitido em" value={format(new Date(), 'dd/MM/yyyy HH:mm', { locale: ptBR })} />
+          </div>
+          <div>
+            <InfoRow label="Hotel" value={hotelProfile.trade_name || hotelProfile.legal_name} />
+            <InfoRow label="Endereco" value={hotelProfile.address} />
+            <InfoRow label="Telefone" value={hotelProfile.phone} />
+            <InfoRow label="CNPJ" value={hotelProfile.cnpj} />
+          </div>
+        </section>
 
-          <VoucherSection title="PAX autorizados">
-            <div className="grid grid-cols-2 gap-2">
-              {paxNames.map((name, index) => (
-                <div key={`${name}-${index}`} className="rounded-xl bg-neutral-50 px-4 py-3 text-sm font-black ring-1 ring-neutral-200">
-                  {index + 1}. {name}
-                </div>
-              ))}
-            </div>
-          </VoucherSection>
-
-          <VoucherSection title="Empresa e faturamento">
-            <div className="grid grid-cols-[1fr_68mm] gap-4">
-              <div className="rounded-2xl border border-neutral-200 p-4">
-                <div className="flex items-start gap-3">
-                  <Building2 className="mt-0.5 h-5 w-5 text-amber-700" />
-                  <div>
-                    <p className="text-lg font-black">{company?.name || 'Particular'}</p>
-                    <p className="mt-1 text-xs font-bold text-neutral-500">CNPJ: {company?.cnpj || '-'}</p>
-                    <p className="mt-1 text-xs font-bold text-neutral-500">Centro de custo: {reservation.cost_center || '-'}</p>
-                  </div>
-                </div>
-                {(reservation.billing_info || reservation.fiscal_data) && (
-                  <p className="mt-4 whitespace-pre-line rounded-xl bg-neutral-50 p-3 text-xs font-bold leading-5 text-neutral-600">
-                    {reservation.billing_info || reservation.fiscal_data}
-                  </p>
-                )}
-              </div>
-              <div className="rounded-2xl bg-neutral-950 p-4 text-white">
-                <div className="flex items-center gap-2 text-white/60">
-                  <CreditCard className="h-4 w-4" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Pagamento</p>
-                </div>
-                <p className="mt-3 text-lg font-black">{reservation.payment_method === 'VIRTUAL_CARD' ? 'Cartao virtual' : 'Faturado'}</p>
-                <div className="mt-5 space-y-2 text-xs">
-                  <div className="flex justify-between"><span>Diaria acordo</span><strong>{formatBRL(Number(reservation.tariff || 0))}</strong></div>
-                  <div className="flex justify-between"><span>Subtotal</span><strong>{formatBRL(subtotal)}</strong></div>
-                  {iss > 0 && <div className="flex justify-between"><span>ISS</span><strong>{formatBRL(iss)}</strong></div>}
-                  {service > 0 && <div className="flex justify-between"><span>Taxa</span><strong>{formatBRL(service)}</strong></div>}
-                  <div className="flex justify-between border-t border-white/20 pt-3 text-base"><span>Total previsto</span><strong>{formatBRL(total)}</strong></div>
-                </div>
-              </div>
-            </div>
-          </VoucherSection>
-
-          <VoucherSection title="Hotel">
-            <div className="grid grid-cols-[1fr_1fr] gap-4 rounded-2xl border border-neutral-200 p-4 text-xs font-bold text-neutral-600">
-              <div className="flex gap-2"><MapPin className="h-4 w-4 text-amber-700" /> {hotelProfile.address || '-'}</div>
-              <div className="flex gap-2"><Phone className="h-4 w-4 text-amber-700" /> {hotelProfile.phone || '-'} | {hotelProfile.email || '-'}</div>
-              <div>CNPJ: {hotelProfile.cnpj || '-'}</div>
-              <div>Site: {hotelProfile.website || '-'}</div>
-            </div>
-          </VoucherSection>
-
-          {reservation.billing_obs && (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-5 text-amber-950">
-              {reservation.billing_obs}
-            </div>
-          )}
-
-          <footer className="mt-10 grid grid-cols-[1fr_1fr] gap-8 text-xs text-neutral-500">
-            <div className="border-t border-neutral-300 pt-3">
-              <p className="font-black uppercase tracking-widest text-neutral-800">Reservas / Recepcao</p>
-              <p className="mt-1">{hotelProfile.trade_name}</p>
-            </div>
-            <div className="border-t border-neutral-300 pt-3">
-              <p className="font-black uppercase tracking-widest text-neutral-800">Cliente / Empresa</p>
-              <p className="mt-1">Apresentar este voucher no check-in quando solicitado.</p>
-            </div>
-          </footer>
+        <SectionTitle>NOME DOS PASSAGEIROS / HOSPEDES</SectionTitle>
+        <div className="px-2 py-2 text-[11px]">
+          {paxNames.map((name, index) => (
+            <p key={`${name}-${index}`} className="font-bold uppercase">
+              {name} <span className="font-normal">- [ LOCALIZADOR: {code} ]</span>
+            </p>
+          ))}
         </div>
 
-        <div className="absolute bottom-[12mm] left-[7mm] flex origin-left -rotate-90 items-center gap-2 text-white">
-          <ShieldCheck className="h-4 w-4" />
-          <span className="text-[10px] font-black uppercase tracking-[0.22em]">Royal PMS</span>
+        <SectionTitle>DETALHES DA HOSPEDAGEM</SectionTitle>
+        <div className="grid grid-cols-[1fr_66mm] gap-6 px-2 py-2 text-[11px]">
+          <div>
+            <InfoRow label="Hotel" value={hotelProfile.trade_name || hotelProfile.legal_name} />
+            <InfoRow label="Endereco" value={hotelProfile.address} />
+            <InfoRow label="Telefone" value={hotelProfile.phone} />
+            <InfoRow label="Tipo de acomodacao" value={`${category} - ${OCCUPANCY_LABELS[occupancy] || occupancy}`} />
+            <InfoRow label="UH" value={reservation.room_number || 'A definir'} />
+          </div>
+          <div>
+            <InfoRow label="Data de entrada" value={formatDate(reservation.check_in)} />
+            <InfoRow label="Data de saida" value={formatDate(reservation.check_out)} />
+            <InfoRow label="Diarias" value={nights} />
+            <InfoRow label="Observacao" value={reservation.billing_obs || 'Apresentar no check-in.'} />
+          </div>
         </div>
-        <div className="absolute bottom-[7mm] right-[12mm] flex items-center gap-2 text-[10px] font-bold text-neutral-400">
-          <Moon className="h-3.5 w-3.5" />
-          Emitido em {format(new Date(), 'dd/MM/yyyy HH:mm', { locale: ptBR })}
+
+        <SectionTitle>DETALHES DO RECEPTIVO / EMPRESA</SectionTitle>
+        <div className="grid grid-cols-3 bg-blue-50 text-[10px] font-black">
+          <div className="px-2 py-1">Empresa</div>
+          <div className="px-2 py-1">Centro de custo</div>
+          <div className="px-2 py-1">Telefone</div>
         </div>
+        <div className="grid grid-cols-3 text-[10px]">
+          <div className="px-2 py-1">{company?.name || '-'}</div>
+          <div className="px-2 py-1">{reservation.cost_center || '-'}</div>
+          <div className="px-2 py-1">{reservation.contact_phone || company?.phone || '-'}</div>
+        </div>
+
+        <SectionTitle>SERVICOS INCLUSOS E VALORES PREVISTOS</SectionTitle>
+        <CompactTable
+          rows={[
+            ['Hospedagem', `${category} - ${OCCUPANCY_LABELS[occupancy] || occupancy}`, `${nights} diaria(s)`, formatBRL(subtotal)],
+            ...(iss > 0 ? [['ISS', 'Imposto sobre servico', '1', formatBRL(iss)] as [string, string, string, string]] : []),
+            ...(service > 0 ? [['Taxa', 'Taxa de servico', '1', formatBRL(service)] as [string, string, string, string]] : []),
+            ['Total previsto', 'Sujeito a validacao operacional', '', formatBRL(total)],
+          ]}
+        />
+
+        <SectionTitle>INFORMACOES PARA FATURAMENTO</SectionTitle>
+        <div className="grid grid-cols-2 gap-4 px-2 py-2 text-[10px] leading-5">
+          <div>
+            <p className="font-black uppercase">Dados fiscais / nota</p>
+            <p className="mt-1 whitespace-pre-line">{reservation.billing_info || reservation.fiscal_data || 'Utilizar dados cadastrais da empresa.'}</p>
+          </div>
+          <div>
+            <p className="font-black uppercase">Instrucoes adicionais</p>
+            <p className="mt-1 whitespace-pre-line">{reservation.billing_obs || hotelProfile.notes || 'Reserva sujeita a disponibilidade, politica comercial vigente e validacao do setor de reservas.'}</p>
+          </div>
+        </div>
+
+        <footer className="mt-16">
+          <div className="border-y border-dashed border-neutral-300 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-500">
+            Protocolo de entrega do voucher
+          </div>
+          <div className="mt-2 grid grid-cols-[1fr_1fr] gap-8 bg-blue-50 p-3 text-[10px]">
+            <div>
+              <InfoRow label="Codigo reserva" value={code} />
+              <InfoRow label="Hospede" value={paxNames[0] || reservation.guest_name} />
+              <InfoRow label="Entrada" value={formatDate(reservation.check_in)} />
+            </div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-4 pt-2">
+              <div className="border-t border-neutral-700 pt-1 text-center">DATA</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">NOME</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">DOCUMENTO</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">ASSINATURA</div>
+            </div>
+          </div>
+          <p className="mt-3 text-center text-[9px] font-bold text-neutral-500">
+            {[hotelProfile.website, hotelProfile.email].filter(Boolean).join(' - ') || 'Voucher corporativo'}
+          </p>
+        </footer>
       </section>
     </RoyalDocumentModal>
   );

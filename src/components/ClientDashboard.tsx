@@ -1158,6 +1158,145 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     pdf.save(`VOUCHER_RESERVA_${code}.pdf`);
   };
 
+  const handleDownloadTravelVoucherPdf = () => {
+    if (!viewingVoucher) return;
+    const totals = calculateReservationTotal({
+      tariff: Number(viewingVoucher.tariff || 0),
+      iss_enabled: Number(viewingVoucher.iss_tax || 0) > 0,
+      iss_tax: Number(viewingVoucher.iss_tax || 0),
+      service_enabled: Number(viewingVoucher.service_tax || 0) > 0,
+      service_tax: Number(viewingVoucher.service_tax || 0),
+    });
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const code = viewingVoucher.reservation_code || 'PENDENTE';
+    const paxNames = getReservationPaxNames(viewingVoucher);
+    const occupancy = viewingVoucher.occupancy_type || deriveOccupancyType(viewingVoucher.guests_per_uh);
+    const nights = Math.max(1, Math.ceil((new Date(viewingVoucher.check_out).getTime() - new Date(viewingVoucher.check_in).getTime()) / 86400000));
+    const status = (viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'Reserva em analise' : 'Reserva confirmada';
+    const hotelName = hotelProfile.trade_name || hotelProfile.legal_name || 'Royal Macae';
+
+    const section = (title: string, y: number) => {
+      pdf.setFillColor(224, 242, 254);
+      pdf.setDrawColor(125, 211, 252);
+      pdf.rect(10, y, 190, 7, 'FD');
+      pdf.setTextColor(17, 24, 39);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text(title, 13, y + 5);
+    };
+    const label = (text: string, x: number, y: number) => {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(text.toUpperCase(), x, y);
+    };
+    const value = (text: string, x: number, y: number, maxWidth = 70) => {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.text(String(text || '-'), x, y, { maxWidth });
+    };
+
+    pdf.setTextColor(17, 24, 39);
+    pdf.setDrawColor(59, 130, 246);
+    pdf.line(10, 28, 200, 28);
+    pdf.addImage('/logo.png', 'PNG', 10, 8, 30, 14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(22);
+    pdf.setTextColor(30, 64, 175);
+    pdf.text('Voucher', 45, 15);
+    pdf.setFontSize(10);
+    pdf.text('Documentacao de Hospedagem', 45, 21);
+
+    const bars = code.padEnd(18, '0').slice(0, 18).split('');
+    let bx = 150;
+    bars.forEach((char, index) => {
+      const width = char.charCodeAt(0) % 2 === 0 ? 0.8 : 1.5;
+      const height = char.charCodeAt(0) % 3 === 0 ? 17 : 21;
+      pdf.setFillColor(17, 24, 39);
+      pdf.rect(bx, 8, width, height, 'F');
+      bx += width + (index % 3 === 0 ? 0.8 : 0.4);
+    });
+    pdf.setTextColor(17, 24, 39);
+    pdf.setFontSize(6);
+    pdf.text(code, 174, 26, { align: 'center' });
+
+    let y = 38;
+    label('Codigo da reserva', 10, y); value(code, 70, y);
+    label('Status', 10, y + 5); value(status, 70, y + 5);
+    label('Empresa', 10, y + 10); value(company?.name || 'Particular', 70, y + 10);
+    label('Emitido em', 10, y + 15); value(new Date().toLocaleString('pt-BR'), 70, y + 15);
+
+    section('NOME DOS PASSAGEIROS / HOSPEDES', 62);
+    y = 73;
+    paxNames.forEach((name, index) => {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.text(`${index + 1}. ${name.toUpperCase()} - [ LOCALIZADOR: ${code} ]`, 13, y);
+      y += 5;
+    });
+
+    section('DETALHES DA HOSPEDAGEM', y + 3);
+    y += 15;
+    label('Hotel', 13, y); value(hotelName, 45, y, 88);
+    label('Entrada', 140, y); value(clientDate(viewingVoucher.check_in), 172, y, 24);
+    label('Endereco', 13, y + 6); value(hotelProfile.address || '-', 45, y + 6, 88);
+    label('Saida', 140, y + 6); value(clientDate(viewingVoucher.check_out), 172, y + 6, 24);
+    label('Telefone', 13, y + 12); value(hotelProfile.phone || '-', 45, y + 12, 88);
+    label('Diarias', 140, y + 12); value(String(nights), 172, y + 12, 24);
+    label('Acomodacao', 13, y + 18); value(`${viewingVoucher.category || '-'} - ${OCCUPANCY_LABELS[occupancy] || occupancy}`, 45, y + 18, 88);
+    label('UH', 140, y + 18); value(String(viewingVoucher.guests_per_uh || '-'), 172, y + 18, 24);
+
+    section('DETALHES DO RECEPTIVO / EMPRESA', y + 28);
+    y += 40;
+    pdf.setFillColor(224, 242, 254);
+    pdf.rect(10, y, 190, 6, 'F');
+    label('Empresa', 12, y + 4); label('Centro de custo', 93, y + 4); label('Telefone', 155, y + 4);
+    y += 10;
+    value(company?.name || '-', 12, y, 75);
+    value(viewingVoucher.cost_center || '-', 93, y, 55);
+    value(viewingVoucher.contact_phone || company?.phone || '-', 155, y, 40);
+
+    section('SERVICOS INCLUSOS E VALORES PREVISTOS', y + 10);
+    y += 22;
+    pdf.setFillColor(224, 242, 254);
+    pdf.rect(10, y, 190, 6, 'F');
+    label('Servico', 12, y + 4); label('Detalhe', 68, y + 4); label('Qtd.', 145, y + 4); label('Valor', 175, y + 4);
+    y += 11;
+    const serviceRows: Array<[string, string, string, string]> = [
+      ['Hospedagem', `${viewingVoucher.category || '-'} - ${OCCUPANCY_LABELS[occupancy] || occupancy}`, `${nights} diaria(s)`, clientMoney(totals.tariff * nights)],
+      ...(totals.iss > 0 ? [['ISS', 'Imposto sobre servico', '1', clientMoney(totals.iss)] as [string, string, string, string]] : []),
+      ...(totals.service > 0 ? [['Taxa', 'Taxa de servico', '1', clientMoney(totals.service)] as [string, string, string, string]] : []),
+      ['Total previsto', 'Sujeito a validacao operacional', '', clientMoney(Number(viewingVoucher.total_amount || totals.total))],
+    ];
+    serviceRows.forEach(([a, b, c, d]) => {
+      value(a, 12, y, 52); value(b, 68, y, 72); value(c, 148, y, 18); value(d, 174, y, 24);
+      y += 6;
+    });
+
+    section('INFORMACOES PARA FATURAMENTO', y + 6);
+    y += 18;
+    label('Dados fiscais / nota', 13, y);
+    value(viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agencia.', 13, y + 6, 84);
+    label('Instrucoes adicionais', 111, y);
+    value(viewingVoucher.billing_obs || 'Sem observacoes adicionais.', 111, y + 6, 84);
+
+    pdf.setDrawColor(160, 160, 160);
+    pdf.setLineDashPattern([1, 1], 0);
+    pdf.line(10, 258, 200, 258);
+    pdf.setLineDashPattern([], 0);
+    pdf.setFillColor(224, 242, 254);
+    pdf.rect(10, 264, 190, 22, 'F');
+    label('Protocolo de entrega passagem / voucher', 13, 270);
+    label('Cliente', 126, 270);
+    value(`Codigo: ${code}`, 13, 276, 78);
+    value(`Hospede: ${paxNames[0] || viewingVoucher.guest_name}`, 13, 282, 78);
+    pdf.line(126, 278, 151, 278); pdf.line(165, 278, 195, 278);
+    pdf.setFontSize(6);
+    pdf.text('DATA', 135, 281); pdf.text('NOME', 177, 281);
+    pdf.text([hotelProfile.website, hotelProfile.email].filter(Boolean).join(' - ') || 'Voucher corporativo', 105, 294, { align: 'center' });
+
+    pdf.save(`VOUCHER_RESERVA_${code}.pdf`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -2303,7 +2442,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 <button onClick={() => setViewingVoucher(null)} className="rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest text-neutral-500 transition-colors hover:text-neutral-900">
                   Fechar
                 </button>
-                <button onClick={handleDownloadHotelVoucherPdf} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
+                <button onClick={handleDownloadTravelVoucherPdf} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
                   <Printer className="h-4 w-4" />
                   Gerar PDF
                 </button>
