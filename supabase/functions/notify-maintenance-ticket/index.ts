@@ -314,7 +314,8 @@ function cardStatusLabel(record: Record<string, unknown>): string {
 
 function buildTicketCardText(record: Record<string, unknown>): string {
   const priority = (record.priority as string) ?? "medium";
-  const lines: string[] = [`${P_EMOJI[priority] ?? ""} *Chamado de manutencao*`, ""];
+  const isPreventive = record.source === "preventive";
+  const lines: string[] = [`${P_EMOJI[priority] ?? ""} *${isPreventive ? "Preventiva de manutencao" : "Chamado de manutencao"}*`, ""];
   lines.push(`*${esc(record.title as string)}*`);
   if (record.room_number) lines.push(`UH *${esc(record.room_number as string)}*`);
   lines.push(`Status: *${esc(cardStatusLabel(record))}*`);
@@ -1279,6 +1280,159 @@ async function sendPartsArrivedNotice(payload: Record<string, unknown>) {
   return { ok: result?.ok === true };
 }
 
+function addFrequency(dateStr: string, frequency: string): string {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (frequency === "daily") date.setUTCDate(date.getUTCDate() + 1);
+  else if (frequency === "weekly") date.setUTCDate(date.getUTCDate() + 7);
+  else if (frequency === "biweekly") date.setUTCDate(date.getUTCDate() + 14);
+  else if (frequency === "monthly") date.setUTCMonth(date.getUTCMonth() + 1);
+  else if (frequency === "quarterly") date.setUTCMonth(date.getUTCMonth() + 3);
+  else if (frequency === "semiannual") date.setUTCMonth(date.getUTCMonth() + 6);
+  else if (frequency === "annual") date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else date.setUTCMonth(date.getUTCMonth() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function preventiveTarget(plan: Record<string, unknown>): string {
+  if (plan.target_type === "room" && plan.room_number) return `UH ${plan.room_number}`;
+  if (plan.target_type === "equipment" && plan.equipment_name) return String(plan.equipment_name);
+  return String(plan.location ?? "Area comum");
+}
+
+function preventiveDescription(plan: Record<string, unknown>, dueDate: string): string {
+  const checklist = Array.isArray(plan.checklist)
+    ? (plan.checklist as unknown[]).map(item => String(item).trim()).filter(Boolean)
+    : [];
+  const lines = [
+    `Preventiva programada para ${dueDate}.`,
+    `Local/equipamento: ${preventiveTarget(plan)}.`,
+  ];
+  if (plan.instructions) lines.push(`Orientacao: ${plan.instructions}`);
+  if (checklist.length > 0) lines.push(`Checklist: ${checklist.map(item => `- ${item}`).join(" ")}`);
+  return lines.join("\n");
+}
+
+async function findOrCreatePreventiveRun(plan: Record<string, unknown>, dueDate: string) {
+  const runPayload = {
+    plan_id: plan.id,
+    due_date: dueDate,
+    status: "pending",
+  };
+  const inserted = await db
+    .from("maintenance_preventive_runs")
+    .insert(runPayload)
+    .select("*")
+    .single();
+
+  if (!inserted.error) return inserted.data as Record<string, unknown>;
+  if (inserted.error.code !== "23505") throw new Error(inserted.error.message);
+
+  const { data, error } = await db
+    .from("maintenance_preventive_runs")
+    .select("*")
+    .eq("plan_id", plan.id as string)
+    .eq("due_date", dueDate)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Record<string, unknown>;
+}
+
+async function generatePreventiveTicket(plan: Record<string, unknown>, run: Record<string, unknown>, actorName: string) {
+  if (run.ticket_id) return { ok: true, skipped: "ticket_already_exists", ticket_id: run.ticket_id };
+
+  const dueDate = String(run.due_date ?? plan.next_due_date ?? todayDate());
+  const target = preventiveTarget(plan);
+  const { data: ticket, error: ticketError } = await db
+    .from("maintenance_tickets")
+    .insert({
+      room_number: plan.target_type === "room" ? plan.room_number ?? null : null,
+      title: `Preventiva: ${plan.title}`,
+      description: preventiveDescription(plan, dueDate),
+      priority: plan.priority ?? "medium",
+      status: "open",
+      source: "preventive",
+      preventive_plan_id: plan.id,
+      preventive_run_id: run.id,
+      reported_by: null,
+      status_reason: null,
+    })
+    .select("*")
+    .single();
+
+  if (ticketError) throw new Error(ticketError.message);
+
+  await db.from("maintenance_preventive_runs").update({
+    status: "ticket_created",
+    ticket_id: ticket.id,
+    generated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", run.id as string);
+
+  await db.from("maintenance_preventive_plans").update({
+    next_due_date: addFrequency(dueDate, String(plan.frequency)),
+    last_generated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", plan.id as string);
+
+  await db.from("maintenance_ticket_events").insert({
+    ticket_id: ticket.id,
+    event: "preventive_generated",
+    actor_type: "system",
+    actor_name: actorName,
+    prev_status: null,
+    new_status: "open",
+    notes: `Preventiva gerada para ${target} em ${dueDate}.`,
+  });
+
+  const sentCard = await sendTicketCard(ticket as Record<string, unknown>, CHAT_ID, { notifyNew: true, source: "preventive_due_scan" });
+  return { ok: true, ticket_id: ticket.id, card_sent: sentCard };
+}
+
+async function runPreventiveDueScan(payload: Record<string, unknown>) {
+  const planId = payload.plan_id as string | undefined;
+  const force = payload.force === true || !!planId;
+  const actorName = (payload.actor_name as string) ?? "Sistema";
+  const today = todayDate();
+
+  let query = db
+    .from("maintenance_preventive_plans")
+    .select("*")
+    .eq("active", true)
+    .order("next_due_date", { ascending: true })
+    .limit(50);
+
+  query = planId
+    ? query.eq("id", planId)
+    : query.lte("next_due_date", today);
+
+  const { data: plans, error } = await query;
+  if (error) return { ok: false, error: error.message };
+
+  const results = [];
+  for (const plan of plans ?? []) {
+    const dueDate = force ? String(plan.next_due_date ?? today) : String(plan.next_due_date);
+    try {
+      const run = await findOrCreatePreventiveRun(plan as Record<string, unknown>, dueDate);
+      const result = await generatePreventiveTicket(plan as Record<string, unknown>, run, actorName);
+      results.push({ plan_id: plan.id, due_date: dueDate, ...result });
+    } catch (err) {
+      results.push({ plan_id: plan.id, due_date: dueDate, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return {
+    ok: results.every(item => item.ok !== false),
+    checked: plans?.length ?? 0,
+    generated: results.filter(item => item.ticket_id).length,
+    results,
+  };
+}
+
 function extractLastTech(resolutionNotes: string): string | null {
   const m = resolutionNotes.match(/\(([^)]+)\)\s*$/);
   return m ? m[1] : null;
@@ -1287,7 +1441,7 @@ function extractLastTech(resolutionNotes: string): string | null {
 // ── db webhook dispatcher ───────────────────────────────────────────────────
 async function handleDbWebhook(body: Record<string, unknown>, authHeader: string | null) {
   // Fix L: validate Authorization for internal trigger types
-  const internalTypes = ["daily_report", "manual_resend", "parts_arrived", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test", "telegram_permissions", "create_telegram_link_code", "revoke_telegram_binding"];
+  const internalTypes = ["daily_report", "manual_resend", "parts_arrived", "preventive_due_scan", "ticket_opened", "request_rating", "sla_alert", "request_inspection", "bot_health", "cleanup_test_tickets", "cleanup_all_tickets", "reconcile_cards", "recreate_card", "bot_maintenance", "bot_self_test", "telegram_permissions", "create_telegram_link_code", "revoke_telegram_binding"];
   if (internalTypes.includes(body.type as string)) {
     if (!await isAuthorizedInternal(authHeader)) return { ok: false, error: "unauthorized" };
   }
@@ -1295,6 +1449,7 @@ async function handleDbWebhook(body: Record<string, unknown>, authHeader: string
   if ((body.type as string) === "daily_report")   return await sendDailyReport();
   if ((body.type as string) === "manual_resend")  return await handleManualResend(body);
   if ((body.type as string) === "parts_arrived")  return await sendPartsArrivedNotice(body);
+  if ((body.type as string) === "preventive_due_scan") return await runPreventiveDueScan(body);
   if ((body.type as string) === "sla_alert")      return await sendSlaAlert();
   if ((body.type as string) === "bot_self_test")  return await runBotSelfTest(authHeader);
 

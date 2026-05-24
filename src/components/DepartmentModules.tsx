@@ -78,6 +78,7 @@ export function MaintenanceModuleDashboard({ profile }: { profile: UserProfile }
         { id: 'qr-tickets', label: 'Chamados QR / Telegram', icon: QrCode, render: () => <MaintenanceTicketsTab profile={profile} /> },
         { id: 'board', label: 'Quadro ao Vivo', icon: Monitor, render: () => <BoardTab /> },
         { id: 'equipment', label: 'Equipamentos', icon: Package, render: () => <MaintenanceEquipmentTab profile={profile} /> },
+        { id: 'preventive', label: 'Preventiva', icon: CalendarDays, render: () => <MaintenancePreventiveTab profile={profile} /> },
         { id: 'performance', label: 'Desempenho', icon: BarChart3, render: () => <MaintenancePerformanceTab /> },
         { id: 'rooms', label: 'UHs e bloqueios', icon: BedDouble, render: () => <HousekeepingDashboard profile={profile} /> },
       ]}
@@ -107,6 +108,37 @@ type MaintTicket = {
   telegram_user_id: number | null;
   telegram_message_id: number | null;
   telegram_card_updated_at: string | null;
+};
+
+type PreventivePlan = {
+  id: string;
+  title: string;
+  category: string;
+  target_type: 'room' | 'area' | 'equipment';
+  room_number: string | null;
+  location: string | null;
+  equipment_name: string | null;
+  frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+  priority: MaintTicket['priority'];
+  checklist: string[] | null;
+  instructions: string | null;
+  next_due_date: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string | null;
+  last_generated_at: string | null;
+};
+
+type PreventiveRun = {
+  id: string;
+  plan_id: string;
+  due_date: string;
+  status: 'pending' | 'ticket_created' | 'completed' | 'skipped' | 'cancelled';
+  ticket_id: string | null;
+  generated_at: string | null;
+  completed_at: string | null;
+  notes: string | null;
+  plan?: PreventivePlan | null;
 };
 
 const PRIORITY_BADGE: Record<MaintTicket['priority'], string> = {
@@ -226,6 +258,400 @@ function BoardTab() {
         <MaintenanceQueueBoard />
       </div>
     </div>
+  );
+}
+
+const PREVENTIVE_FREQUENCY_LABEL: Record<PreventivePlan['frequency'], string> = {
+  daily: 'Diaria',
+  weekly: 'Semanal',
+  biweekly: 'Quinzenal',
+  monthly: 'Mensal',
+  quarterly: 'Trimestral',
+  semiannual: 'Semestral',
+  annual: 'Anual',
+};
+
+const PREVENTIVE_TARGET_LABEL: Record<PreventivePlan['target_type'], string> = {
+  room: 'UH',
+  area: 'Area comum',
+  equipment: 'Equipamento',
+};
+
+const emptyPreventiveForm = {
+  title: '',
+  category: 'Geral',
+  target_type: 'room' as PreventivePlan['target_type'],
+  room_number: '',
+  location: '',
+  equipment_name: '',
+  frequency: 'monthly' as PreventivePlan['frequency'],
+  priority: 'medium' as MaintTicket['priority'],
+  checklist: '',
+  instructions: '',
+  next_due_date: new Date().toISOString().slice(0, 10),
+};
+
+function addPreventiveFrequency(dateStr: string, frequency: PreventivePlan['frequency']) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (frequency === 'daily') date.setUTCDate(date.getUTCDate() + 1);
+  else if (frequency === 'weekly') date.setUTCDate(date.getUTCDate() + 7);
+  else if (frequency === 'biweekly') date.setUTCDate(date.getUTCDate() + 14);
+  else if (frequency === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
+  else if (frequency === 'quarterly') date.setUTCMonth(date.getUTCMonth() + 3);
+  else if (frequency === 'semiannual') date.setUTCMonth(date.getUTCMonth() + 6);
+  else date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysUntil(dateStr: string) {
+  const today = new Date(new Date().toISOString().slice(0, 10)).getTime();
+  return Math.round((new Date(dateStr).getTime() - today) / 86_400_000);
+}
+
+function preventiveTarget(plan: PreventivePlan) {
+  if (plan.target_type === 'room') return plan.room_number ? `UH ${plan.room_number}` : 'UH nao definida';
+  if (plan.target_type === 'equipment') return plan.equipment_name || 'Equipamento sem nome';
+  return plan.location || 'Area comum';
+}
+
+function MaintenancePreventiveTab({ profile }: { profile: UserProfile }) {
+  const [plans, setPlans] = useState<PreventivePlan[]>([]);
+  const [runs, setRuns] = useState<PreventiveRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'due' | 'all'>('active');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyPreventiveForm);
+
+  useEffect(() => {
+    void fetchPreventive();
+    const channel = supabase
+      .channel('maintenance-preventive')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_preventive_plans' }, fetchPreventive)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_preventive_runs' }, fetchPreventive)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  async function fetchPreventive() {
+    const [plansRes, runsRes] = await Promise.all([
+      supabase
+        .from('maintenance_preventive_plans')
+        .select('*')
+        .order('active', { ascending: false })
+        .order('next_due_date', { ascending: true }),
+      supabase
+        .from('maintenance_preventive_runs')
+        .select('*, plan:maintenance_preventive_plans(*)')
+        .order('due_date', { ascending: false })
+        .limit(60),
+    ]);
+
+    if (plansRes.error) toast.error('Erro ao carregar preventivas: ' + plansRes.error.message);
+    else setPlans((plansRes.data ?? []) as PreventivePlan[]);
+
+    if (runsRes.error) toast.error('Erro ao carregar historico: ' + runsRes.error.message);
+    else setRuns((runsRes.data ?? []) as PreventiveRun[]);
+
+    setLoading(false);
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setForm(emptyPreventiveForm);
+  }
+
+  function editPlan(plan: PreventivePlan) {
+    setEditingId(plan.id);
+    setForm({
+      title: plan.title,
+      category: plan.category || 'Geral',
+      target_type: plan.target_type,
+      room_number: plan.room_number || '',
+      location: plan.location || '',
+      equipment_name: plan.equipment_name || '',
+      frequency: plan.frequency,
+      priority: plan.priority,
+      checklist: (plan.checklist ?? []).join('\n'),
+      instructions: plan.instructions || '',
+      next_due_date: plan.next_due_date,
+    });
+  }
+
+  async function savePlan() {
+    if (!form.title.trim()) return toast.error('Informe o nome da preventiva.');
+    if (form.target_type === 'room' && !form.room_number.trim()) return toast.error('Informe a UH.');
+    if (form.target_type === 'equipment' && !form.equipment_name.trim()) return toast.error('Informe o equipamento.');
+    if (form.target_type === 'area' && !form.location.trim()) return toast.error('Informe a area.');
+
+    setSaving(true);
+    const payload = {
+      title: form.title.trim(),
+      category: form.category.trim() || 'Geral',
+      target_type: form.target_type,
+      room_number: form.target_type === 'room' ? form.room_number.trim() : null,
+      location: form.target_type === 'area' ? form.location.trim() : null,
+      equipment_name: form.target_type === 'equipment' ? form.equipment_name.trim() : null,
+      frequency: form.frequency,
+      priority: form.priority,
+      checklist: form.checklist.split('\n').map(item => item.trim()).filter(Boolean),
+      instructions: form.instructions.trim() || null,
+      next_due_date: form.next_due_date,
+      created_by: profile.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    const res = editingId
+      ? await supabase.from('maintenance_preventive_plans').update(payload).eq('id', editingId)
+      : await supabase.from('maintenance_preventive_plans').insert(payload);
+
+    setSaving(false);
+    if (res.error) return toast.error('Erro ao salvar preventiva: ' + res.error.message);
+    toast.success(editingId ? 'Preventiva atualizada.' : 'Preventiva criada.');
+    resetForm();
+    void fetchPreventive();
+  }
+
+  async function callPreventiveScan(plan: PreventivePlan) {
+    setGeneratingId(plan.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sessao invalida.');
+      const supaUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${supaUrl}/functions/v1/notify-maintenance-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ type: 'preventive_due_scan', plan_id: plan.id, force: true, actor_name: profile.name || 'PMS' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Falha ao gerar chamado preventivo.');
+      toast.success('Chamado preventivo gerado e enviado ao Telegram.');
+      void fetchPreventive();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao gerar preventiva.');
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  async function completeWithoutTicket(plan: PreventivePlan) {
+    const notes = window.prompt('Observacao da preventiva concluida sem chamado:', 'Preventiva conferida sem necessidade de abertura de chamado.');
+    if (notes === null) return;
+    const dueDate = plan.next_due_date;
+    const nextDueDate = addPreventiveFrequency(dueDate, plan.frequency);
+    const { error: runError } = await supabase.from('maintenance_preventive_runs').upsert({
+      plan_id: plan.id,
+      due_date: dueDate,
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      completed_by: profile.id,
+      notes: notes || 'Preventiva concluida sem chamado.',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'plan_id,due_date' });
+
+    if (runError) return toast.error('Erro ao concluir preventiva: ' + runError.message);
+
+    const { error: planError } = await supabase.from('maintenance_preventive_plans').update({
+      next_due_date: nextDueDate,
+      updated_at: new Date().toISOString(),
+    }).eq('id', plan.id);
+
+    if (planError) return toast.error('Erro ao atualizar proxima data: ' + planError.message);
+    toast.success('Preventiva concluida e proxima data calculada.');
+    void fetchPreventive();
+  }
+
+  async function toggleActive(plan: PreventivePlan) {
+    const { error } = await supabase.from('maintenance_preventive_plans').update({
+      active: !plan.active,
+      updated_at: new Date().toISOString(),
+    }).eq('id', plan.id);
+    if (error) toast.error('Erro ao atualizar status: ' + error.message);
+    else void fetchPreventive();
+  }
+
+  const filteredPlans = useMemo(() => {
+    const term = filter.trim().toLowerCase();
+    return plans.filter(plan => {
+      const due = daysUntil(plan.next_due_date) <= 0;
+      if (statusFilter === 'active' && !plan.active) return false;
+      if (statusFilter === 'due' && (!plan.active || !due)) return false;
+      if (!term) return true;
+      return [plan.title, plan.category, preventiveTarget(plan), plan.instructions ?? ''].join(' ').toLowerCase().includes(term);
+    });
+  }, [plans, filter, statusFilter]);
+
+  const summary = {
+    overdue: plans.filter(plan => plan.active && daysUntil(plan.next_due_date) < 0).length,
+    today: plans.filter(plan => plan.active && daysUntil(plan.next_due_date) === 0).length,
+    week: plans.filter(plan => plan.active && daysUntil(plan.next_due_date) >= 0 && daysUntil(plan.next_due_date) <= 7).length,
+    month: plans.filter(plan => plan.active && daysUntil(plan.next_due_date) >= 0 && daysUntil(plan.next_due_date) <= 30).length,
+  };
+
+  if (loading) return <div className="flex items-center gap-2 rounded-3xl border border-neutral-200 bg-white p-6 text-sm font-bold text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando preventivas...</div>;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-4">
+        <PreventiveMetric label="Vencidas" value={summary.overdue} tone={summary.overdue > 0 ? 'red' : 'green'} />
+        <PreventiveMetric label="Hoje" value={summary.today} tone={summary.today > 0 ? 'amber' : 'neutral'} />
+        <PreventiveMetric label="7 dias" value={summary.week} tone="blue" />
+        <PreventiveMetric label="30 dias" value={summary.month} tone="purple" />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">Preventiva</p>
+              <h3 className="mt-1 text-xl font-black text-neutral-950">{editingId ? 'Editar rotina' : 'Nova rotina'}</h3>
+            </div>
+            {editingId && <button onClick={resetForm} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-600">Cancelar</button>}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ex: Limpeza de filtro do ar" className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+              <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value as MaintTicket['priority'] })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
+                <option value="low">Baixa</option>
+                <option value="medium">Media</option>
+                <option value="high">Alta</option>
+                <option value="urgent">Urgente</option>
+              </select>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select value={form.target_type} onChange={e => setForm({ ...form, target_type: e.target.value as PreventivePlan['target_type'] })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
+                <option value="room">UH</option>
+                <option value="area">Area comum</option>
+                <option value="equipment">Equipamento</option>
+              </select>
+              {form.target_type === 'room' && <input value={form.room_number} onChange={e => setForm({ ...form, room_number: e.target.value })} placeholder="UH" className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />}
+              {form.target_type === 'area' && <input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Area/local" className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />}
+              {form.target_type === 'equipment' && <input value={form.equipment_name} onChange={e => setForm({ ...form, equipment_name: e.target.value })} placeholder="Equipamento" className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value as PreventivePlan['frequency'] })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
+                {Object.entries(PREVENTIVE_FREQUENCY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <input type="date" value={form.next_due_date} onChange={e => setForm({ ...form, next_due_date: e.target.value })} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <textarea value={form.checklist} onChange={e => setForm({ ...form, checklist: e.target.value })} placeholder="Checklist, um item por linha" rows={4} className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+            <textarea value={form.instructions} onChange={e => setForm({ ...form, instructions: e.target.value })} placeholder="Orientacoes para o tecnico" rows={3} className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+            <button onClick={savePlan} disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white transition hover:bg-neutral-800 disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {editingId ? 'Salvar preventiva' : 'Criar preventiva'}
+            </button>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Buscar por UH, area, equipamento ou rotina" className="w-full rounded-2xl border border-neutral-200 py-3 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'active' | 'due' | 'all')} className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+              <option value="active">Ativas</option>
+              <option value="due">Vencidas/hoje</option>
+              <option value="all">Todas</option>
+            </select>
+          </div>
+
+          <div className="grid gap-3">
+            {filteredPlans.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-neutral-200 bg-white p-8 text-center text-sm font-bold text-neutral-400">Nenhuma preventiva encontrada.</div>
+            ) : filteredPlans.map(plan => (
+              <PreventivePlanCard
+                key={plan.id}
+                plan={plan}
+                generating={generatingId === plan.id}
+                onGenerate={() => callPreventiveScan(plan)}
+                onComplete={() => completeWithoutTicket(plan)}
+                onEdit={() => editPlan(plan)}
+                onToggle={() => toggleActive(plan)}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-neutral-400">Historico</p>
+            <h3 className="mt-1 text-xl font-black text-neutral-950">Ultimas execucoes preventivas</h3>
+          </div>
+          <Bell className="h-5 w-5 text-neutral-400" />
+        </div>
+        <div className="mt-4 grid gap-2">
+          {runs.length === 0 ? <p className="text-sm font-bold text-neutral-400">Nenhuma execucao registrada ainda.</p> : runs.slice(0, 8).map(run => (
+            <div key={run.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-100 bg-neutral-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-black text-neutral-900">{run.plan?.title || 'Preventiva'}</p>
+                <p className="text-xs font-bold text-neutral-500">{run.due_date} · {run.status === 'ticket_created' ? 'Chamado gerado' : run.status === 'completed' ? 'Concluida sem chamado' : run.status}</p>
+              </div>
+              {run.ticket_id && <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">Chamado {run.ticket_id.slice(0, 6)}</span>}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PreventiveMetric({ label, value, tone }: { label: string; value: number; tone: 'red' | 'green' | 'amber' | 'neutral' | 'blue' | 'purple' }) {
+  const tones = {
+    red: 'border-red-200 bg-red-50 text-red-700',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    neutral: 'border-neutral-200 bg-white text-neutral-700',
+    blue: 'border-blue-200 bg-blue-50 text-blue-700',
+    purple: 'border-purple-200 bg-purple-50 text-purple-700',
+  };
+  return (
+    <div className={`rounded-3xl border p-5 shadow-sm ${tones[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-70">{label}</p>
+      <p className="mt-2 text-4xl font-black tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function PreventivePlanCard({ plan, generating, onGenerate, onComplete, onEdit, onToggle }: { plan: PreventivePlan; generating: boolean; onGenerate: () => void; onComplete: () => void; onEdit: () => void; onToggle: () => void }) {
+  const dueDays = daysUntil(plan.next_due_date);
+  const dueLabel = dueDays < 0 ? `${Math.abs(dueDays)}d vencida` : dueDays === 0 ? 'vence hoje' : `em ${dueDays}d`;
+  const dueTone = dueDays < 0 ? 'bg-red-100 text-red-700' : dueDays === 0 ? 'bg-amber-100 text-amber-700' : 'bg-neutral-100 text-neutral-600';
+  return (
+    <article className={`rounded-3xl border bg-white p-5 shadow-sm ${plan.active ? 'border-neutral-200' : 'border-neutral-200 opacity-60'}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${dueTone}`}>{dueLabel}</span>
+            <span className={PRIORITY_BADGE[plan.priority] + ' rounded-full px-3 py-1 text-[10px] font-black uppercase'}>{PRIORITY_LABEL[plan.priority]}</span>
+            <span className="rounded-full bg-neutral-100 px-3 py-1 text-[10px] font-black uppercase text-neutral-600">{PREVENTIVE_FREQUENCY_LABEL[plan.frequency]}</span>
+          </div>
+          <h4 className="mt-3 text-lg font-black text-neutral-950">{plan.title}</h4>
+          <p className="mt-1 text-sm font-bold text-neutral-500">{PREVENTIVE_TARGET_LABEL[plan.target_type]} · {preventiveTarget(plan)} · proxima em {new Date(plan.next_due_date).toLocaleDateString('pt-BR')}</p>
+          {plan.instructions && <p className="mt-2 line-clamp-2 text-sm text-neutral-500">{plan.instructions}</p>}
+          {(plan.checklist?.length ?? 0) > 0 && <p className="mt-2 text-xs font-bold text-neutral-400">{plan.checklist?.length} itens de checklist</p>}
+        </div>
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <button onClick={onGenerate} disabled={generating || !plan.active} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50">
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+            Gerar chamado
+          </button>
+          <button onClick={onComplete} disabled={!plan.active} className="flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-700 disabled:opacity-50">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Concluir sem chamado
+          </button>
+          <button onClick={onEdit} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-700">Editar</button>
+          <button onClick={onToggle} className="rounded-xl border border-neutral-200 px-3 py-2 text-xs font-black text-neutral-500">{plan.active ? 'Pausar' : 'Ativar'}</button>
+        </div>
+      </div>
+    </article>
   );
 }
 

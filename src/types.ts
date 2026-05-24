@@ -350,6 +350,9 @@ export interface MaintenanceTicket {
   description?: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'resolved' | 'cancelled';
+  source?: 'preventive' | 'qr' | 'telegram' | 'manual';
+  preventive_plan_id?: string;
+  preventive_run_id?: string;
   assigned_to?: string;
   reported_by?: string;
   housekeeping_reported_by?: string;

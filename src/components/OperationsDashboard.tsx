@@ -627,6 +627,7 @@ function TicketModal({
       title,
       description,
       priority,
+      source: 'manual',
       due_at: dueAt ? new Date(dueAt).toISOString() : null,
       reported_by: profile.id,
     }]).select().single();
