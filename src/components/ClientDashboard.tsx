@@ -54,6 +54,165 @@ function VoucherNote({ title, text }: { title: string; text: React.ReactNode }) 
   );
 }
 
+function TravelVoucherPreview({
+  voucher,
+  company,
+  hotelProfile,
+}: {
+  voucher: Reservation | ReservationRequest;
+  company: Company | null;
+  hotelProfile: VoucherHotelProfile;
+}) {
+  const code = voucher.reservation_code || 'PENDENTE';
+  const paxNames = getReservationPaxNames(voucher);
+  const occupancy = voucher.occupancy_type || deriveOccupancyType(voucher.guests_per_uh);
+  const nights = Math.max(1, Math.ceil((new Date(voucher.check_out).getTime() - new Date(voucher.check_in).getTime()) / 86400000));
+  const totals = calculateReservationTotal({
+    tariff: Number(voucher.tariff || 0),
+    iss_enabled: Number(voucher.iss_tax || 0) > 0,
+    iss_tax: Number(voucher.iss_tax || 0),
+    service_enabled: Number(voucher.service_tax || 0) > 0,
+    service_tax: Number(voucher.service_tax || 0),
+  });
+  const barcodeBars = code.padEnd(20, '0').slice(0, 20).split('');
+  const status = (voucher as ReservationRequest).status === 'REQUESTED' ? 'Reserva em analise' : 'Reserva confirmada';
+
+  return (
+    <div id="voucher-print" className="bg-white p-4 sm:p-6">
+      <div className="mx-auto min-h-[760px] max-w-[820px] rounded-sm border border-blue-200 bg-white p-5 text-neutral-950 shadow-sm">
+        <header className="border-b-2 border-blue-400 pb-3">
+          <div className="grid grid-cols-[130px_1fr_190px] items-start gap-5">
+            <img src={hotelProfile.logo_url || '/logo.png'} alt="Royal Macae" className="h-16 w-28 object-contain object-left" />
+            <div className="pt-2">
+              <h2 className="text-3xl font-black leading-none text-blue-950">Voucher</h2>
+              <p className="mt-1 text-sm font-black text-blue-950">Documentacao de Hospedagem</p>
+              <p className="mt-3 text-xs font-bold text-neutral-500">{hotelProfile.trade_name || hotelProfile.legal_name || 'Royal Macae Palace Hotel'}</p>
+            </div>
+            <div className="text-right">
+              <div className="flex h-12 justify-end gap-[2px]">
+                {barcodeBars.map((char, index) => (
+                  <span
+                    key={`${char}-${index}`}
+                    className={`${char.charCodeAt(0) % 2 === 0 ? 'w-[2px]' : 'w-[4px]'} ${char.charCodeAt(0) % 3 === 0 ? 'h-10' : 'h-12'} bg-neutral-950`}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] font-bold text-neutral-500">{code}</p>
+              <p className="text-[9px] text-neutral-500">Este numero garante a validade deste documento</p>
+            </div>
+          </div>
+        </header>
+
+        <section className="mt-3 grid grid-cols-[250px_1fr] gap-5 text-xs">
+          <div className="space-y-1">
+            <p><strong>CODIGO DA RESERVA</strong><span className="ml-8">{code}</span></p>
+            <p><strong>STATUS</strong><span className="ml-[77px]">{status}</span></p>
+            <p><strong>EMPRESA</strong><span className="ml-[67px]">{company?.name || 'Particular'}</span></p>
+            <p><strong>EMITIDO EM</strong><span className="ml-[48px]">{new Date().toLocaleString('pt-BR')}</span></p>
+          </div>
+          <div className="space-y-1">
+            <p><strong>HOTEL</strong><span className="ml-[70px]">{hotelProfile.trade_name || hotelProfile.legal_name}</span></p>
+            <p><strong>ENDERECO</strong><span className="ml-[46px]">{hotelProfile.address || '-'}</span></p>
+            <p><strong>TELEFONE</strong><span className="ml-[50px]">{hotelProfile.phone || '-'}</span></p>
+            <p><strong>CNPJ</strong><span className="ml-[75px]">{hotelProfile.cnpj || '-'}</span></p>
+          </div>
+        </section>
+
+        <div className="mt-5 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Nome dos passageiros / hospedes</div>
+        <div className="px-2 py-2 text-xs">
+          {paxNames.map((name, index) => (
+            <p key={`${name}-${index}`} className="font-bold uppercase">{name} <span className="font-normal">- [ LOCALIZADOR: {code} ]</span></p>
+          ))}
+        </div>
+
+        <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Detalhes da hospedagem</div>
+        <div className="grid grid-cols-[1fr_250px] gap-5 px-2 py-2 text-xs">
+          <div className="space-y-1">
+            <p><strong>HOTEL:</strong> {hotelProfile.trade_name || hotelProfile.legal_name}</p>
+            <p><strong>ENDERECO:</strong> {hotelProfile.address || '-'}</p>
+            <p><strong>TELEFONE:</strong> {hotelProfile.phone || '-'}</p>
+            <p><strong>TIPO DE ACOMODACAO:</strong> {voucher.category || '-'} - {OCCUPANCY_LABELS[occupancy] || occupancy}</p>
+          </div>
+          <div className="space-y-1">
+            <p><strong>DATA DE ENTRADA:</strong> {clientDate(voucher.check_in)}</p>
+            <p><strong>DATA DE SAIDA:</strong> {clientDate(voucher.check_out)}</p>
+            <p><strong>DIARIAS:</strong> {nights}</p>
+            <p><strong>OBSERVACAO:</strong> Apresentar no check-in</p>
+          </div>
+        </div>
+
+        <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Detalhes do receptivo / empresa</div>
+        <div className="grid grid-cols-3 bg-blue-50 text-xs font-black">
+          <div className="px-2 py-1">Empresa</div>
+          <div className="px-2 py-1">Centro de custo</div>
+          <div className="px-2 py-1">Telefone</div>
+        </div>
+        <div className="grid grid-cols-3 text-xs">
+          <div className="px-2 py-1">{company?.name || '-'}</div>
+          <div className="px-2 py-1">{voucher.cost_center || '-'}</div>
+          <div className="px-2 py-1">{voucher.contact_phone || company?.phone || '-'}</div>
+        </div>
+
+        <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Servicos inclusos e valores previstos</div>
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="bg-blue-50 text-left font-black">
+              <th className="px-2 py-1">Servico</th>
+              <th className="px-2 py-1">Detalhe</th>
+              <th className="px-2 py-1 text-right">Qtd.</th>
+              <th className="px-2 py-1 text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ['Hospedagem', `${voucher.category || '-'} - ${OCCUPANCY_LABELS[occupancy] || occupancy}`, `${nights} diaria(s)`, clientMoney(totals.tariff * nights)],
+              ...(totals.iss > 0 ? [['ISS', 'Imposto sobre servico', '1', clientMoney(totals.iss)]] : []),
+              ...(totals.service > 0 ? [['Taxa', 'Taxa de servico', '1', clientMoney(totals.service)]] : []),
+              ['Total previsto', 'Sujeito a validacao operacional', '', clientMoney(Number(voucher.total_amount || totals.total))],
+            ].map((row, index) => (
+              <tr key={index} className="border-b border-neutral-100">
+                <td className="px-2 py-1.5 font-bold">{row[0]}</td>
+                <td className="px-2 py-1.5">{row[1]}</td>
+                <td className="px-2 py-1.5 text-right">{row[2]}</td>
+                <td className="px-2 py-1.5 text-right font-bold">{row[3]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Informacoes para faturamento</div>
+        <div className="grid grid-cols-2 gap-6 px-2 py-2 text-xs leading-5">
+          <div>
+            <p className="font-black uppercase">Dados fiscais / nota</p>
+            <p className="mt-1 whitespace-pre-line">{voucher.billing_info || 'Utilizar dados cadastrais da empresa/agencia.'}</p>
+          </div>
+          <div>
+            <p className="font-black uppercase">Instrucoes adicionais</p>
+            <p className="mt-1 whitespace-pre-line">{voucher.billing_obs || 'Sem observacoes adicionais.'}</p>
+          </div>
+        </div>
+
+        <footer className="mt-10">
+          <div className="border-y border-dashed border-neutral-300 py-2 text-xs font-black uppercase tracking-widest text-neutral-500">Protocolo de entrega do voucher</div>
+          <div className="mt-2 grid grid-cols-[1fr_1fr] gap-8 bg-blue-50 p-3 text-xs">
+            <div>
+              <p><strong>Codigo:</strong> {code}</p>
+              <p><strong>Hospede:</strong> {paxNames[0] || voucher.guest_name}</p>
+              <p><strong>Entrada:</strong> {clientDate(voucher.check_in)}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-4 pt-2">
+              <div className="border-t border-neutral-700 pt-1 text-center">DATA</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">NOME</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">DOCUMENTO</div>
+              <div className="border-t border-neutral-700 pt-1 text-center">ASSINATURA</div>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 const clientMoney = (value: number) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const clientDate = (value?: string) => value ? new Date(value + (value.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : '-';
 
@@ -2338,7 +2497,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               exit={{ scale: 0.95, opacity: 0 }}
               className="my-8 w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
-              <div id="voucher-print" className="bg-white p-5 sm:p-8">
+              <TravelVoucherPreview voucher={viewingVoucher} company={company} hotelProfile={hotelProfile} />
+              <div id="voucher-print-old" className="hidden">
                 <div className="relative overflow-hidden rounded-[1.5rem] border border-neutral-200 p-4 pl-8 shadow-sm sm:p-8 sm:pl-12">
                   <div className="absolute inset-y-0 left-0 w-5 bg-neutral-950" />
                   <div className="absolute left-5 right-0 top-0 h-2 bg-amber-600" />
