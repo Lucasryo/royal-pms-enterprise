@@ -148,11 +148,34 @@ const CompanyTariffCard: React.FC<CompanyTariffCardProps> = ({
 
 type ImportRow = {
   company_name: string;
+  company_id?: string | null;
   category: string;
   room_type: string;
   base_rate: number;
   percentage: number;
 };
+
+function normalizeCompanyKey(raw: string) {
+  return raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function findCompanyForTariffName(companies: Company[], rawName: string) {
+  const norm = normalizeCompanyKey(rawName);
+  if (!norm) return null;
+
+  const exact = companies.filter(company => normalizeCompanyKey(company.name) === norm);
+  if (exact.length === 1) return exact[0];
+
+  const contains = companies.filter(company => {
+    const companyNorm = normalizeCompanyKey(company.name);
+    return (norm.length >= 5 && companyNorm.includes(norm)) || (companyNorm.length >= 5 && norm.includes(companyNorm));
+  });
+  return contains.length === 1 ? contains[0] : null;
+}
 
 // "R$ 289,00+3,75%" | "299+13,75%" | "289,00 + 3.75%" → { base, pct }
 function parseRateCell(raw: unknown): { base: number; pct: number } | null {
@@ -186,6 +209,7 @@ function normalizeCategory(raw: string): string | null {
 
 export default function TariffManager({ profile }: { profile: UserProfile }) {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -199,6 +223,7 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
 
   // Form states
   const [companyName, setCompanyName] = useState('');
+  const [companyId, setCompanyId] = useState('');
   const [baseRate, setBaseRate] = useState('');
   const [percentage, setPercentage] = useState('');
   const [roomType, setRoomType] = useState('single');
@@ -303,29 +328,36 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
     setImporting(true);
     try {
       const now = new Date().toISOString();
-      const payload = importPreview.rows.map(r => ({
-        company_name: r.company_name,
-        category: r.category,
-        room_type: r.room_type,
-        base_rate: r.base_rate,
-        percentage: r.percentage,
-        description: null,
-        created_by: profile.id,
-        updated_at: now,
-      }));
+      const payload = importPreview.rows.map(r => {
+        const linkedCompany = findCompanyForTariffName(companies, r.company_name);
+        return {
+          company_name: linkedCompany?.name || r.company_name,
+          company_id: linkedCompany?.id || null,
+          category: r.category,
+          room_type: r.room_type,
+          base_rate: r.base_rate,
+          percentage: r.percentage,
+          description: null,
+          created_by: profile.id,
+          updated_at: now,
+        };
+      });
 
       // Upsert por (company, category, room_type) — deleta e reinsere pra manter simples
-      const companies = Array.from(new Set(payload.map(p => p.company_name)));
-      for (const comp of companies) {
+      const companyNames = Array.from(new Set(payload.map(p => p.company_name)));
+      for (const comp of companyNames) {
         const compPayload = payload.filter(p => p.company_name === comp);
         const keys = compPayload.map(p => `(${p.category}/${p.room_type})`).join(',');
         // Delete existing rows that match any (cat, room_type) we're importing
         for (const p of compPayload) {
-          await supabase.from('tariffs')
+          let deleteQuery = supabase.from('tariffs')
             .delete()
-            .eq('company_name', p.company_name)
             .eq('category', p.category)
             .eq('room_type', p.room_type);
+          deleteQuery = p.company_id
+            ? deleteQuery.eq('company_id', p.company_id)
+            : deleteQuery.eq('company_name', p.company_name);
+          await deleteQuery;
         }
         await supabase.from('tariffs').insert(compPayload.map(p => ({ ...p, created_at: now })));
         await logAudit({
@@ -350,6 +382,7 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     fetchTariffs();
+    fetchCompanies();
     const channel = supabase.channel('tariffs-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'tariffs' }, fetchTariffs).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
@@ -360,10 +393,19 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
     setLoading(false);
   }
 
+  async function fetchCompanies() {
+    const { data } = await supabase.from('companies').select('*').order('name');
+    if (data) setCompanies(data);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const linkedCompany = companyId
+      ? companies.find(company => company.id === companyId) || null
+      : findCompanyForTariffName(companies, companyName);
     const tariffData = {
-      company_name: companyName,
+      company_name: linkedCompany?.name || companyName,
+      company_id: linkedCompany?.id || null,
       base_rate: parseFloat(baseRate),
       percentage: parseFloat(percentage),
       room_type: roomType,
@@ -385,10 +427,12 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
   }
 
   function resetForm() {
-    setCompanyName(''); setBaseRate(''); setPercentage(''); setRoomType('single'); setCategory('executivo'); setDescription(''); setEditingId(null); setIsAdding(false);
+    setCompanyName(''); setCompanyId(''); setBaseRate(''); setPercentage(''); setRoomType('single'); setCategory('executivo'); setDescription(''); setEditingId(null); setIsAdding(false);
   }
 
   const canManage = profile.role === 'admin' || profile.role === 'reservations';
+  const linkedTariffs = tariffs.filter(t => t.company_id).length;
+  const unlinkedTariffCompanies = Array.from(new Set(tariffs.filter(t => !t.company_id).map(t => t.company_name))).length;
 
   const groupedTariffs = tariffs.filter(t => t.company_name.toLowerCase().includes(searchTerm.toLowerCase())).reduce((acc, t) => {
     if (!acc[t.company_name]) acc[t.company_name] = [];
@@ -431,6 +475,21 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
         )}
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Tarifas carregadas</p>
+          <p className="mt-2 text-2xl font-black text-neutral-950">{tariffs.length}</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Vinculadas a empresas</p>
+          <p className="mt-2 text-2xl font-black text-emerald-800">{linkedTariffs}</p>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Nomes sem vinculo</p>
+          <p className="mt-2 text-2xl font-black text-amber-800">{unlinkedTariffCompanies}</p>
+        </div>
+      </div>
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
         <input
@@ -452,7 +511,7 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
             copiedId={copiedId}
             onAdd={(n, c, r) => { setCompanyName(n); setCategory(c.toLowerCase() as any); setRoomType(r.toLowerCase() as any); setIsAdding(true); }}
             onCopy={(t) => { navigator.clipboard.writeText(t.description || ''); toast.success('Copiado'); }}
-            onEdit={(t) => { setEditingId(t.id); setCompanyName(t.company_name); setBaseRate(t.base_rate.toString()); setPercentage(t.percentage.toString()); setRoomType(t.room_type || 'single'); setCategory(t.category || 'executivo'); setDescription(t.description || ''); setIsAdding(true); }}
+            onEdit={(t) => { setEditingId(t.id); setCompanyName(t.company_name); setCompanyId(t.company_id || ''); setBaseRate(t.base_rate.toString()); setPercentage(t.percentage.toString()); setRoomType(t.room_type || 'single'); setCategory(t.category || 'executivo'); setDescription(t.description || ''); setIsAdding(true); }}
             onDelete={async (id) => { if (confirm('Excluir este item?')) { await supabase.from('tariffs').delete().eq('id', id); fetchTariffs(); } }}
             onDeleteAll={async (n) => { if (confirm(`Excluir TODO tarifário de ${n}?`)) { await supabase.from('tariffs').delete().eq('company_name', n); fetchTariffs(); } }}
           />
@@ -471,7 +530,32 @@ export default function TariffManager({ profile }: { profile: UserProfile }) {
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-neutral-500 uppercase">Empresa</label>
-                    <input required value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm" />
+                    <select
+                      value={companyId}
+                      onChange={e => {
+                        const nextId = e.target.value;
+                        const selected = companies.find(company => company.id === nextId);
+                        setCompanyId(nextId);
+                        if (selected) setCompanyName(selected.name);
+                      }}
+                      className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm"
+                    >
+                      <option value="">Sem vinculo direto / nome manual</option>
+                      {companies.map(company => (
+                        <option key={company.id} value={company.id}>{company.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      required
+                      value={companyName}
+                      onChange={e => {
+                        const value = e.target.value;
+                        setCompanyName(value);
+                        setCompanyId(findCompanyForTariffName(companies, value)?.id || '');
+                      }}
+                      className="w-full px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm"
+                      placeholder="Nome comercial da tarifa"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">

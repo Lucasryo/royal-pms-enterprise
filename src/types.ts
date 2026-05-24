@@ -100,11 +100,12 @@ export type UserRole =
 
 export interface Tariff {
   id: string;
+  company_id?: string;
   company_name: string;
   base_rate: number;
   percentage: number;
   room_type: 'single' | 'duplo' | 'triplo' | 'quadruplo';
-  category: 'executivo' | 'master' | 'suite presidencial';
+  category: 'executivo' | 'superior' | 'master' | 'suite presidencial';
   description: string;
   created_at: string;
   updated_at: string;
