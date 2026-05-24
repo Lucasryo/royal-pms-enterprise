@@ -203,7 +203,6 @@ function BoardTab() {
     const syncFullscreen = () => {
       const fullscreenActive = Boolean(document.fullscreenElement || (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement);
       setIsNativeFullscreen(fullscreenActive);
-      if (!fullscreenActive) setIsPresentationMode(false);
     };
     document.addEventListener('fullscreenchange', syncFullscreen);
     document.addEventListener('webkitfullscreenchange', syncFullscreen);
@@ -250,6 +249,8 @@ function BoardTab() {
       return;
     }
 
+    setIsPresentationMode(true);
+
     const el = document.documentElement as HTMLElement & {
       webkitRequestFullscreen?: () => Promise<void> | void;
       msRequestFullscreen?: () => Promise<void> | void;
@@ -260,10 +261,8 @@ function BoardTab() {
       else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
       else if (el.msRequestFullscreen) await el.msRequestFullscreen();
       else throw new Error('Este navegador nao liberou o modo tela cheia.');
-      setIsPresentationMode(true);
     } catch (error) {
       console.error('Fullscreen error:', error);
-      setIsPresentationMode(true);
       toast.info('Modo TV aberto dentro do PMS. Para fullscreen nativo, use F11 neste navegador.');
     }
   }
@@ -276,8 +275,9 @@ function BoardTab() {
       <div className="flex items-center justify-between">
         <p className="text-xs text-neutral-500">Atualização em tempo real — ideal para TV da manutenção ou gerência.</p>
         <button
+          type="button"
           onClick={toggleFullscreen}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-700 text-xs font-black transition"
+          className="flex cursor-pointer select-none items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-xs font-black text-white transition hover:bg-neutral-700"
         >
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           {isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
