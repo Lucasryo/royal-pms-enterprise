@@ -1025,6 +1025,139 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     pdf.save(`AUTORIZACAO_HOSPEDAGEM_${code}.pdf`);
   };
 
+  const handleDownloadHotelVoucherPdf = () => {
+    if (!viewingVoucher) return;
+    const totals = calculateReservationTotal({
+      tariff: Number(viewingVoucher.tariff || 0),
+      iss_enabled: Number(viewingVoucher.iss_tax || 0) > 0,
+      iss_tax: Number(viewingVoucher.iss_tax || 0),
+      service_enabled: Number(viewingVoucher.service_tax || 0) > 0,
+      service_tax: Number(viewingVoucher.service_tax || 0),
+    });
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const code = viewingVoucher.reservation_code || 'PENDENTE';
+    const paxNames = getReservationPaxNames(viewingVoucher);
+    const occupancy = viewingVoucher.occupancy_type || deriveOccupancyType(viewingVoucher.guests_per_uh);
+    const status = (viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'RESERVA EM ANALISE' : 'HOSPEDAGEM CONFIRMADA';
+    const requestDate = (viewingVoucher as ReservationRequest).created_at || (viewingVoucher as Reservation).created_at;
+    const hotelName = hotelProfile.trade_name || hotelProfile.legal_name || 'Royal Macae';
+    const hotelLine = [hotelProfile.address, hotelProfile.phone, hotelProfile.email].filter(Boolean).join(' | ');
+    const nights = Math.max(1, Math.ceil((new Date(viewingVoucher.check_out).getTime() - new Date(viewingVoucher.check_in).getTime()) / 86400000));
+
+    pdf.setFillColor(17, 24, 39);
+    pdf.rect(0, 0, 18, 297, 'F');
+    pdf.setFillColor(180, 119, 38);
+    pdf.rect(18, 0, 192, 8, 'F');
+
+    pdf.setTextColor(17, 24, 39);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.text('VOUCHER OFICIAL DE RESERVA', 26, 24);
+    pdf.setFontSize(24);
+    pdf.text(status, 26, 35, { maxWidth: 112 });
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.text(`${hotelName} - ${hotelLine || 'Dados do hotel configuraveis pelo admin'}`, 26, 45, { maxWidth: 112 });
+
+    pdf.setFillColor(17, 24, 39);
+    pdf.roundedRect(145, 18, 53, 36, 3, 3, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text('LOCALIZADOR', 150, 27);
+    pdf.setFontSize(17);
+    pdf.text(code, 150, 38, { maxWidth: 43 });
+    pdf.setFontSize(8);
+    pdf.text((viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'Pendente de validacao' : 'Confirmada', 150, 48);
+
+    pdf.setTextColor(17, 24, 39);
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setFillColor(250, 250, 250);
+    pdf.roundedRect(26, 66, 108, 48, 4, 4, 'FD');
+    pdf.setFontSize(7);
+    pdf.text('PERIODO DA ESTADIA', 31, 76);
+    pdf.setFontSize(20);
+    pdf.text(clientDate(viewingVoucher.check_in), 31, 90);
+    pdf.text(clientDate(viewingVoucher.check_out), 91, 90);
+    pdf.setFontSize(7);
+    pdf.text('ENTRADA', 31, 99);
+    pdf.text('SAIDA', 91, 99);
+    pdf.setFillColor(17, 24, 39);
+    pdf.roundedRect(68, 101, 28, 8, 4, 4, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.text(`${nights} NOITE(S)`, 82, 106.5, { align: 'center' });
+
+    pdf.setTextColor(17, 24, 39);
+    pdf.roundedRect(140, 66, 58, 48, 4, 4);
+    pdf.setFontSize(7);
+    pdf.text('HOSPEDE PRINCIPAL', 145, 76);
+    pdf.setFontSize(14);
+    pdf.text(String(paxNames[0] || viewingVoucher.guest_name || '-'), 145, 88, { maxWidth: 48 });
+    pdf.setFontSize(8);
+    pdf.text(OCCUPANCY_LABELS[occupancy] || occupancy, 145, 100);
+    pdf.text(`UH: ${viewingVoucher.category || '-'}`, 145, 107);
+
+    const cardY = 126;
+    const cardW = 40;
+    [
+      ['SOLICITADO', requestDate ? clientDate(requestDate) : '-'],
+      ['PAGAMENTO', viewingVoucher.payment_method === 'BILLED' ? 'Faturado' : 'Cartao virtual'],
+      ['TARIFA', clientMoney(totals.tariff)],
+      ['TOTAL', clientMoney(Number(viewingVoucher.total_amount || totals.total))],
+    ].forEach(([label, value], index) => {
+      const x = 26 + index * 43;
+      pdf.setFillColor(index === 3 ? 17 : 245, index === 3 ? 24 : 245, index === 3 ? 39 : 245);
+      pdf.roundedRect(x, cardY, cardW, 18, 2, 2, 'F');
+      pdf.setTextColor(index === 3 ? 255 : 17, index === 3 ? 255 : 24, index === 3 ? 255 : 39);
+      pdf.setFontSize(6);
+      pdf.text(label, x + 3, cardY + 6);
+      pdf.setFontSize(8);
+      pdf.text(String(value), x + 3, cardY + 13, { maxWidth: cardW - 6 });
+    });
+
+    let y = 162;
+    pdf.setTextColor(17, 24, 39);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.text('PAX AUTORIZADOS', 26, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.text(pdf.splitTextToSize(paxNames.map((name, index) => `${index + 1}. ${name}`).join('   |   ') || '-', 170), 29, y + 8);
+
+    y += 28;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('EMPRESA E FATURAMENTO', 26, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(company?.name || 'Empresa nao vinculada', 29, y + 8, { maxWidth: 80 });
+    pdf.text(`CNPJ: ${company?.cnpj || '-'}`, 29, y + 14, { maxWidth: 80 });
+    pdf.text(`Centro de custo: ${viewingVoucher.cost_center || '-'}`, 110, y + 8, { maxWidth: 76 });
+    pdf.text(`Contato: ${viewingVoucher.contact_phone || company?.phone || '-'}`, 110, y + 14, { maxWidth: 76 });
+
+    y += 30;
+    pdf.setDrawColor(229, 231, 235);
+    pdf.roundedRect(26, y, 82, 36, 2, 2);
+    pdf.roundedRect(116, y, 82, 36, 2, 2);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(6);
+    pdf.text('INSTRUCOES DE FATURAMENTO', 30, y + 7);
+    pdf.text('DADOS PARA NOTA FISCAL', 120, y + 7);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_obs || 'Sem observacoes adicionais.'), 74), 30, y + 14);
+    pdf.text(pdf.splitTextToSize(String(viewingVoucher.billing_info || 'Utilizar dados cadastrais da empresa/agencia.'), 74), 120, y + 14);
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.line(26, 266, 104, 266);
+    pdf.line(120, 266, 198, 266);
+    pdf.setFontSize(6);
+    pdf.text(`${hotelName.toUpperCase()} - RESERVAS / RECEPCAO`, 26, 272, { maxWidth: 78 });
+    pdf.text('CLIENTE CORPORATIVO', 120, 272);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text([hotelProfile.website, hotelProfile.email].filter(Boolean).join(' - ') || 'Voucher corporativo de hospedagem', 112, 288, { align: 'center' });
+    pdf.save(`VOUCHER_RESERVA_${code}.pdf`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -2067,14 +2200,16 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               className="my-8 w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
               <div id="voucher-print" className="bg-white p-5 sm:p-8">
-                <div className="rounded-[1.5rem] border border-neutral-200 p-4 sm:p-8">
-                  <div className="flex flex-col gap-4 border-b-4 border-neutral-950 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="relative overflow-hidden rounded-[1.5rem] border border-neutral-200 p-4 pl-8 shadow-sm sm:p-8 sm:pl-12">
+                  <div className="absolute inset-y-0 left-0 w-5 bg-neutral-950" />
+                  <div className="absolute left-5 right-0 top-0 h-2 bg-amber-600" />
+                  <div className="relative flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-4">
                       <img src="/logo.png" alt="Royal Macaé" className="h-12 w-20 object-contain" />
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-neutral-500">Portal Corporativo B2B</p>
-                        <h2 className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-neutral-950 sm:text-3xl">Autorização de Hospedagem</h2>
-                        <p className="mt-2 text-xs font-bold text-neutral-500">{hotelProfile.trade_name || hotelProfile.legal_name || 'Hotel'} - documento operacional para reserva B2B, faturamento e recepção.</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-700">Voucher oficial de reserva</p>
+                        <h2 className="mt-1 text-2xl font-black uppercase leading-none tracking-tight text-neutral-950 sm:text-3xl">{(viewingVoucher as ReservationRequest).status === 'REQUESTED' ? 'Reserva em análise' : 'Hospedagem confirmada'}</h2>
+                        <p className="mt-2 text-xs font-bold text-neutral-500">{hotelProfile.trade_name || hotelProfile.legal_name || 'Hotel'} - documento para recepção, reservas e faturamento corporativo.</p>
                       </div>
                     </div>
                     <div className="rounded-2xl bg-neutral-950 p-4 text-left text-white sm:text-right">
@@ -2103,8 +2238,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   </div>
 
                   <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="rounded-2xl border-2 border-neutral-950 p-4">
-                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Hóspede e período</p>
+                    <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5">
+                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Hospede e periodo</p>
                       <h3 className="mt-2 text-2xl font-black text-neutral-950">{getReservationPaxNames(viewingVoucher)[0] || viewingVoucher.guest_name}</h3>
                       <div className="mt-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                         <VoucherField label="Entrada" value={clientDate(viewingVoucher.check_in)} />
@@ -2113,10 +2248,10 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                         <VoucherField label="Ocupação" value={OCCUPANCY_LABELS[viewingVoucher.occupancy_type || deriveOccupancyType(viewingVoucher.guests_per_uh)]} />
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-neutral-100 p-4">
-                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-neutral-500">Empresa vinculada</p>
-                      <h3 className="mt-2 text-xl font-black text-neutral-950">{company?.name || 'Empresa não vinculada'}</h3>
-                      <div className="mt-4 space-y-2 text-xs font-bold text-neutral-600">
+                    <div className="rounded-3xl bg-neutral-950 p-5 text-white">
+                      <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/50">Empresa vinculada</p>
+                      <h3 className="mt-2 text-xl font-black text-white">{company?.name || 'Empresa não vinculada'}</h3>
+                      <div className="mt-4 space-y-2 text-xs font-bold text-white/70">
                         <p>CNPJ: {company?.cnpj || '-'}</p>
                         <p>Centro de custo: {viewingVoucher.cost_center || '-'}</p>
                         <p>Contato: {viewingVoucher.contact_phone || company?.phone || '-'}</p>
@@ -2168,7 +2303,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 <button onClick={() => setViewingVoucher(null)} className="rounded-xl px-6 py-3 text-xs font-black uppercase tracking-widest text-neutral-500 transition-colors hover:text-neutral-900">
                   Fechar
                 </button>
-                <button onClick={handleDownloadVoucherPdf} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
+                <button onClick={handleDownloadHotelVoucherPdf} className="flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-neutral-800">
                   <Printer className="h-4 w-4" />
                   Gerar PDF
                 </button>
