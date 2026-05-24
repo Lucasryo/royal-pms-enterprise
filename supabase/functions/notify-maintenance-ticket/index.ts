@@ -1190,6 +1190,42 @@ async function handleManualResend(payload: Record<string, unknown>) {
   void kb;
   void extraLine;
   await updateTicketCard(id, CHAT_ID);
+  const wasWaitingParts = typeof ticket.resolution_notes === "string" && /^Aguardando pecas:/i.test(ticket.resolution_notes);
+  if (status === "in_progress" && ticket.status_reason && !ticket.awaiting_parts && wasWaitingParts) {
+    const chatId = ticket.telegram_chat_id ?? CHAT_ID;
+    const messageId = Number(ticket.telegram_message_id);
+    const uhPart = ticket.room_number ? ` \\(UH ${esc(ticket.room_number as string)}\\)` : "";
+    const techMention = ticket.telegram_user_id
+      ? `[${esc(ticket.status_reason as string)}](tg://user?id=${ticket.telegram_user_id})`
+      : `*${esc(ticket.status_reason as string)}*`;
+
+    const result = await tg("sendMessage", {
+      chat_id: chatId,
+      reply_to_message_id: messageId || undefined,
+      allow_sending_without_reply: true,
+      text: [
+        `📦 *Peças recebidas — chamado retomado*`,
+        `Chamado: *${esc(ticket.title as string)}*${uhPart}`,
+        "",
+        `${techMention}\\, as peças chegaram\\. Retome o atendimento e resolva o chamado quando concluir\\.`,
+        "",
+        `📢 _Aviso registrado por ${esc(actorName)}_`,
+      ].join("\n"),
+      parse_mode: "MarkdownV2",
+      reply_markup: inProgressKb(id, ticket.telegram_user_id ? Number(ticket.telegram_user_id) : undefined),
+    });
+
+    await logTelegramCardEvent("parts_arrived_notice", result?.ok ? "sent" : "failed", {
+      ticketId: id,
+      telegramMethod: "sendMessage",
+      telegramResult: result,
+      payload: {
+        chat_id: chatId,
+        reply_to_message_id: messageId || null,
+        actor_name: actorName,
+      },
+    });
+  }
   return { ok: true };
 }
 
@@ -1200,7 +1236,7 @@ async function sendPartsArrivedNotice(payload: Record<string, unknown>) {
 
   const { data: ticket } = await db
     .from("maintenance_tickets")
-    .select("id,title,room_number,status,status_reason,telegram_user_id,telegram_chat_id,telegram_message_id")
+    .select("*")
     .eq("id", ticketId)
     .single();
 
