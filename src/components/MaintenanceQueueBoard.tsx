@@ -214,8 +214,8 @@ export default function MaintenanceQueueBoard() {
   }
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#070a10] text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.18),transparent_32%)]" />
+    <div className="relative min-h-screen overflow-hidden bg-[#070a10] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.18),transparent_32%)]" />
       <div className="relative flex min-h-screen flex-col p-4 sm:p-6 lg:p-8">
         <header className="grid gap-4 border-b border-white/10 pb-5 lg:grid-cols-3 lg:items-end">
           <div className="min-w-0 lg:col-span-2">
