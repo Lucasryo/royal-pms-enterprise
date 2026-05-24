@@ -1212,7 +1212,6 @@ async function handleManualResend(payload: Record<string, unknown>) {
         `📢 _Aviso registrado por ${esc(actorName)}_`,
       ].join("\n"),
       parse_mode: "MarkdownV2",
-      reply_markup: inProgressKb(id, ticket.telegram_user_id ? Number(ticket.telegram_user_id) : undefined),
     });
 
     await logTelegramCardEvent("parts_arrived_notice", result?.ok ? "sent" : "failed", {
@@ -1264,7 +1263,6 @@ async function sendPartsArrivedNotice(payload: Record<string, unknown>) {
       `📢 _Aviso registrado por ${esc(actorName)}_`,
     ].join("\n"),
     parse_mode: "MarkdownV2",
-    reply_markup: inProgressKb(ticketId, ticket.telegram_user_id ? Number(ticket.telegram_user_id) : undefined),
   });
 
   await logTelegramCardEvent("parts_arrived_notice", result?.ok ? "sent" : "failed", {
