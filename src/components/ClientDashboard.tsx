@@ -259,6 +259,7 @@ const OCCUPANCY_TO_ROOM_TYPE: Record<string, Tariff['room_type']> = {
 const getTariffDailyTotal = (tariff: Tariff) => Number(tariff.base_rate || 0) * (1 + Number(tariff.percentage || 0) / 100);
 
 type ClientBlockedDate = {
+  id?: string;
   start_date: string;
   end_date: string;
   reason?: string | null;
@@ -284,12 +285,21 @@ const getStayDates = (checkIn?: string, checkOut?: string) => {
   return dates;
 };
 
+const normalizeReservationCategory = (value: string) => value
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim();
+
+const GLOBAL_BLOCK_CATEGORIES = new Set(['all', 'todos', 'todas', 'geral', 'todas as categorias', 'todas categorias']);
+
 const categoryMatchesBlock = (blockCategory: string | null | undefined, selectedCategory: string) => {
   if (!blockCategory) return true;
-  const normalizedBlock = blockCategory.toLowerCase().trim();
-  const normalizedSelected = selectedCategory.toLowerCase().trim();
-  const selectedTariffCategory = (CATEGORY_TO_TARIFF_CATEGORY[normalizedSelected] || normalizedSelected).toLowerCase();
-  const blockTariffCategory = (CATEGORY_TO_TARIFF_CATEGORY[normalizedBlock] || normalizedBlock).toLowerCase();
+  const normalizedBlock = normalizeReservationCategory(blockCategory);
+  if (GLOBAL_BLOCK_CATEGORIES.has(normalizedBlock)) return true;
+  const normalizedSelected = normalizeReservationCategory(selectedCategory);
+  const selectedTariffCategory = normalizeReservationCategory(CATEGORY_TO_TARIFF_CATEGORY[normalizedSelected] || normalizedSelected);
+  const blockTariffCategory = normalizeReservationCategory(CATEGORY_TO_TARIFF_CATEGORY[normalizedBlock] || normalizedBlock);
   return normalizedBlock === normalizedSelected || blockTariffCategory === selectedTariffCategory;
 };
 
@@ -298,6 +308,14 @@ const findBlockedDate = (date: string, category: string, blockedDates: ClientBlo
     categoryMatchesBlock(block.category, category) &&
     date >= block.start_date &&
     date <= block.end_date
+  );
+};
+
+const findBlockedRange = (checkIn: string, checkOut: string, category: string, blockedDates: ClientBlockedDate[]) => {
+  return blockedDates.find(block =>
+    categoryMatchesBlock(block.category, category) &&
+    checkIn <= block.end_date &&
+    checkOut >= block.start_date
   );
 };
 
@@ -416,9 +434,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
   const selectedCorporateTariff = findCorporateTariff();
   const selectedStayDates = getStayDates(reservationForm.check_in, reservationForm.check_out);
-  const selectedRangeBlock = selectedStayDates
-    .map(date => findBlockedDate(date, reservationForm.category, blockedDates))
-    .find(Boolean);
+  const selectedRangeBlock = reservationForm.check_in && reservationForm.check_out
+    ? findBlockedRange(reservationForm.check_in, reservationForm.check_out, reservationForm.category, blockedDates)
+    : undefined;
   const selectedRangeUnavailable = reservationForm.check_in && reservationForm.check_out && (
     localDate(reservationForm.check_out) <= localDate(reservationForm.check_in) ||
     Boolean(selectedRangeBlock)
@@ -455,16 +473,56 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     if (localDate(checkOut) <= localDate(checkIn)) {
       return { available: false, message: 'O check-out precisa ser posterior ao check-in.' };
     }
-    const stayDates = getStayDates(checkIn, checkOut);
-    const blocked = stayDates
-      .map(date => ({ date, block: findBlockedDate(date, category, blockedDates) }))
-      .find(item => item.block);
-    if (blocked?.block) {
+    const blocked = findBlockedRange(checkIn, checkOut, category, blockedDates);
+    if (blocked) {
       return {
         available: false,
-        message: `Periodo indisponivel em ${clientDate(blocked.date)}${blocked.block.reason ? `: ${blocked.block.reason}` : '.'}`,
+        message: blocked.reason
+          ? `Periodo indisponivel: ${blocked.reason}`
+          : `Periodo indisponivel entre ${clientDate(blocked.start_date)} e ${clientDate(blocked.end_date)}.`,
       };
     }
+    return { available: true, message: '' };
+  };
+
+  const validateLiveReservationAvailability = async () => {
+    const basic = validateReservationRange(reservationForm.check_in, reservationForm.check_out);
+    if (!basic.available) return basic;
+
+    const { data, error } = await supabase
+      .from('booking_blocked_dates')
+      .select('id,start_date,end_date,reason,category')
+      .eq('active', true)
+      .lte('start_date', reservationForm.check_out)
+      .gte('end_date', reservationForm.check_in);
+
+    if (error) {
+      console.error('ClientDashboard: live blocked date validation failed:', error);
+      return {
+        available: false,
+        message: 'Nao foi possivel validar a disponibilidade agora. Tente novamente em instantes.',
+      };
+    }
+
+    const liveBlocks = (data || []) as ClientBlockedDate[];
+    setBlockedDates(prev => {
+      const byId = new Map<string, ClientBlockedDate>();
+      [...prev, ...liveBlocks].forEach(block => {
+        byId.set(block.id || `${block.start_date}-${block.end_date}-${block.category || 'all'}`, block);
+      });
+      return Array.from(byId.values()).sort((a, b) => a.start_date.localeCompare(b.start_date));
+    });
+
+    const blocked = findBlockedRange(reservationForm.check_in, reservationForm.check_out, reservationForm.category, liveBlocks);
+    if (blocked) {
+      return {
+        available: false,
+        message: blocked.reason
+          ? `Periodo indisponivel: ${blocked.reason}`
+          : `Periodo indisponivel entre ${clientDate(blocked.start_date)} e ${clientDate(blocked.end_date)}.`,
+      };
+    }
+
     return { available: true, message: '' };
   };
 
@@ -745,7 +803,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         toast.error('Informe pelo menos um PAX.');
         return;
       }
-      const availability = validateReservationRange(reservationForm.check_in, reservationForm.check_out);
+      const availability = await validateLiveReservationAvailability();
       if (!availability.available) {
         toast.error(availability.message);
         return;
@@ -803,7 +861,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       }
     } catch (error) {
       console.error("Error requesting reservation:", error);
-      toast.error('Erro ao enviar solicitação.');
+      const message = error instanceof Error ? error.message : String(error || '');
+      toast.error(message.includes('Periodo bloqueado') ? message : 'Erro ao enviar solicitação.');
     } finally {
       setSubmittingReservation(false);
     }
