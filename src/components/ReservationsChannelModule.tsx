@@ -1,12 +1,13 @@
 import { ComponentType, ReactNode, useMemo, useState } from 'react';
-import { Ban, Building2, CalendarDays, ChevronRight, CreditCard, Inbox, LayoutDashboard, LucideIcon } from 'lucide-react';
+import { Ban, Building2, CalendarDays, ChevronRight, CreditCard, Inbox, LayoutDashboard, LucideIcon, Settings, ShieldCheck } from 'lucide-react';
 import { UserProfile } from '../types';
 import BlockedDatesManager from './BlockedDatesManager';
 import CompanyManager from './CompanyManager';
 import ReservationsDashboard from './ReservationsDashboard';
 import TariffManager from './TariffManager';
+import B2BVirtualCardBilling from './finance/B2BVirtualCardBilling';
 
-type ChannelTabId = 'requests' | 'companies' | 'tariffs' | 'blocked-dates';
+type ChannelTabId = 'billing' | 'pending' | 'settings' | 'companies' | 'tariffs' | 'blocked-dates';
 
 type ChannelTab = {
   id: ChannelTabId;
@@ -25,10 +26,22 @@ type QuickArea = {
 
 const quickAreas: QuickArea[] = [
   {
-    label: 'Solicitacoes e reservas',
-    description: 'Entrada, aprovacao, mapa e reservas ativas.',
+    label: 'Cobrancas B2B',
+    description: 'Cartao virtual, comprovante e status por reserva.',
+    icon: ShieldCheck,
+    tab: 'billing',
+  },
+  {
+    label: 'Reservas pendentes',
+    description: 'Entrada, aprovacao, mapa e envio ao PMS.',
     icon: Inbox,
-    tab: 'requests',
+    tab: 'pending',
+  },
+  {
+    label: 'Configuracoes',
+    description: 'Gateway, Cielo e regras da propriedade.',
+    icon: Settings,
+    tab: 'settings',
   },
   {
     label: 'Empresas',
@@ -54,11 +67,25 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
   const tabs = useMemo<ChannelTab[]>(
     () => [
       {
-        id: 'requests',
-        label: 'Solicitacoes',
-        description: 'Fila de pedidos, reservas confirmadas, documentos e mapa operacional.',
+        id: 'billing',
+        label: 'Cobrancas B2B',
+        description: 'Reservas a debitar, token/status de gateway, comprovantes, NSU/autorizacao e historico por propriedade.',
+        icon: ShieldCheck,
+        render: () => <B2BVirtualCardBilling profile={profile} />,
+      },
+      {
+        id: 'pending',
+        label: 'Reservas pendentes',
+        description: 'Fila de pedidos, reservas confirmadas, documentos e envio operacional para o PMS.',
         icon: CalendarDays,
         render: () => <ReservationsDashboard profile={profile} />,
+      },
+      {
+        id: 'settings',
+        label: 'Configuracoes',
+        description: 'Credenciais e regras da propriedade para cobranca Cielo/gateway e janela de debito.',
+        icon: Settings,
+        render: () => <B2BVirtualCardBilling profile={profile} initialTab="settings" />,
       },
       {
         id: 'companies',
@@ -85,7 +112,8 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
     [profile]
   );
 
-  const [activeTab, setActiveTab] = useState<ChannelTabId>('requests');
+  const defaultTab: ChannelTabId = ['admin', 'finance', 'faturamento', 'manager'].includes(profile.role) ? 'billing' : 'pending';
+  const [activeTab, setActiveTab] = useState<ChannelTabId>(defaultTab);
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   return (
@@ -97,10 +125,10 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
               Reservas Channel
             </p>
             <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">
-              Central de reservas e canais
+              Reservas Channel Manager
             </h1>
             <p className="mt-2 max-w-4xl text-xs leading-6 text-neutral-500 sm:text-sm sm:leading-7">
-              Navegacao de equipe para tratar solicitacoes, manter empresas, revisar tarifas acordo e bloquear datas sem mudar os fluxos operacionais existentes.
+              Area externa ao PMS para cobrancas B2B, reservas pendentes, empresas, tarifas, bloqueios e configuracoes por propriedade. A reserva aprovada segue para o PMS; a cobranca fica controlada neste Channel.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[560px]">

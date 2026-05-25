@@ -76,7 +76,7 @@ const NAV_SECTION_ORDER: NavItem['section'][] = ['hotel', 'revenue', 'management
 
 const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   dashboard: { section: 'hotel', description: 'Resumo executivo e atalhos do dia' },
-  reservations: { section: 'hotel', description: 'Reservas, tarifas e calendário' },
+  reservations: { section: 'channels', description: 'Channel, B2B e reservas corporativas' },
   reception: { section: 'hotel', description: 'Check-in, UHs e turno' },
   maintenance: { section: 'hotel', description: 'Chamados e preventiva' },
   checkin: { section: 'hotel', description: 'Entradas, saídas e walk-in' },
@@ -379,7 +379,7 @@ export default function App() {
 
     const items = [
       { id: 'dashboard' as ViewType, label: 'Painel', icon: LayoutDashboard },
-      { id: 'reservations' as ViewType, label: 'Reservas', icon: CalendarDays },
+      { id: 'reservations' as ViewType, label: 'Reservas Channel', icon: CalendarDays },
       { id: 'reception' as ViewType, label: 'Recepção', icon: KeyRound },
       { id: 'maintenance' as ViewType, label: 'Manutenção', icon: Wrench },
       { id: 'checkin' as ViewType, label: 'Check-in/out', icon: KeyRound },

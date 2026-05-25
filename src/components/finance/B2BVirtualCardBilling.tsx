@@ -30,7 +30,7 @@ type FolioCharge = {
 
 type BillingStatus = 'charged' | 'ready' | 'pending' | 'failed';
 type DetailTab = 'charge' | 'documents' | 'summary';
-type MainTab = 'charges' | 'settings';
+export type B2BBillingMainTab = 'charges' | 'settings';
 type UploadKind = 'nota-fiscal' | 'extrato';
 type TokenForm = {
   provider: B2BVirtualCardProvider;
@@ -150,7 +150,7 @@ function reservationDocs(files: FiscalFile[], reservation: Reservation) {
   });
 }
 
-export default function B2BVirtualCardBilling({ profile }: { profile: UserProfile }) {
+export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' }: { profile: UserProfile; initialTab?: B2BBillingMainTab }) {
   const canCharge = hasPermission(profile, 'canChargeVirtualCard', ['admin', 'manager', 'reception', 'finance', 'faturamento']);
   const canManageFinance = hasPermission(profile, 'canManageFinance' as any, ['admin', 'manager', 'finance', 'faturamento']);
   const [loading, setLoading] = useState(true);
@@ -165,13 +165,17 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
   const [statusFilter, setStatusFilter] = useState<'all' | BillingStatus>('all');
   const [selected, setSelected] = useState<Reservation | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('charge');
-  const [mainTab, setMainTab] = useState<MainTab>('charges');
+  const [mainTab, setMainTab] = useState<B2BBillingMainTab>(initialTab);
   const [config, setConfig] = useState<B2BVirtualCardConfig>(DEFAULT_CONFIG);
   const [configDraft, setConfigDraft] = useState<B2BVirtualCardConfig>(DEFAULT_CONFIG);
   const [savingConfig, setSavingConfig] = useState(false);
   const [tokenFormOpen, setTokenFormOpen] = useState(false);
   const [tokenForm, setTokenForm] = useState<TokenForm>(emptyTokenForm());
   const [savingToken, setSavingToken] = useState(false);
+
+  useEffect(() => {
+    setMainTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     fetchAll();
@@ -273,7 +277,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
     if (!confirm(`Cobrar ${money(amount)} da reserva ${reservation.reservation_code}?`)) return;
     setChargingId(reservation.id);
     const { data, error } = await supabase.functions.invoke('charge-virtual-card', {
-      body: { reservation_id: reservation.id, amount, note: 'Cobranca B2B pelo painel financeiro' },
+      body: { reservation_id: reservation.id, amount, note: 'Cobranca B2B pelo Reservas Channel' },
     });
     setChargingId(null);
     if (error) {
@@ -316,7 +320,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
       user_name: profile.name,
       action: 'Problema financeiro B2B',
       details: {
-        module: 'financeiro',
+        module: 'reservas-channel',
         reservation_code: reservation.reservation_code,
         guest_name: reservation.guest_name,
         reason,
@@ -361,7 +365,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
       user_name: profile.name,
       action: 'Configuracao B2B cartao virtual',
       details: {
-        module: 'financeiro',
+        module: 'reservas-channel',
         provider: next.provider,
         mode: next.mode,
         property_scope: next.property_scope,
@@ -453,7 +457,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
       user_name: profile.name,
       action: 'Retorno manual B2B registrado',
       details: {
-        module: 'financeiro',
+        module: 'reservas-channel',
         reservation_code: reservation.reservation_code,
         guest_name: reservation.guest_name,
         provider: tokenForm.provider,
@@ -505,7 +509,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
         user_name: profile.name,
         action: kind === 'nota-fiscal' ? 'Nota Fiscal anexada' : 'Extrato anexado',
         details: {
-          module: 'financeiro',
+          module: 'reservas-channel',
           reservation_code: code,
           guest_name: reservation.guest_name,
           file_name: file.name,
@@ -553,7 +557,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-300">Cobranças B2B</p>
             <h2 className="mt-2 text-2xl font-black tracking-tight">Cartão virtual corporativo</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/60">
-              Todas as reservas com cartão virtual, status de token, documentos de cobrança e ação de cobrança no checkout/faturamento.
+              Todas as reservas com cartão virtual, status de token, documentos de cobrança e ação de cobrança por propriedade no Reservas Channel.
             </p>
           </div>
           <button onClick={fetchAll} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-2 text-xs font-black text-neutral-950">
