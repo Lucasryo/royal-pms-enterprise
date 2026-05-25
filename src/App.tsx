@@ -571,6 +571,17 @@ export default function App() {
     }
   };
 
+  const isReservationsChannelShell = currentView === 'reservations' && profile.role !== 'client' && profile.role !== 'external_client';
+  if (isReservationsChannelShell) {
+    return (
+      <div className="h-screen overflow-hidden bg-[#f7f7fb] font-sans text-gray-900">
+        <SeoHead config={getNoIndexSeoConfig('Reservas Channel | Royal PMS')} />
+        <Toaster position="top-right" richColors />
+        <ReservationsChannelModule profile={profile} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
       <SeoHead config={getNoIndexSeoConfig()} />
