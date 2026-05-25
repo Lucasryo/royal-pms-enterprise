@@ -439,6 +439,30 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
   const reservationPreviewTotals = calculateReservationTotal(reservationForm);
   const reservationPreviewNights = Math.max(1, selectedStayDates.length || 1);
   const reservationPreviewPax = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
+  const reservationDraftVoucher: ReservationRequest = {
+    guest_name: reservationPreviewPax[0] || reservationForm.guest_name || 'Hospede',
+    pax_names: reservationPreviewPax.length > 0 ? reservationPreviewPax : [reservationForm.guest_name || 'Hospede'],
+    check_in: reservationForm.check_in || todayISO(),
+    check_out: reservationForm.check_out || format(addDays(new Date(), 1), 'yyyy-MM-dd'),
+    company_id: profile.company_id || '',
+    total_amount: reservationPreviewTotals.total,
+    created_at: new Date().toISOString(),
+    reservation_code: 'PREVIEW',
+    cost_center: reservationForm.cost_center,
+    billing_obs: reservationForm.billing_obs,
+    tariff: Number(reservationForm.tariff || 0),
+    category: reservationForm.category,
+    guests_per_uh: reservationForm.guests_per_uh,
+    contact_phone: reservationForm.contact_phone,
+    iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
+    service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
+    payment_method: reservationForm.payment_method,
+    billing_info: reservationForm.billing_info,
+    requested_by: reservationForm.requested_by,
+    occupancy_type: reservationForm.occupancy_type,
+    billing_profile_id: reservationForm.billing_profile_id || undefined,
+    status: 'REQUESTED',
+  };
   const selectedRangeBlock = reservationForm.check_in && reservationForm.check_out
     ? findBlockedRange(reservationForm.check_in, reservationForm.check_out, reservationForm.category, blockedDates)
     : undefined;
@@ -2781,76 +2805,26 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 </div>
 
                 <aside className="lg:sticky lg:top-0 lg:self-start">
-                  <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-neutral-950 text-white shadow-xl">
-                    <div className="border-b border-white/10 p-5">
-                      <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-400">Preview da solicitacao</p>
-                      <h4 className="mt-2 text-2xl font-black uppercase tracking-tight">Voucher B2B</h4>
-                      <p className="mt-2 text-xs font-bold leading-5 text-white/55">
-                        Confira os dados principais antes de enviar para Reservas.
-                      </p>
+                  <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-neutral-100 shadow-xl">
+                    <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-950 p-4 text-white">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-400">Preview oficial</p>
+                        <h4 className="mt-1 text-lg font-black uppercase tracking-tight">Voucher</h4>
+                      </div>
+                      <div className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${selectedRangeUnavailable ? 'bg-red-100 text-red-700' : reservationForm.check_in && reservationForm.check_out ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-white/70'}`}>
+                        {selectedRangeUnavailable ? 'Bloqueado' : reservationForm.check_in && reservationForm.check_out ? 'Liberado' : 'Pendente'}
+                      </div>
                     </div>
-                    <div className="space-y-4 p-5">
-                      <div className="rounded-2xl bg-white p-4 text-neutral-950">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Solicitante</p>
-                            <p className="mt-1 text-base font-black">{reservationForm.requested_by || '-'}</p>
-                          </div>
-                          <div className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${selectedRangeUnavailable ? 'bg-red-100 text-red-700' : reservationForm.check_in && reservationForm.check_out ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
-                            {selectedRangeUnavailable ? 'Bloqueado' : reservationForm.check_in && reservationForm.check_out ? 'Liberado' : 'Pendente'}
-                          </div>
-                        </div>
-                        <div className="mt-4 grid grid-cols-2 gap-3">
-                          <VoucherField label="Entrada" value={clientDate(reservationForm.check_in)} />
-                          <VoucherField label="Saida" value={clientDate(reservationForm.check_out)} />
-                          <VoucherField label="Diarias" value={reservationForm.check_in && reservationForm.check_out ? reservationPreviewNights : '-'} />
-                          <VoucherField label="Ocupacao" value={OCCUPANCY_LABELS[reservationForm.occupancy_type]} />
-                        </div>
+                    <div className="h-[620px] overflow-auto bg-neutral-200 p-3 custom-scrollbar">
+                      <div className="origin-top-left" style={{ width: 820, zoom: 0.43 }}>
+                        <TravelVoucherPreview voucher={reservationDraftVoucher} company={company} hotelProfile={hotelProfile} />
                       </div>
-
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Hospedes autorizados</p>
-                        <div className="mt-3 space-y-2">
-                          {(reservationPreviewPax.length > 0 ? reservationPreviewPax : ['Nenhum PAX informado']).map((name, index) => (
-                            <div key={`${name}-${index}`} className="rounded-xl bg-white/10 px-3 py-2 text-xs font-black">
-                              {index + 1}. {name}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-white/10 p-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Categoria</p>
-                          <p className="mt-2 text-sm font-black capitalize">{reservationForm.category || '-'}</p>
-                        </div>
-                        <div className="rounded-2xl bg-white/10 p-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Centro custo</p>
-                          <p className="mt-2 truncate text-sm font-black">{reservationForm.cost_center || '-'}</p>
-                        </div>
-                        <div className="rounded-2xl bg-white/10 p-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Tarifa</p>
-                          <p className="mt-2 text-sm font-black">{clientMoney(Number(reservationForm.tariff || 0))}</p>
-                        </div>
-                        <div className="rounded-2xl bg-amber-500 p-4 text-neutral-950">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-950/55">Total previsto</p>
-                          <p className="mt-2 text-sm font-black">{clientMoney(reservationPreviewTotals.total)}</p>
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-white/10 p-4">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Faturamento / NF</p>
-                        <p className="mt-3 line-clamp-5 whitespace-pre-line text-xs font-semibold leading-5 text-white/70">
-                          {reservationForm.billing_info || reservationForm.billing_obs || 'Sem instrucoes fiscais informadas.'}
-                        </p>
-                      </div>
-
-                      {selectedRangeUnavailable && (
-                        <div className="rounded-2xl border border-red-400/30 bg-red-500/15 p-4 text-xs font-black leading-5 text-red-100">
-                          {selectedRangeBlock?.reason || 'Periodo indisponivel para reserva.'}
-                        </div>
-                      )}
                     </div>
+                    {selectedRangeUnavailable && (
+                      <div className="border-t border-red-200 bg-red-50 p-4 text-xs font-black leading-5 text-red-700">
+                        {selectedRangeBlock?.reason || 'Periodo indisponivel para reserva.'}
+                      </div>
+                    )}
                   </div>
                 </aside>
                 </div>
