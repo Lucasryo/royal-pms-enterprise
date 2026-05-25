@@ -555,16 +555,6 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     return { available: true, message: '' };
   };
 
-  const updateReservationDate = (field: 'check_in' | 'check_out', value: string) => {
-    setReservationForm(prev => {
-      const next = { ...prev, [field]: value };
-      if (field === 'check_in' && next.check_out && localDate(next.check_out) <= localDate(value)) {
-        next.check_out = '';
-      }
-      return next;
-    });
-  };
-
   const handleCalendarDayClick = (iso: string) => {
     const blocked = findBlockedDate(iso, reservationForm.category, blockedDates);
     if (iso < todayISO()) {
@@ -835,6 +825,10 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       }
       if (!requesterName) {
         toast.error('Informe o solicitante da reserva.');
+        return;
+      }
+      if (!reservationForm.check_in || !reservationForm.check_out) {
+        toast.error('Selecione entrada e saida pelo calendario de disponibilidade.');
         return;
       }
       const availability = await validateLiveReservationAvailability();
@@ -2503,30 +2497,6 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                     </div>
                   </div>
 
-                  {/* Dates */}
-                  <div>
-                    <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Check-in (Entrada)</label>
-                    <input
-                      required
-                      type="date"
-                      min={todayISO()}
-                      value={reservationForm.check_in}
-                      onChange={(e) => updateReservationDate('check_in', e.target.value)}
-                      className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Check-out (Saída)</label>
-                    <input
-                      required
-                      type="date"
-                      min={reservationForm.check_in || todayISO()}
-                      value={reservationForm.check_out}
-                      onChange={(e) => updateReservationDate('check_out', e.target.value)}
-                      className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
-                    />
-                  </div>
-
                   <div className="md:col-span-2 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
                     <div className="flex flex-col gap-3 border-b border-neutral-100 bg-neutral-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -2747,7 +2717,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                               <input
                                 type="number"
                                 min="0"
-                                step="0.1"
+                                step="0.01"
                                 value={reservationForm.iss_tax}
                                 onChange={(e) => setReservationForm({ ...reservationForm, iss_tax: parseFloat(e.target.value) || 0 })}
                                 className="w-24 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold outline-none"
@@ -2771,7 +2741,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                               <input
                                 type="number"
                                 min="0"
-                                step="0.1"
+                                step="0.01"
                                 value={reservationForm.service_tax}
                                 onChange={(e) => setReservationForm({ ...reservationForm, service_tax: parseFloat(e.target.value) || 0 })}
                                 className="w-24 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold outline-none"
