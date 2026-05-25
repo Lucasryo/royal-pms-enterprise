@@ -172,6 +172,7 @@ export interface UserPermissions {
   canTransferRoom: boolean;
   canTransferCharges: boolean;
   canIssueHospitalityStatement: boolean;
+  canChargeVirtualCard?: boolean;
   canViewEvents: boolean;
   canCreateEvents: boolean;
   canEditEvents: boolean;
@@ -331,6 +332,13 @@ export interface Reservation {
   iss_tax: number;
   service_tax: number;
   payment_method: 'BILLED' | 'VIRTUAL_CARD';
+  payment_token_status?: 'pending_token' | 'tokenized' | 'charge_ready' | 'charged' | 'failed' | 'cancelled' | 'expired';
+  payment_charge_status?: 'not_applicable' | 'pending' | 'charged' | 'failed' | 'cancelled';
+  payment_token_provider?: string;
+  payment_card_brand?: string;
+  payment_card_last4?: string;
+  payment_charge_window_start?: string;
+  payment_charge_window_end?: string;
   fiscal_data?: string;
   billing_info?: string;
   requested_by?: string;
@@ -344,6 +352,33 @@ export interface Reservation {
 export interface ReservationRequest extends Omit<Reservation, 'id' | 'status'> {
   id?: string;
   status: 'REQUESTED' | 'APPROVED' | 'REJECTED';
+}
+
+export interface ReservationPaymentToken {
+  id: string;
+  reservation_id?: string | null;
+  reservation_request_id?: string | null;
+  company_id?: string | null;
+  provider: string;
+  payment_token?: string | null;
+  hosted_url?: string | null;
+  brand?: string | null;
+  last4?: string | null;
+  holder_name?: string | null;
+  authorized_limit?: number | null;
+  expected_amount?: number | null;
+  charged_amount?: number | null;
+  charge_window_start?: string | null;
+  charge_window_end?: string | null;
+  status: 'pending_token' | 'tokenized' | 'charge_ready' | 'charged' | 'failed' | 'cancelled' | 'expired';
+  authorization_reference?: string | null;
+  stored_credential_reference?: string | null;
+  gateway_transaction_id?: string | null;
+  failure_reason?: string | null;
+  charged_by?: string | null;
+  charged_at?: string | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface BankTransaction {

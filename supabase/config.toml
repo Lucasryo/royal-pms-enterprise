@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.public-event-lead]
 verify_jwt = false
+
+[functions.charge-virtual-card]
+verify_jwt = true

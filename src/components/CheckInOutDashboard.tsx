@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabase';
-import { UserProfile, Reservation, Company } from '../types';
+import { UserProfile, Reservation, Company, ReservationPaymentToken } from '../types';
 import { LogIn, LogOut, Receipt, Loader2, Search, User, Hash, Building2, CalendarDays, X as CloseIcon, Bed, Check, AlertCircle, Plus, Trash2, DollarSign, Printer, FileText, UserPlus, Phone, IdCard, Settings, ArrowRightLeft, RotateCcw, Briefcase, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -89,6 +89,7 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
   const [notaMode, setNotaMode] = useState<'final' | 'extract'>('final');
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [allCharges, setAllCharges] = useState<FolioCharge[]>([]);
+  const [paymentTokens, setPaymentTokens] = useState<ReservationPaymentToken[]>([]);
   const [configTab, setConfigTab] = useState<ConfigSubTab>('especiais');
 
   const prevRoomStatusRef = useRef<Map<string, Room['status']>>(new Map());
@@ -102,12 +103,15 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
   const canTransferRoom = hasPermission(profile, 'canTransferRoom', ['admin', 'reception']);
   const canTransferCharges = hasPermission(profile, 'canTransferCharges', ['admin', 'reception', 'faturamento', 'finance']);
   const canIssueHospitalityStatement = hasPermission(profile, 'canIssueHospitalityStatement', ['admin', 'reception', 'faturamento', 'finance']);
+  const canChargeVirtualCard = hasPermission(profile, 'canChargeVirtualCard', ['admin', 'manager', 'reception', 'finance', 'faturamento']);
 
   const denyAction = (message: string) => toast.error(message);
 
   const chargesOf = (reservationId: string) => allCharges.filter(c => c.reservation_id === reservationId);
   const folioTotal = (reservationId: string) =>
     chargesOf(reservationId).reduce((sum, c) => sum + Number(c.total_value || 0), 0);
+  const paymentTokenOf = (reservationId: string) =>
+    paymentTokens.find(token => token.reservation_id === reservationId);
 
   async function addCharge(reservationId: string, data: {
     charge_type: ChargeType;
@@ -267,6 +271,13 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
       denyAction('Seu perfil não pode realizar check-out.');
       return;
     }
+    const checkoutTotal = folioTotal(reservation.id);
+    const virtualCardToken = paymentTokenOf(reservation.id);
+    const virtualCardCharged = reservation.payment_charge_status === 'charged' || virtualCardToken?.status === 'charged';
+    if (reservation.payment_method === 'VIRTUAL_CARD' && checkoutTotal > 0 && !virtualCardCharged) {
+      denyAction('Cobre o cartao virtual antes de fechar esta conta.');
+      return;
+    }
     try {
       const isoTs = new Date(checkedOutAt).toISOString();
 
@@ -306,6 +317,34 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
     } catch (err: any) {
       toast.error('Erro no check-out: ' + (err.message || 'falha'));
     }
+  }
+
+  async function handleVirtualCardCharge(reservation: Reservation, amount: number) {
+    if (!canChargeVirtualCard) {
+      denyAction('Seu perfil nao pode cobrar cartao virtual.');
+      return false;
+    }
+    if (!confirm(`Cobrar cartao virtual da reserva ${reservation.reservation_code} no valor de ${formatBRL(amount)}?`)) {
+      return false;
+    }
+    const { data, error } = await supabase.functions.invoke('charge-virtual-card', {
+      body: {
+        reservation_id: reservation.id,
+        amount,
+        note: 'Cobranca no checkout pelo Royal PMS',
+      },
+    });
+    if (error) {
+      toast.error(error.message || 'Falha ao cobrar cartao virtual.');
+      return false;
+    }
+    if (data?.error) {
+      toast.error(data.error);
+      return false;
+    }
+    toast.success(`Cartao virtual cobrado: ${formatBRL(Number(data?.charged_amount || amount))}`);
+    await fetchAll();
+    return true;
   }
 
   async function ensureWalkInCompany(): Promise<Company> {
@@ -535,17 +574,19 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'folio_charges' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservation_payment_tokens' }, fetchAll)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
   async function fetchAll() {
     setLoading(true);
-    const [resRes, compRes, roomRes, chRes] = await Promise.all([
+    const [resRes, compRes, roomRes, chRes, tokenRes] = await Promise.all([
       supabase.from('reservations').select('*').order('check_in', { ascending: true }),
       supabase.from('companies').select('*'),
       supabase.from('rooms').select('*').order('room_number'),
       supabase.from('folio_charges').select('*').order('charge_date', { ascending: true }),
+      supabase.from('reservation_payment_tokens').select('*').order('created_at', { ascending: false }),
     ]);
     if (resRes.data) setReservations(resRes.data as Reservation[]);
     if (compRes.data) setCompanies(compRes.data as Company[]);
@@ -566,6 +607,7 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
       setRooms(newRooms);
     }
     if (chRes.data) setAllCharges(chRes.data as FolioCharge[]);
+    if (tokenRes.data) setPaymentTokens(tokenRes.data as ReservationPaymentToken[]);
     setLoading(false);
   }
 
@@ -892,11 +934,14 @@ export default function CheckInOutDashboard({ profile }: { profile: UserProfile 
             companyName={companyName(checkoutTarget.company_id)}
             charges={chargesOf(checkoutTarget.id)}
             total={folioTotal(checkoutTarget.id)}
+            paymentToken={paymentTokenOf(checkoutTarget.id)}
             onCancel={() => setCheckoutTarget(null)}
             onOpenFolio={() => { setCheckoutTarget(null); setFolioTarget(checkoutTarget); }}
             onConfirm={handleCheckOut}
+            onChargeVirtualCard={handleVirtualCardCharge}
             canPerformCheckOut={canPerformCheckOut}
             canManageFolio={canManageFolio}
+            canChargeVirtualCard={canChargeVirtualCard}
           />
         )}
         {notaTarget && (
@@ -1385,20 +1430,28 @@ function CheckInModal({
 }
 
 function CheckOutModal({
-  reservation, companyName, charges, total, onCancel, onOpenFolio, onConfirm, canPerformCheckOut, canManageFolio,
+  reservation, companyName, charges, total, paymentToken, onCancel, onOpenFolio, onConfirm, onChargeVirtualCard, canPerformCheckOut, canManageFolio, canChargeVirtualCard,
 }: {
   reservation: Reservation;
   companyName: string;
   charges: FolioCharge[];
   total: number;
+  paymentToken?: ReservationPaymentToken;
   onCancel: () => void;
   onOpenFolio: () => void;
   onConfirm: (res: Reservation, checkedOutAt: string) => Promise<void> | void;
+  onChargeVirtualCard: (res: Reservation, amount: number) => Promise<boolean>;
   canPerformCheckOut: boolean;
   canManageFolio: boolean;
+  canChargeVirtualCard: boolean;
 }) {
   const [checkedOutAt, setCheckedOutAt] = useState<string>(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
   const [submitting, setSubmitting] = useState(false);
+  const [charging, setCharging] = useState(false);
+  const isVirtualCard = reservation.payment_method === 'VIRTUAL_CARD';
+  const tokenReady = Boolean(paymentToken && ['tokenized', 'charge_ready'].includes(paymentToken.status));
+  const alreadyCharged = paymentToken?.status === 'charged' || reservation.payment_charge_status === 'charged';
+  const canCloseVirtualCard = !isVirtualCard || total <= 0 || alreadyCharged;
 
   const nights = Math.max(
     1,
@@ -1411,9 +1464,19 @@ function CheckOutModal({
   const extrasTotal = total - diariasTotal;
 
   async function submit() {
+    if (!canCloseVirtualCard) {
+      toast.error('Cobre o cartao virtual antes de fechar a conta.');
+      return;
+    }
     setSubmitting(true);
     try { await onConfirm(reservation, checkedOutAt); }
     finally { setSubmitting(false); }
+  }
+
+  async function chargeVirtualCard() {
+    setCharging(true);
+    try { await onChargeVirtualCard(reservation, total); }
+    finally { setCharging(false); }
   }
 
   return (
@@ -1502,6 +1565,77 @@ function CheckOutModal({
             </div>
           </div>
 
+          {isVirtualCard && (
+            <div className="bg-neutral-950 text-white rounded-xl p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-400 text-neutral-950 flex items-center justify-center shrink-0">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] uppercase tracking-[0.22em] font-bold text-amber-300">Cartao virtual</p>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${
+                      alreadyCharged ? 'bg-emerald-400 text-emerald-950' :
+                      tokenReady ? 'bg-amber-300 text-neutral-950' :
+                      'bg-white/10 text-white'
+                    }`}>
+                      {alreadyCharged ? 'Cobrado' : tokenReady ? 'Pronto para cobrar' : 'Token pendente'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-white/75">
+                    Revise diarias, extras e taxas. O PMS cobra apenas pelo token seguro do gateway.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-white/10 rounded-lg p-3">
+                  <p className="text-[9px] uppercase tracking-widest text-white/45 font-bold">Cartao</p>
+                  <p className="mt-1 font-bold">
+                    {paymentToken?.brand || reservation.payment_card_brand || 'Gateway'} {paymentToken?.last4 || reservation.payment_card_last4 ? `final ${paymentToken?.last4 || reservation.payment_card_last4}` : ''}
+                  </p>
+                </div>
+                <div className="bg-white/10 rounded-lg p-3">
+                  <p className="text-[9px] uppercase tracking-widest text-white/45 font-bold">Janela</p>
+                  <p className="mt-1 font-bold">
+                    {(paymentToken?.charge_window_start || reservation.payment_charge_window_start)
+                      ? format(new Date(paymentToken?.charge_window_start || reservation.payment_charge_window_start || ''), 'dd/MM/yyyy', { locale: ptBR })
+                      : 'Check-in'} - {(paymentToken?.charge_window_end || reservation.payment_charge_window_end)
+                      ? format(new Date(paymentToken?.charge_window_end || reservation.payment_charge_window_end || ''), 'dd/MM/yyyy', { locale: ptBR })
+                      : 'Check-out'}
+                  </p>
+                </div>
+              </div>
+
+              {!paymentToken && (
+                <div className="bg-red-500/12 border border-red-300/25 rounded-lg p-3 text-xs text-red-50">
+                  Nao ha token vinculado a esta reserva. Solicite o link seguro do gateway antes do checkout.
+                </div>
+              )}
+
+              {paymentToken?.failure_reason && (
+                <div className="bg-red-500/12 border border-red-300/25 rounded-lg p-3 text-xs text-red-50">
+                  Ultima tentativa: {paymentToken.failure_reason}
+                </div>
+              )}
+
+              <button
+                onClick={chargeVirtualCard}
+                disabled={!canChargeVirtualCard || !tokenReady || alreadyCharged || charging || total <= 0}
+                className="w-full py-3 rounded-xl bg-amber-400 text-neutral-950 text-sm font-black shadow-lg shadow-amber-500/20 disabled:opacity-45 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {charging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                {alreadyCharged ? 'Cobranca aprovada' : `Cobrar cartao virtual - ${formatBRL(total)}`}
+              </button>
+
+              {!tokenReady && !alreadyCharged && (
+                <p className="text-[11px] text-white/55">
+                  O botao sera liberado quando o gateway retornar token valido/status charge_ready. Nunca informe numero do cartao ou CVV no PMS.
+                </p>
+              )}
+            </div>
+          )}
+
           <button
             onClick={onOpenFolio}
             disabled={!canManageFolio}
@@ -1522,7 +1656,7 @@ function CheckOutModal({
           </button>
           <button
             onClick={submit}
-            disabled={submitting || !canPerformCheckOut}
+            disabled={submitting || !canPerformCheckOut || !canCloseVirtualCard}
             className="flex-1 px-4 py-2 bg-neutral-900 text-white text-sm font-bold rounded-xl shadow-lg shadow-neutral-900/20 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}

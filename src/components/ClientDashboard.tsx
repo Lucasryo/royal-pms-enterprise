@@ -66,6 +66,7 @@ function TravelVoucherPreview({
   const code = voucher.reservation_code || 'PENDENTE';
   const paxNames = getReservationPaxNames(voucher);
   const occupancy = voucher.occupancy_type || deriveOccupancyType(voucher.guests_per_uh);
+  const isVirtualCard = voucher.payment_method === 'VIRTUAL_CARD';
   const nights = Math.max(1, Math.ceil((new Date(voucher.check_out).getTime() - new Date(voucher.check_in).getTime()) / 86400000));
   const totals = calculateReservationTotal({
     tariff: Number(voucher.tariff || 0),
@@ -154,6 +155,14 @@ function TravelVoucherPreview({
           <div className="px-2 py-1">{voucher.contact_phone || company?.phone || '-'}</div>
         </div>
 
+        <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Pagamento autorizado</div>
+        <div className="grid grid-cols-4 text-xs">
+          <div className="px-2 py-1"><strong>Forma:</strong> {paymentMethodLabel[voucher.payment_method] || voucher.payment_method || '-'}</div>
+          <div className="px-2 py-1"><strong>Status:</strong> {isVirtualCard ? (voucher.payment_token_status || 'pending_token') : 'faturamento'}</div>
+          <div className="px-2 py-1"><strong>Cartao:</strong> {isVirtualCard ? [voucher.payment_card_brand, voucher.payment_card_last4 ? `final ${voucher.payment_card_last4}` : 'sem final'].filter(Boolean).join(' - ') : '-'}</div>
+          <div className="px-2 py-1"><strong>Janela:</strong> {isVirtualCard ? `${clientDate(voucher.payment_charge_window_start)} a ${clientDate(voucher.payment_charge_window_end)}` : '-'}</div>
+        </div>
+
         <div className="mt-4 border-y border-blue-300 bg-blue-50 px-2 py-1 text-sm font-black uppercase">Servicos inclusos e valores previstos</div>
         <table className="w-full border-collapse text-xs">
           <thead>
@@ -238,6 +247,29 @@ const reservationStatusLabel: Record<string, string> = {
 const paymentMethodLabel: Record<string, string> = {
   BILLED: 'Faturado',
   VIRTUAL_CARD: 'Cartao virtual',
+};
+
+const luhnValid = (digits: string) => {
+  if (!/^\d{13,19}$/.test(digits)) return false;
+  let sum = 0;
+  let doubleDigit = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let value = Number(digits[i]);
+    if (doubleDigit) {
+      value *= 2;
+      if (value > 9) value -= 9;
+    }
+    sum += value;
+    doubleDigit = !doubleDigit;
+  }
+  return sum % 10 === 0;
+};
+
+const hasPaymentCardData = (...values: Array<string | undefined | null>) => {
+  const text = values.filter((value): value is string => typeof value === 'string' && value.length > 0).join(' ');
+  if (/(cvv|cvc|código de segurança|codigo de seguranca)[^\d]{0,12}\d{3,4}/i.test(text)) return true;
+  const candidates = text.match(/(?:\d[ -]?){13,19}/g) || [];
+  return candidates.some((candidate: string) => luhnValid(candidate.replace(/\D/g, '')));
 };
 
 const CATEGORY_TO_TARIFF_CATEGORY: Record<string, Tariff['category']> = {
@@ -457,6 +489,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
     service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
     payment_method: reservationForm.payment_method,
+    payment_token_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending_token' : undefined,
+    payment_charge_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending' : 'not_applicable',
+    payment_token_provider: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'gateway_tokenized' : undefined,
+    payment_charge_window_start: reservationForm.payment_method === 'VIRTUAL_CARD' ? reservationForm.check_in : undefined,
+    payment_charge_window_end: reservationForm.payment_method === 'VIRTUAL_CARD' && reservationForm.check_out ? format(addDays(localDate(reservationForm.check_out), 7), 'yyyy-MM-dd') : undefined,
     billing_info: reservationForm.billing_info,
     requested_by: reservationForm.requested_by,
     occupancy_type: reservationForm.occupancy_type,
@@ -831,6 +868,10 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         toast.error('Selecione entrada e saida pelo calendario de disponibilidade.');
         return;
       }
+      if (hasPaymentCardData(reservationForm.billing_obs, reservationForm.billing_info)) {
+        toast.error('Nao informe numero de cartao ou CVV no formulario. Use somente o fluxo seguro de cartao virtual.');
+        return;
+      }
       const availability = await validateLiveReservationAvailability();
       if (!availability.available) {
         toast.error(availability.message);
@@ -847,6 +888,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       const requestForm = { ...reservationForm, tariff: tariffValue };
       const reservationTotals = calculateReservationTotal(requestForm);
       const { iss_enabled, service_enabled, pax_names: _formPax, ...reservationValues } = reservationForm;
+      const virtualCardWindowEnd = format(addDays(localDate(reservationForm.check_out), 7), 'yyyy-MM-dd');
       const newRequest: ReservationRequest = {
         ...reservationValues,
         tariff: tariffValue,
@@ -856,6 +898,11 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
         occupancy_type: reservationForm.occupancy_type,
         billing_profile_id: reservationForm.billing_profile_id || undefined,
+        payment_token_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending_token' : undefined,
+        payment_charge_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending' : 'not_applicable',
+        payment_token_provider: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'gateway_tokenized' : undefined,
+        payment_charge_window_start: reservationForm.payment_method === 'VIRTUAL_CARD' ? reservationForm.check_in : undefined,
+        payment_charge_window_end: reservationForm.payment_method === 'VIRTUAL_CARD' ? virtualCardWindowEnd : undefined,
         company_id: profile.company_id!,
         reservation_code: resCode,
         requested_by: requesterName,
@@ -864,15 +911,33 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         total_amount: reservationTotals.total
       };
 
-      const { error } = await supabase
+      const { data: insertedRequest, error } = await supabase
         .from('reservation_requests')
-        .insert([newRequest]);
+        .insert([newRequest])
+        .select()
+        .single();
 
       if (error) throw error;
 
       toast.success('Solicitação de reserva enviada!');
+      if (reservationForm.payment_method === 'VIRTUAL_CARD' && insertedRequest?.id) {
+        const { error: tokenError } = await supabase
+          .from('reservation_payment_tokens')
+          .insert([{
+            reservation_request_id: insertedRequest.id,
+            company_id: profile.company_id!,
+            provider: 'gateway_tokenized',
+            expected_amount: reservationTotals.total,
+            charge_window_start: reservationForm.check_in,
+            charge_window_end: virtualCardWindowEnd,
+            status: 'pending_token',
+            created_by: profile.id,
+          }]);
+        if (tokenError) throw tokenError;
+      }
+
       setShowReservationForm(false);
-      setViewingVoucher(newRequest);
+      setViewingVoucher((insertedRequest || newRequest) as ReservationRequest);
       fetchReservations();
       
       // Notify admin, reservations and reception roles
@@ -2611,6 +2676,25 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       <option value="VIRTUAL_CARD">Cartão Virtual / Voucher</option>
                     </select>
                   </div>
+
+                  {reservationForm.payment_method === 'VIRTUAL_CARD' && (
+                    <div className="md:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Cartao virtual tokenizado</p>
+                          <p className="mt-2 text-xs font-bold leading-5 text-amber-900">
+                            O Royal PMS nao recebe numero do cartao nem CVV. A solicitacao ficara como token pendente para vinculacao segura no gateway e cobranca apenas no checkout.
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 ring-1 ring-amber-200">
+                          pending_token
+                        </span>
+                      </div>
+                      <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                        Nao informe cartao/CVV nos campos de faturamento.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Room Details */}
                   <div>

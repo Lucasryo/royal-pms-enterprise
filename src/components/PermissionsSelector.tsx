@@ -64,6 +64,7 @@ const permissionGroups: PermissionGroup[] = [
       { key: 'canTransferRoom', label: 'Transferir UH', detail: 'Troca hospede de quarto.', level: 'manage' },
       { key: 'canTransferCharges', label: 'Transferir cobrancas', detail: 'Move lancamentos entre contas.', level: 'risk' },
       { key: 'canIssueHospitalityStatement', label: 'Emitir nota de hospedagem', detail: 'Gera extrato/nota operacional.', level: 'manage' },
+      { key: 'canChargeVirtualCard', label: 'Cobrar cartão virtual', detail: 'Executa cobrança tokenizada no checkout.', level: 'risk' },
     ],
   },
   {

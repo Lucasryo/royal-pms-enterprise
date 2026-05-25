@@ -476,6 +476,19 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       if (approveError) throw approveError;
       if (!reservation) throw new Error('Falha ao criar reserva: resposta vazia do servidor.');
 
+      if (request.payment_method === 'VIRTUAL_CARD' && request.id) {
+        await supabase
+          .from('reservation_payment_tokens')
+          .update({
+            reservation_id: reservation.id,
+            company_id: reservation.company_id,
+            expected_amount: reservation.total_amount,
+            charge_window_start: reservation.check_in,
+            charge_window_end: request.payment_charge_window_end || reservation.check_out,
+          })
+          .eq('reservation_request_id', request.id);
+      }
+
       await supabase
         .from('reservation_requests')
         .delete()
