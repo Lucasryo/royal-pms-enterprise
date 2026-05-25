@@ -436,6 +436,9 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
   const selectedCorporateTariff = findCorporateTariff();
   const selectedStayDates = getStayDates(reservationForm.check_in, reservationForm.check_out);
+  const reservationPreviewTotals = calculateReservationTotal(reservationForm);
+  const reservationPreviewNights = Math.max(1, selectedStayDates.length || 1);
+  const reservationPreviewPax = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
   const selectedRangeBlock = reservationForm.check_in && reservationForm.check_out
     ? findBlockedRange(reservationForm.check_in, reservationForm.check_out, reservationForm.category, blockedDates)
     : undefined;
@@ -2390,7 +2393,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl my-8"
+              className="bg-white w-full max-w-7xl rounded-3xl overflow-hidden shadow-2xl my-6"
             >
               <div className="p-8 border-b border-neutral-100 bg-neutral-900 text-white flex justify-between items-center relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl -mr-16 -mt-16"></div>
@@ -2403,7 +2406,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 </button>
               </div>
 
-              <form onSubmit={handleRequestReservation} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              <form onSubmit={handleRequestReservation} className="max-h-[78vh] overflow-y-auto p-4 custom-scrollbar sm:p-6 lg:p-8">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_390px]">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Solicitante</label>
@@ -2774,6 +2778,81 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all min-h-[80px]"
                     />
                   </div>
+                </div>
+
+                <aside className="lg:sticky lg:top-0 lg:self-start">
+                  <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-neutral-950 text-white shadow-xl">
+                    <div className="border-b border-white/10 p-5">
+                      <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-400">Preview da solicitacao</p>
+                      <h4 className="mt-2 text-2xl font-black uppercase tracking-tight">Voucher B2B</h4>
+                      <p className="mt-2 text-xs font-bold leading-5 text-white/55">
+                        Confira os dados principais antes de enviar para Reservas.
+                      </p>
+                    </div>
+                    <div className="space-y-4 p-5">
+                      <div className="rounded-2xl bg-white p-4 text-neutral-950">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Solicitante</p>
+                            <p className="mt-1 text-base font-black">{reservationForm.requested_by || '-'}</p>
+                          </div>
+                          <div className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest ${selectedRangeUnavailable ? 'bg-red-100 text-red-700' : reservationForm.check_in && reservationForm.check_out ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                            {selectedRangeUnavailable ? 'Bloqueado' : reservationForm.check_in && reservationForm.check_out ? 'Liberado' : 'Pendente'}
+                          </div>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <VoucherField label="Entrada" value={clientDate(reservationForm.check_in)} />
+                          <VoucherField label="Saida" value={clientDate(reservationForm.check_out)} />
+                          <VoucherField label="Diarias" value={reservationForm.check_in && reservationForm.check_out ? reservationPreviewNights : '-'} />
+                          <VoucherField label="Ocupacao" value={OCCUPANCY_LABELS[reservationForm.occupancy_type]} />
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Hospedes autorizados</p>
+                        <div className="mt-3 space-y-2">
+                          {(reservationPreviewPax.length > 0 ? reservationPreviewPax : ['Nenhum PAX informado']).map((name, index) => (
+                            <div key={`${name}-${index}`} className="rounded-xl bg-white/10 px-3 py-2 text-xs font-black">
+                              {index + 1}. {name}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-white/10 p-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Categoria</p>
+                          <p className="mt-2 text-sm font-black capitalize">{reservationForm.category || '-'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-white/10 p-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Centro custo</p>
+                          <p className="mt-2 truncate text-sm font-black">{reservationForm.cost_center || '-'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-white/10 p-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Tarifa</p>
+                          <p className="mt-2 text-sm font-black">{clientMoney(Number(reservationForm.tariff || 0))}</p>
+                        </div>
+                        <div className="rounded-2xl bg-amber-500 p-4 text-neutral-950">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-950/55">Total previsto</p>
+                          <p className="mt-2 text-sm font-black">{clientMoney(reservationPreviewTotals.total)}</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 p-4">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/45">Faturamento / NF</p>
+                        <p className="mt-3 line-clamp-5 whitespace-pre-line text-xs font-semibold leading-5 text-white/70">
+                          {reservationForm.billing_info || reservationForm.billing_obs || 'Sem instrucoes fiscais informadas.'}
+                        </p>
+                      </div>
+
+                      {selectedRangeUnavailable && (
+                        <div className="rounded-2xl border border-red-400/30 bg-red-500/15 p-4 text-xs font-black leading-5 text-red-100">
+                          {selectedRangeBlock?.reason || 'Periodo indisponivel para reserva.'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </aside>
                 </div>
 
                 <div className="pt-4">
