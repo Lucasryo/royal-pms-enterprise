@@ -3,6 +3,7 @@ import { supabase } from '../supabase';
 import { toast } from 'sonner';
 import PublicBookingEngine from './PublicBookingEngine';
 import { Building2, CalendarDays, CheckCircle2, Loader2, Send, Users } from 'lucide-react';
+import Login from './Login';
 
 const WHATSAPP_NUMBER = '5522996105104';
 const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
@@ -244,25 +245,6 @@ function AnimatedSquiggle({ className = '' }: { className?: string }) {
 // ─── Login Modal ──────────────────────────────────────────────────────────────
 
 function LoginModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      toast.success('Bem-vindo de volta!');
-      onClose();
-    } catch (err: unknown) {
-      toast.error((err as Error).message || 'E-mail ou senha incorretos.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:px-4 sm:py-6"
@@ -271,43 +253,18 @@ function LoginModal({ open, onClose }: { open: boolean; onClose: () => void }) {
       <div className="relative w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] overflow-hidden border border-ink/10 bg-paper"
         onClick={e => e.stopPropagation()}
         style={{ boxShadow: '0 30px 80px -30px rgba(20,15,10,0.45)', animation: 'loginSheet 420ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
-        <div aria-hidden className="absolute -right-16 -top-16 h-48 w-48 rounded-full pointer-events-none"
-          style={{ background: 'oklch(0.72 0.12 75 / 0.20)', filter: 'blur(40px)' }} />
         <button onClick={onClose} aria-label="Fechar"
           className="absolute right-5 top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 bg-paper/80 text-ink/70 hover:text-ink hover:bg-paper transition">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
           </svg>
         </button>
-        <div className="relative p-8 sm:p-10">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">· Royal PMS</p>
-          <h2 className="mt-4 font-display font-light text-3xl leading-[1.05] tracking-[-0.02em] text-ink">
-            Bem-vindo de <span className="italic">volta.</span>
-          </h2>
-          <p className="mt-2 text-sm text-ink/65 leading-relaxed max-w-xs">Entre na sua conta para continuar a operação.</p>
-          <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.18em] text-stone-500">E-mail</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-                className="mt-1.5 w-full rounded-full border border-ink/15 bg-white/70 px-5 py-3 text-sm text-ink outline-none focus:border-ink transition placeholder:text-ink/30"
-                placeholder="seu@email.com" />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Senha</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-                className="mt-1.5 w-full rounded-full border border-ink bg-white px-5 py-3 text-sm text-ink outline-none placeholder:text-ink/30"
-                placeholder="••••••••" />
-            </div>
-            <button type="submit" disabled={loading}
-              className="mt-2 flex w-full items-center justify-center gap-3 rounded-full bg-ink px-5 py-3.5 text-sm font-medium text-paper hover:bg-ink/90 transition disabled:opacity-60">
-              {loading ? 'Entrando…' : 'Entrar'}
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold text-ink text-[11px]">→</span>
-            </button>
-          </form>
+        <div className="relative p-4 sm:p-6">
+          <Login embedded />
           <div className="mt-7 pt-6 border-t border-ink/10 flex items-center justify-between gap-3">
-            <p className="text-[11px] text-ink/55 font-display italic">Não tem acesso?</p>
+            <p className="text-[11px] text-ink/55 font-display italic">Nao tem acesso?</p>
             <a href="#demo" onClick={onClose} className="text-[11px] uppercase tracking-[0.18em] text-ink hover:text-gold transition border-b border-ink/20 hover:border-gold pb-0.5">
-              Solicitar demonstração →
+              Solicitar demonstracao
             </a>
           </div>
         </div>
@@ -315,7 +272,6 @@ function LoginModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     </div>
   );
 }
-
 // ─── Header ───────────────────────────────────────────────────────────────────
 
 const navLinks = [

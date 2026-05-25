@@ -55,7 +55,7 @@ const DEFAULT_CONFIG: B2BVirtualCardConfig = {
   charge_window_days_after_checkout: 7,
   require_token_before_confirmation: false,
   credentials_configured: false,
-  instructions: 'Registre apenas token/referencia do gateway, bandeira e final 4. Nunca informe numero completo do cartao ou CVV no PMS.',
+  instructions: 'Escolha o gateway usado pela operacao. No fluxo integrado, a reserva e cobrada com as credenciais da propriedade e o PMS salva apenas o retorno da transacao. Nunca informe numero completo do cartao ou CVV no PMS.',
 };
 
 const PROVIDERS: Array<{ value: B2BVirtualCardProvider; label: string }> = [
@@ -379,7 +379,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
       return;
     }
     if (!tokenForm.payment_token.trim()) {
-      toast.error('Informe o token/referencia do gateway.');
+      toast.error('Informe a referencia retornada pelo gateway externo.');
       return;
     }
     if (!/^\d{4}$/.test(tokenForm.last4.trim())) {
@@ -392,7 +392,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
       tokenForm.authorization_reference,
       tokenForm.brand,
     )) {
-      toast.error('Dados completos de cartao ou CVV nao podem ser salvos. Use apenas token/referencia e final 4.');
+      toast.error('Dados completos de cartao ou CVV nao podem ser salvos. Use apenas referencia/retorno do gateway e final 4.');
       return;
     }
 
@@ -451,7 +451,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
     await logAudit({
       user_id: profile.id,
       user_name: profile.name,
-      action: 'Token manual B2B registrado',
+      action: 'Retorno manual B2B registrado',
       details: {
         module: 'financeiro',
         reservation_code: reservation.reservation_code,
@@ -460,12 +460,12 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
         brand: tokenForm.brand,
         last4: tokenForm.last4,
         property_scope: reservation.property_scope || config.property_scope || 'default',
-        summary: `Token manual registrado para reserva ${reservation.reservation_code}`,
+        summary: `Retorno manual registrado para reserva ${reservation.reservation_code}`,
       },
       type: 'update',
     });
 
-    toast.success('Token registrado e liberado para cobranca.');
+    toast.success('Retorno manual registrado e liberado para cobranca.');
     setTokenFormOpen(false);
     await fetchAll();
   }
@@ -754,7 +754,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
 
                     <div className="space-y-4">
                       <div className="rounded-3xl border border-neutral-200 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Status do token</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Status da cobranca</p>
                         <div className="mt-3 flex items-center justify-between gap-3">
                           <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-black ${statusMeta[selectedStatus].tone}`}>
                             {statusMeta[selectedStatus].label}
@@ -779,7 +779,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
                           className="flex w-full items-center justify-center gap-2 rounded-2xl border border-neutral-200 bg-white px-5 py-3 text-xs font-black text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-45"
                         >
                           <KeyRound className="h-4 w-4" />
-                          {selectedToken ? 'Corrigir / reativar token manual' : 'Registrar token manualmente'}
+                          {selectedToken ? 'Corrigir retorno manual' : 'Registrar retorno manual externo'}
                         </button>
                       )}
 
@@ -895,10 +895,10 @@ function VirtualCardSettingsPanel({
       <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Configuracao manual</p>
-            <h3 className="mt-1 text-xl font-black text-neutral-950">Gateway e propriedade</h3>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Configuracao operacional</p>
+            <h3 className="mt-1 text-xl font-black text-neutral-950">Credenciais por propriedade</h3>
             <p className="mt-2 text-sm leading-6 text-neutral-500">
-              V1 configurada para o hotel atual com <strong>property_scope=default</strong>. No futuro, este campo vira o vinculo da propriedade.
+              Este e o cadastro operacional da propriedade. A proxima etapa da integracao deve salvar Merchant ID, Merchant Key/API Key e ambiente em cofre server-side por propriedade; nao como token manual por reserva.
             </p>
           </div>
           <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${
@@ -917,7 +917,7 @@ function VirtualCardSettingsPanel({
               className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-900 disabled:opacity-60"
             />
           </Field>
-          <Field label="Provedor ativo">
+          <Field label="Gateway operacional">
             <select
               value={configDraft.provider}
               onChange={(e) => setConfigDraft({ ...configDraft, provider: e.target.value as B2BVirtualCardProvider })}
@@ -971,6 +971,26 @@ function VirtualCardSettingsPanel({
           </Field>
         </div>
 
+        <div className="mt-4 rounded-2xl border border-dashed border-amber-300 bg-amber-50 p-4">
+          <p className="text-xs font-black uppercase tracking-widest text-amber-700">Integracao Cielo por propriedade</p>
+          <div className="mt-3 grid gap-3 text-xs font-bold text-amber-900 md:grid-cols-2">
+            <p className="rounded-xl bg-white/70 p-3">Merchant ID / identificador do estabelecimento</p>
+            <p className="rounded-xl bg-white/70 p-3">Merchant Key, Client Secret ou API Key no cofre server-side</p>
+            <p className="rounded-xl bg-white/70 p-3">Ambiente: sandbox ou producao</p>
+            <p className="rounded-xl bg-white/70 p-3">Regras da propriedade: captura, janela e responsavel financeiro</p>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-amber-800">
+            Esses campos nao devem ser salvos em texto aberto no app_settings. Para multipropriedade, cada propriedade tera sua propria configuracao segura.
+          </p>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Isolamento por hotel</p>
+          <p className="mt-2 text-xs leading-5 text-emerald-900">
+            Cada hotel deve enxergar e cobrar somente as reservas vinculadas a sua propriedade. A configuracao Cielo, os comprovantes e o historico de cobranca tambem precisam ficar restritos ao mesmo escopo.
+          </p>
+        </div>
+
         <button
           onClick={onSave}
           disabled={!canManage || saving}
@@ -985,11 +1005,11 @@ function VirtualCardSettingsPanel({
         <ShieldCheck className="h-9 w-9 text-emerald-600" />
         <h3 className="mt-4 text-lg font-black text-neutral-950">Seguranca e gateway real</h3>
         <p className="mt-3 text-sm leading-6 text-neutral-500">
-          Segredos de gateway nao sao digitados nesta tela. Eles devem ficar nos Secrets da Edge Function. Aqui o time operacional escolhe o provedor, instrucao e fluxo manual.
+          No fluxo final, o usuario nao preenche token a cada reserva. Ele clica em cobrar, o servidor usa as credenciais da propriedade e salva o retorno da Cielo, como NSU, codigo de autorizacao e ID da transacao.
         </p>
         <div className="mt-4 space-y-2 text-xs font-bold text-neutral-600">
           <p className="rounded-2xl bg-neutral-50 p-3">Nunca salvar PAN, CVV, foto ou PDF de cartao.</p>
-          <p className="rounded-2xl bg-neutral-50 p-3">Registro manual aceita token/referencia, bandeira e final 4.</p>
+          <p className="rounded-2xl bg-neutral-50 p-3">Registro manual e apenas contingencia para cobranca feita fora do PMS.</p>
           <p className="rounded-2xl bg-neutral-50 p-3">Multipropriedade futura: trocar property_scope por property_id.</p>
         </div>
       </div>
@@ -1011,9 +1031,9 @@ function ManualTokenForm({
       <div className="flex items-start gap-3">
         <KeyRound className="mt-1 h-5 w-5 text-amber-700" />
         <div>
-          <h4 className="font-black text-neutral-950">Registrar token/cartao virtual manualmente</h4>
+          <h4 className="font-black text-neutral-950">Registrar retorno manual de cobranca externa</h4>
           <p className="mt-1 text-xs leading-5 text-amber-800">
-            Informe somente token/referencia do gateway, bandeira e final 4. Numero completo e CVV serao bloqueados.
+            Use somente quando a cobranca foi feita fora do PMS. Informe a referencia/NSU/autorizacao retornada pelo gateway, bandeira e final 4. Nao use Merchant ID, API Key, numero completo ou CVV.
           </p>
         </div>
       </div>
@@ -1026,8 +1046,8 @@ function ManualTokenForm({
         <Field label="Bandeira">
           <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="Visa, Mastercard..." className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
         </Field>
-        <Field label="Token / referencia do gateway">
-          <input value={form.payment_token} onChange={(e) => setForm({ ...form, payment_token: e.target.value })} placeholder="tok_..., auth_..., referencia B2PAY" className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        <Field label="Referencia / NSU / autorizacao">
+          <input value={form.payment_token} onChange={(e) => setForm({ ...form, payment_token: e.target.value })} placeholder="Ex: NSU, codigo de autorizacao ou ID da transacao" className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
         </Field>
         <Field label="Final 4">
           <input value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value.replace(/\D/g, '').slice(0, 4) })} placeholder="1234" className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />

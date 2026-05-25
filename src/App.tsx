@@ -10,6 +10,7 @@ import { canAccessView } from './lib/permissions';
 import { getConnectedMachineName } from './lib/device';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
+import { useEmailCodeSessionHeartbeat } from './hooks/useEmailCodeSessionHeartbeat';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
@@ -20,6 +21,7 @@ import AdminDashboard from './components/AdminDashboard';
 import AdminHousekeepingManager from './components/AdminHousekeepingManager';
 import ClientDashboard from './components/ClientDashboard';
 import ReservationsDashboard from './components/ReservationsDashboard';
+import ReservationsChannelModule from './components/ReservationsChannelModule';
 import EventsDashboard from './components/EventsDashboard';
 import DashboardOverview from './components/DashboardOverview';
 import Profile from './components/Profile';
@@ -40,7 +42,6 @@ import {
   FinanceBillingModuleDashboard,
   MaintenanceModuleDashboard,
   ReceptionModuleDashboard,
-  ReservationsModuleDashboard,
   RestaurantModuleDashboard,
 } from './components/DepartmentModules';
 import MarketingModuleDashboard from './components/MarketingModule';
@@ -111,6 +112,7 @@ export default function App() {
   });
 
   const { status: pushStatus, subscribe: subscribePush } = usePushNotifications(profile?.id);
+  useEmailCodeSessionHeartbeat(Boolean(user && profile));
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
     () => (sessionStorage.getItem('pms_current_view') as ViewType) || 'dashboard'
   );
@@ -533,7 +535,7 @@ export default function App() {
   const renderContent = () => {
     switch (currentView) {
       case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
-      case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsModuleDashboard profile={profile} />;
+      case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsChannelModule profile={profile} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
       case 'maintenance': return <MaintenanceModuleDashboard profile={profile} />;
       case 'checkin': return <CheckInOutDashboard profile={profile} />;
