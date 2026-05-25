@@ -17,6 +17,7 @@ import RevenuePanelDashboard from './RevenuePanelDashboard';
 import FinanceOverview from './finance/FinanceOverview';
 import FinanceDocuments from './finance/FinanceDocuments';
 import FinanceTracking from './finance/FinanceTracking';
+import B2BVirtualCardBilling from './finance/B2BVirtualCardBilling';
 import NotificationSettingsModal from './finance/NotificationSettingsModal';
 import PublicRatesManager from './PublicRatesManager';
 import BlockedDatesManager from './BlockedDatesManager';
@@ -2531,9 +2532,10 @@ function MaintenancePerformanceTab() {
 }
 
 export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfile }) {
-  type FinSection = 'finance' | 'documents' | 'tracking';
+  type FinSection = 'finance' | 'b2b-card' | 'documents' | 'tracking';
   const sections: Array<{ id: FinSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
     { id: 'finance',   label: 'Gestao financeira',   icon: CreditCard,    subtitle: 'Folio, pagamentos e baixa' },
+    { id: 'b2b-card',  label: 'Cobrancas B2B',       icon: ShieldCheck,   subtitle: 'Cartao virtual e checkout' },
     { id: 'documents', label: 'Faturas e arquivos',  icon: FileText,      subtitle: 'Documentos, NFs e anexos' },
     { id: 'tracking',  label: 'Rastreio e cobranca', icon: ClipboardList, subtitle: 'AR, vencidos e disputas' },
   ];
@@ -2544,6 +2546,7 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
   const renderSection = () => {
     switch (active) {
       case 'finance':   return <FinanceOverview profile={profile} />;
+      case 'b2b-card':  return <B2BVirtualCardBilling profile={profile} />;
       case 'documents': return <FinanceDocuments profile={profile} />;
       case 'tracking':  return <FinanceTracking profile={profile} />;
     }
