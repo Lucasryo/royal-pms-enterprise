@@ -891,6 +891,11 @@ export default function Landing3D() {
     }
   };
 
+  const openChannelLogin = () => {
+    sessionStorage.setItem('pms_current_view', 'reservations');
+    openLogin();
+  };
+
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 12);
     on();
@@ -944,6 +949,9 @@ export default function Landing3D() {
             <button onClick={openLogin} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
               Acessar
             </button>
+            <button onClick={openChannelLogin} className="hidden text-sm font-medium text-ink hover:text-gold md:inline">
+              Reservas Channel
+            </button>
             <a href="#contato" className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3">
               Ver demonstração <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
@@ -984,6 +992,12 @@ export default function Landing3D() {
                   className="mt-3 w-full rounded-full border border-ink/20 py-3 text-sm font-medium text-ink/70"
                 >
                   Já tenho acesso — entrar
+                </button>
+                <button
+                  onClick={openChannelLogin}
+                  className="w-full rounded-full bg-ink py-3 text-sm font-medium text-paper"
+                >
+                  Reservas Channel Manager
                 </button>
               </nav>
             </motion.div>
@@ -1041,6 +1055,10 @@ export default function Landing3D() {
                 <button onClick={openLogin} className="group inline-flex items-center gap-2 px-2 py-3 text-sm font-medium text-ink">
                   <span className="border-b border-ink/30 pb-0.5 transition group-hover:border-ink">Já tenho acesso</span>
                 </button>
+                <button onClick={openChannelLogin} className="group inline-flex items-center gap-3 rounded-full border border-ink/15 bg-paper px-6 py-4 text-sm font-medium text-ink transition-all hover:border-gold">
+                  Reservas Channel Manager
+                  <ArrowRight className="h-4 w-4 text-gold transition-transform group-hover:translate-x-0.5" />
+                </button>
               </motion.div>
 
               <motion.div
@@ -1080,6 +1098,28 @@ export default function Landing3D() {
                 <span key={i} className="font-display text-lg italic tracking-[0.18em] text-ink/60">· {l}</span>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* RESERVAS CHANNEL */}
+        <section className="border-b border-ink/10 bg-white/55 py-10">
+          <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-gold">Reservas Channel Manager</p>
+              <h2 className="mt-3 font-display text-3xl font-light tracking-tight text-ink sm:text-4xl">
+                Acesso direto ao canal de reservas corporativas por propriedade.
+              </h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65 sm:text-base">
+                Cadastre empresas, tarifas, UHs, bloqueios, servicos e configuracoes de cobranca do hotel com separacao por propriedade.
+              </p>
+            </div>
+            <button
+              onClick={openChannelLogin}
+              className="group inline-flex w-full items-center justify-center gap-3 rounded-full bg-ink px-7 py-4 text-sm font-medium text-paper transition-all hover:bg-ink/90 sm:w-auto"
+            >
+              Entrar no Reservas Channel
+              <ArrowRight className="h-4 w-4 text-gold transition-transform group-hover:translate-x-0.5" />
+            </button>
           </div>
         </section>
 

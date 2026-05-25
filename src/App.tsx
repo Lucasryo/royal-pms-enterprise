@@ -249,7 +249,10 @@ export default function App() {
         } as UserProfile;
         setProfile(userProfile);
         // Só redireciona para a home view no primeiro login — não em recargas de página
-        if (!sessionStorage.getItem('pms_current_view')) {
+        const requestedView = sessionStorage.getItem('pms_current_view') as ViewType | null;
+        if (requestedView) {
+          setCurrentView(requestedView);
+        } else {
           setCurrentView(ROLE_HOME_VIEW[userProfile.role as UserRole] || 'dashboard');
         }
         return userProfile;
@@ -516,12 +519,13 @@ export default function App() {
 
   if (!user || !profile) {
     const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
-    const isSystemRoute = normalizedPath === '/sistema' || normalizedPath.startsWith('/sistema/');
-    const systemSeoPage = getSystemSeoPage(normalizedPath);
+    const systemPath = normalizedPath.replace(/^\/sistemas(\/|$)/, '/sistema$1');
+    const isSystemRoute = systemPath === '/sistema' || systemPath.startsWith('/sistema/');
+    const systemSeoPage = getSystemSeoPage(systemPath);
     return (
       <>
         <Toaster position="top-right" richColors />
-        <SeoHead config={isSystemRoute ? getSystemSeoConfig(normalizedPath) : getHotelSeoConfig()} />
+        <SeoHead config={isSystemRoute ? getSystemSeoConfig(systemPath) : getHotelSeoConfig()} />
         {isSystemRoute ? (systemSeoPage ? <SystemSeoPage page={systemSeoPage} /> : <Landing3D />) : <HotelLanding />}
       </>
     );
