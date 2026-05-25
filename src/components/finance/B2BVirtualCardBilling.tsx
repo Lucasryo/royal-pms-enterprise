@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabase';
-import { Company, FiscalFile, Reservation, ReservationPaymentToken, UserProfile } from '../../types';
+import {
+  B2BVirtualCardConfig, B2BVirtualCardMode, B2BVirtualCardProvider,
+  Company, FiscalFile, Reservation, ReservationPaymentToken, UserProfile,
+} from '../../types';
 import { hasPermission } from '../../lib/permissions';
 import { logAudit } from '../../lib/audit';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle, CheckCircle2, Clock, CreditCard, Download, FileText, Loader2,
-  Paperclip, Receipt, RefreshCw, Search, ShieldCheck, Upload, X as CloseIcon,
+  KeyRound, Paperclip, Receipt, RefreshCw, Save, Search, Settings, ShieldCheck, Upload, X as CloseIcon,
 } from 'lucide-react';
 
 type ChargeType = 'diaria' | 'servico' | 'alimento' | 'bebida' | 'lavanderia' | 'estorno' | 'outro';
@@ -27,11 +30,87 @@ type FolioCharge = {
 
 type BillingStatus = 'charged' | 'ready' | 'pending' | 'failed';
 type DetailTab = 'charge' | 'documents' | 'summary';
+type MainTab = 'charges' | 'settings';
 type UploadKind = 'nota-fiscal' | 'extrato';
+type TokenForm = {
+  provider: B2BVirtualCardProvider;
+  payment_token: string;
+  brand: string;
+  last4: string;
+  holder_name: string;
+  authorized_limit: string;
+  charge_window_start: string;
+  charge_window_end: string;
+  authorization_reference: string;
+};
 
 const money = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
 const dateBR = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR') : '-';
 const dateTimeBR = (value?: string | null) => value ? new Date(value).toLocaleString('pt-BR') : '-';
+
+const DEFAULT_CONFIG: B2BVirtualCardConfig = {
+  property_scope: 'default',
+  provider: 'manual',
+  mode: 'manual',
+  charge_window_days_after_checkout: 7,
+  require_token_before_confirmation: false,
+  credentials_configured: false,
+  instructions: 'Registre apenas token/referencia do gateway, bandeira e final 4. Nunca informe numero completo do cartao ou CVV no PMS.',
+};
+
+const PROVIDERS: Array<{ value: B2BVirtualCardProvider; label: string }> = [
+  { value: 'manual', label: 'Manual / externo' },
+  { value: 'b2pay', label: 'B2PAY / Omnibees' },
+  { value: 'cielo', label: 'Cielo' },
+  { value: 'rede', label: 'Rede' },
+  { value: 'stone', label: 'Stone' },
+  { value: 'adyen', label: 'Adyen' },
+  { value: 'pagarme', label: 'Pagar.me' },
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'other', label: 'Outro' },
+];
+
+const MODES: Array<{ value: B2BVirtualCardMode; label: string }> = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'sandbox', label: 'Sandbox' },
+  { value: 'production', label: 'Producao' },
+];
+
+const emptyTokenForm = (reservation?: Reservation | null, token?: ReservationPaymentToken | null, config: B2BVirtualCardConfig = DEFAULT_CONFIG): TokenForm => ({
+  provider: (token?.provider as B2BVirtualCardProvider) || (reservation?.payment_token_provider as B2BVirtualCardProvider) || config.provider || 'manual',
+  payment_token: token?.payment_token || '',
+  brand: token?.brand || reservation?.payment_card_brand || '',
+  last4: token?.last4 || reservation?.payment_card_last4 || '',
+  holder_name: token?.holder_name || '',
+  authorized_limit: token?.authorized_limit ? String(token.authorized_limit) : '',
+  charge_window_start: token?.charge_window_start || reservation?.payment_charge_window_start || reservation?.check_in || '',
+  charge_window_end: token?.charge_window_end || reservation?.payment_charge_window_end || reservation?.check_out || '',
+  authorization_reference: token?.authorization_reference || '',
+});
+
+function luhnValid(digits: string) {
+  if (!/^\d{13,19}$/.test(digits)) return false;
+  let sum = 0;
+  let doubleDigit = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let value = Number(digits[i]);
+    if (doubleDigit) {
+      value *= 2;
+      if (value > 9) value -= 9;
+    }
+    sum += value;
+    doubleDigit = !doubleDigit;
+  }
+  return sum % 10 === 0;
+}
+
+function hasPaymentCardData(...values: Array<string | undefined | null>) {
+  const text = values.filter((value): value is string => typeof value === 'string' && value.length > 0).join(' ');
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/(cvv|cvc|codigo de seguranca)/i.test(normalized)) return true;
+  const candidates: string[] = text.match(/\b(?:\d[ -]?){13,19}\b/g) ?? [];
+  return candidates.some((candidate) => luhnValid(candidate.replace(/\D/g, '')));
+}
 
 const chargeLabel: Record<ChargeType, string> = {
   diaria: 'Diaria',
@@ -86,6 +165,13 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
   const [statusFilter, setStatusFilter] = useState<'all' | BillingStatus>('all');
   const [selected, setSelected] = useState<Reservation | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('charge');
+  const [mainTab, setMainTab] = useState<MainTab>('charges');
+  const [config, setConfig] = useState<B2BVirtualCardConfig>(DEFAULT_CONFIG);
+  const [configDraft, setConfigDraft] = useState<B2BVirtualCardConfig>(DEFAULT_CONFIG);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [tokenFormOpen, setTokenFormOpen] = useState(false);
+  const [tokenForm, setTokenForm] = useState<TokenForm>(emptyTokenForm());
+  const [savingToken, setSavingToken] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -100,18 +186,30 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
 
   async function fetchAll() {
     setLoading(true);
-    const [r, c, t, ch, f] = await Promise.all([
+    const [r, c, t, ch, f, cfg] = await Promise.all([
       supabase.from('reservations').select('*').eq('payment_method', 'VIRTUAL_CARD').order('check_out', { ascending: false }),
       supabase.from('companies').select('*').order('name'),
       supabase.from('reservation_payment_tokens').select('*').order('created_at', { ascending: false }),
       supabase.from('folio_charges').select('*').order('charge_date', { ascending: true }),
       supabase.from('files').select('*').order('upload_date', { ascending: false }),
+      supabase.from('app_settings').select('value').eq('id', 'b2b_virtual_card_config').maybeSingle(),
     ]);
     if (r.data) setReservations(r.data as Reservation[]);
     if (c.data) setCompanies(c.data as Company[]);
     if (t.data) setTokens(t.data as ReservationPaymentToken[]);
     if (ch.data) setCharges(ch.data as FolioCharge[]);
     if (f.data) setFiles(f.data as FiscalFile[]);
+    if (cfg.data?.value) {
+      try {
+        const parsed = typeof cfg.data.value === 'string' ? JSON.parse(cfg.data.value) : cfg.data.value;
+        const next = { ...DEFAULT_CONFIG, ...parsed } as B2BVirtualCardConfig;
+        setConfig(next);
+        setConfigDraft(next);
+      } catch {
+        setConfig(DEFAULT_CONFIG);
+        setConfigDraft(DEFAULT_CONFIG);
+      }
+    }
     setLoading(false);
   }
 
@@ -230,6 +328,148 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
     fetchAll();
   }
 
+  function openTokenForm(reservation: Reservation) {
+    const token = tokenOf(reservation.id);
+    setTokenForm(emptyTokenForm(reservation, token, config));
+    setTokenFormOpen(true);
+  }
+
+  async function saveConfig() {
+    if (!canManageFinance) {
+      toast.error('Seu perfil nao pode configurar cobrancas B2B.');
+      return;
+    }
+    setSavingConfig(true);
+    const next: B2BVirtualCardConfig = {
+      ...configDraft,
+      property_scope: configDraft.property_scope || 'default',
+      charge_window_days_after_checkout: Math.max(0, Number(configDraft.charge_window_days_after_checkout || 0)),
+      credentials_configured: configDraft.mode === 'manual' ? false : !!configDraft.credentials_configured,
+    };
+    const { error } = await supabase.from('app_settings').upsert({
+      id: 'b2b_virtual_card_config',
+      value: JSON.stringify(next),
+      updated_at: new Date().toISOString(),
+    });
+    setSavingConfig(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await logAudit({
+      user_id: profile.id,
+      user_name: profile.name,
+      action: 'Configuracao B2B cartao virtual',
+      details: {
+        module: 'financeiro',
+        provider: next.provider,
+        mode: next.mode,
+        property_scope: next.property_scope,
+        summary: `Configuracao de cartao virtual B2B atualizada para ${next.provider}/${next.mode}`,
+      },
+      type: 'update',
+    });
+    setConfig(next);
+    toast.success('Configuracao salva.');
+  }
+
+  async function saveManualToken(reservation: Reservation) {
+    if (!canManageFinance) {
+      toast.error('Seu perfil nao pode registrar token manual.');
+      return;
+    }
+    if (!tokenForm.payment_token.trim()) {
+      toast.error('Informe o token/referencia do gateway.');
+      return;
+    }
+    if (!/^\d{4}$/.test(tokenForm.last4.trim())) {
+      toast.error('Informe apenas os 4 ultimos digitos.');
+      return;
+    }
+    if (hasPaymentCardData(
+      tokenForm.payment_token,
+      tokenForm.holder_name,
+      tokenForm.authorization_reference,
+      tokenForm.brand,
+    )) {
+      toast.error('Dados completos de cartao ou CVV nao podem ser salvos. Use apenas token/referencia e final 4.');
+      return;
+    }
+
+    const existingToken = tokenOf(reservation.id);
+    const now = new Date().toISOString();
+    const payload = {
+      reservation_id: reservation.id,
+      company_id: reservation.company_id,
+      property_scope: reservation.property_scope || config.property_scope || 'default',
+      provider: tokenForm.provider,
+      payment_token: tokenForm.payment_token.trim(),
+      brand: tokenForm.brand.trim() || null,
+      last4: tokenForm.last4.trim(),
+      holder_name: tokenForm.holder_name.trim() || null,
+      authorized_limit: tokenForm.authorized_limit ? Number(tokenForm.authorized_limit) : null,
+      expected_amount: folioTotal(reservation),
+      charge_window_start: tokenForm.charge_window_start || reservation.check_in,
+      charge_window_end: tokenForm.charge_window_end || reservation.check_out,
+      status: 'charge_ready',
+      authorization_reference: tokenForm.authorization_reference.trim() || null,
+      failure_reason: null,
+      token_registered_by: profile.id,
+      token_registered_at: now,
+      updated_at: now,
+    };
+
+    setSavingToken(true);
+    const tokenResult = existingToken
+      ? await supabase.from('reservation_payment_tokens').update(payload).eq('id', existingToken.id)
+      : await supabase.from('reservation_payment_tokens').insert([{ ...payload, created_by: profile.id }]);
+
+    if (tokenResult.error) {
+      setSavingToken(false);
+      toast.error(tokenResult.error.message);
+      return;
+    }
+
+    const { error: reservationError } = await supabase.from('reservations').update({
+      payment_token_status: 'charge_ready',
+      payment_charge_status: 'pending',
+      payment_token_provider: tokenForm.provider,
+      payment_card_brand: tokenForm.brand.trim() || null,
+      payment_card_last4: tokenForm.last4.trim(),
+      payment_charge_window_start: tokenForm.charge_window_start || reservation.check_in,
+      payment_charge_window_end: tokenForm.charge_window_end || reservation.check_out,
+      property_scope: reservation.property_scope || config.property_scope || 'default',
+      updated_at: now,
+    }).eq('id', reservation.id);
+
+    setSavingToken(false);
+    if (reservationError) {
+      toast.error(reservationError.message);
+      return;
+    }
+
+    await logAudit({
+      user_id: profile.id,
+      user_name: profile.name,
+      action: 'Token manual B2B registrado',
+      details: {
+        module: 'financeiro',
+        reservation_code: reservation.reservation_code,
+        guest_name: reservation.guest_name,
+        provider: tokenForm.provider,
+        brand: tokenForm.brand,
+        last4: tokenForm.last4,
+        property_scope: reservation.property_scope || config.property_scope || 'default',
+        summary: `Token manual registrado para reserva ${reservation.reservation_code}`,
+      },
+      type: 'update',
+    });
+
+    toast.success('Token registrado e liberado para cobranca.');
+    setTokenFormOpen(false);
+    await fetchAll();
+  }
+
   async function uploadDocument(reservation: Reservation, file: File, kind: UploadKind) {
     if (!canManageFinance) {
       toast.error('Seu perfil nao pode anexar documentos financeiros.');
@@ -329,6 +569,35 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
+        <button
+          onClick={() => setMainTab('charges')}
+          className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-black ${
+            mainTab === 'charges' ? 'bg-neutral-950 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+          }`}
+        >
+          <CreditCard className="h-4 w-4" /> Reservas e cobrancas
+        </button>
+        <button
+          onClick={() => setMainTab('settings')}
+          className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-black ${
+            mainTab === 'settings' ? 'bg-neutral-950 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
+          }`}
+        >
+          <Settings className="h-4 w-4" /> Configuracoes
+        </button>
+      </div>
+
+      {mainTab === 'settings' ? (
+        <VirtualCardSettingsPanel
+          canManage={canManageFinance}
+          configDraft={configDraft}
+          setConfigDraft={setConfigDraft}
+          saving={savingConfig}
+          onSave={saveConfig}
+        />
+      ) : (
+      <>
       <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
@@ -399,7 +668,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
                     </td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        onClick={() => { setSelected(reservation); setDetailTab('charge'); }}
+                        onClick={() => { setSelected(reservation); setDetailTab('charge'); setTokenFormOpen(false); }}
                         className="rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white"
                       >
                         Abrir cobrança
@@ -415,6 +684,8 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
           </table>
         </div>
       </div>
+      </>
+      )}
 
       <AnimatePresence>
         {selected && (
@@ -431,7 +702,7 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
                   <h3 className="mt-1 text-2xl font-black">{selected.reservation_code}</h3>
                   <p className="mt-1 text-sm text-white/60">{companyName(selected.company_id)} · {selected.guest_name}</p>
                 </div>
-                <button onClick={() => setSelected(null)} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white">
+                <button onClick={() => { setSelected(null); setTokenFormOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white">
                   <CloseIcon className="h-5 w-5" />
                 </button>
               </div>
@@ -500,6 +771,27 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
                           <div className="mt-3 rounded-2xl bg-red-50 p-3 text-xs font-bold text-red-700">{selectedToken.failure_reason}</div>
                         )}
                       </div>
+
+                      {selectedStatus !== 'charged' && (
+                        <button
+                          onClick={() => openTokenForm(selected)}
+                          disabled={!canManageFinance}
+                          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-neutral-200 bg-white px-5 py-3 text-xs font-black text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-45"
+                        >
+                          <KeyRound className="h-4 w-4" />
+                          {selectedToken ? 'Corrigir / reativar token manual' : 'Registrar token manualmente'}
+                        </button>
+                      )}
+
+                      {tokenFormOpen && selectedStatus !== 'charged' && (
+                        <ManualTokenForm
+                          form={tokenForm}
+                          setForm={setTokenForm}
+                          saving={savingToken}
+                          onCancel={() => setTokenFormOpen(false)}
+                          onSave={() => saveManualToken(selected)}
+                        />
+                      )}
 
                       <button
                         onClick={() => chargeReservation(selected)}
@@ -586,6 +878,195 @@ export default function B2BVirtualCardBilling({ profile }: { profile: UserProfil
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function VirtualCardSettingsPanel({
+  canManage, configDraft, setConfigDraft, saving, onSave,
+}: {
+  canManage: boolean;
+  configDraft: B2BVirtualCardConfig;
+  setConfigDraft: (config: B2BVirtualCardConfig) => void;
+  saving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_0.7fr]">
+      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Configuracao manual</p>
+            <h3 className="mt-1 text-xl font-black text-neutral-950">Gateway e propriedade</h3>
+            <p className="mt-2 text-sm leading-6 text-neutral-500">
+              V1 configurada para o hotel atual com <strong>property_scope=default</strong>. No futuro, este campo vira o vinculo da propriedade.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase ${
+            configDraft.credentials_configured ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'
+          }`}>
+            {configDraft.credentials_configured ? 'Credenciais configuradas' : 'Sem credenciais no PMS'}
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <Field label="Propriedade / escopo">
+            <input
+              value={configDraft.property_scope}
+              onChange={(e) => setConfigDraft({ ...configDraft, property_scope: e.target.value || 'default' })}
+              disabled={!canManage}
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-900 disabled:opacity-60"
+            />
+          </Field>
+          <Field label="Provedor ativo">
+            <select
+              value={configDraft.provider}
+              onChange={(e) => setConfigDraft({ ...configDraft, provider: e.target.value as B2BVirtualCardProvider })}
+              disabled={!canManage}
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-900 disabled:opacity-60"
+            >
+              {PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Modo">
+            <select
+              value={configDraft.mode}
+              onChange={(e) => setConfigDraft({ ...configDraft, mode: e.target.value as B2BVirtualCardMode })}
+              disabled={!canManage}
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-900 disabled:opacity-60"
+            >
+              {MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Janela padrao apos checkout">
+            <input
+              type="number"
+              min={0}
+              value={configDraft.charge_window_days_after_checkout}
+              onChange={(e) => setConfigDraft({ ...configDraft, charge_window_days_after_checkout: Number(e.target.value || 0) })}
+              disabled={!canManage}
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-900 disabled:opacity-60"
+            />
+          </Field>
+          <label className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 md:col-span-2">
+            <input
+              type="checkbox"
+              checked={configDraft.require_token_before_confirmation}
+              onChange={(e) => setConfigDraft({ ...configDraft, require_token_before_confirmation: e.target.checked })}
+              disabled={!canManage}
+              className="h-4 w-4"
+            />
+            <span>
+              <span className="block text-sm font-black text-neutral-900">Exigir token antes de confirmar reserva</span>
+              <span className="text-xs text-neutral-500">Quando desligado, o token pode ser registrado ate o checkout/cobranca.</span>
+            </span>
+          </label>
+          <Field label="Instrucoes operacionais">
+            <textarea
+              value={configDraft.instructions}
+              onChange={(e) => setConfigDraft({ ...configDraft, instructions: e.target.value })}
+              disabled={!canManage}
+              rows={5}
+              className="w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm outline-none focus:border-neutral-900 disabled:opacity-60"
+            />
+          </Field>
+        </div>
+
+        <button
+          onClick={onSave}
+          disabled={!canManage || saving}
+          className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-5 py-3 text-sm font-black text-white disabled:opacity-45"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Salvar configuracao
+        </button>
+      </div>
+
+      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <ShieldCheck className="h-9 w-9 text-emerald-600" />
+        <h3 className="mt-4 text-lg font-black text-neutral-950">Seguranca e gateway real</h3>
+        <p className="mt-3 text-sm leading-6 text-neutral-500">
+          Segredos de gateway nao sao digitados nesta tela. Eles devem ficar nos Secrets da Edge Function. Aqui o time operacional escolhe o provedor, instrucao e fluxo manual.
+        </p>
+        <div className="mt-4 space-y-2 text-xs font-bold text-neutral-600">
+          <p className="rounded-2xl bg-neutral-50 p-3">Nunca salvar PAN, CVV, foto ou PDF de cartao.</p>
+          <p className="rounded-2xl bg-neutral-50 p-3">Registro manual aceita token/referencia, bandeira e final 4.</p>
+          <p className="rounded-2xl bg-neutral-50 p-3">Multipropriedade futura: trocar property_scope por property_id.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManualTokenForm({
+  form, setForm, saving, onCancel, onSave,
+}: {
+  form: TokenForm;
+  setForm: (form: TokenForm) => void;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex items-start gap-3">
+        <KeyRound className="mt-1 h-5 w-5 text-amber-700" />
+        <div>
+          <h4 className="font-black text-neutral-950">Registrar token/cartao virtual manualmente</h4>
+          <p className="mt-1 text-xs leading-5 text-amber-800">
+            Informe somente token/referencia do gateway, bandeira e final 4. Numero completo e CVV serao bloqueados.
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Field label="Provedor">
+          <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value as B2BVirtualCardProvider })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-bold outline-none">
+            {PROVIDERS.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Bandeira">
+          <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="Visa, Mastercard..." className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Token / referencia do gateway">
+          <input value={form.payment_token} onChange={(e) => setForm({ ...form, payment_token: e.target.value })} placeholder="tok_..., auth_..., referencia B2PAY" className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Final 4">
+          <input value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value.replace(/\D/g, '').slice(0, 4) })} placeholder="1234" className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Nome impresso / portador">
+          <input value={form.holder_name} onChange={(e) => setForm({ ...form, holder_name: e.target.value })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Limite autorizado">
+          <input type="number" step="0.01" value={form.authorized_limit} onChange={(e) => setForm({ ...form, authorized_limit: e.target.value })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Janela inicio">
+          <input type="date" value={form.charge_window_start} onChange={(e) => setForm({ ...form, charge_window_start: e.target.value })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Janela fim">
+          <input type="date" value={form.charge_window_end} onChange={(e) => setForm({ ...form, charge_window_end: e.target.value })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+        <Field label="Referencia de autorizacao">
+          <input value={form.authorization_reference} onChange={(e) => setForm({ ...form, authorization_reference: e.target.value })} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm outline-none" />
+        </Field>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button onClick={onSave} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white disabled:opacity-45">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+          Liberar para cobranca
+        </button>
+        <button onClick={onCancel} disabled={saving} className="rounded-xl px-4 py-2 text-xs font-black text-neutral-600 disabled:opacity-45">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-neutral-400">{label}</span>
+      {children}
+    </label>
   );
 }
 

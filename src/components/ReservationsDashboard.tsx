@@ -482,6 +482,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           .update({
             reservation_id: reservation.id,
             company_id: reservation.company_id,
+            property_scope: reservation.property_scope || request.property_scope || 'default',
             expected_amount: reservation.total_amount,
             charge_window_start: reservation.check_in,
             charge_window_end: request.payment_charge_window_end || reservation.check_out,

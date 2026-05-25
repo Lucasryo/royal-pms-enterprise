@@ -339,6 +339,7 @@ export interface Reservation {
   payment_card_last4?: string;
   payment_charge_window_start?: string;
   payment_charge_window_end?: string;
+  property_scope?: string;
   fiscal_data?: string;
   billing_info?: string;
   requested_by?: string;
@@ -377,8 +378,24 @@ export interface ReservationPaymentToken {
   failure_reason?: string | null;
   charged_by?: string | null;
   charged_at?: string | null;
+  property_scope?: string;
+  token_registered_by?: string | null;
+  token_registered_at?: string | null;
   created_at: string;
   updated_at?: string;
+}
+
+export type B2BVirtualCardProvider = 'manual' | 'b2pay' | 'cielo' | 'rede' | 'stone' | 'adyen' | 'pagarme' | 'stripe' | 'other';
+export type B2BVirtualCardMode = 'manual' | 'sandbox' | 'production';
+
+export interface B2BVirtualCardConfig {
+  property_scope: string;
+  provider: B2BVirtualCardProvider;
+  mode: B2BVirtualCardMode;
+  charge_window_days_after_checkout: number;
+  require_token_before_confirmation: boolean;
+  credentials_configured: boolean;
+  instructions: string;
 }
 
 export interface BankTransaction {
