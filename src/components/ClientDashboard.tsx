@@ -2417,7 +2417,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white w-full max-w-7xl rounded-3xl overflow-hidden shadow-2xl my-6"
+              className="bg-white w-[96vw] max-w-[1800px] rounded-3xl overflow-hidden shadow-2xl my-4"
             >
               <div className="p-8 border-b border-neutral-100 bg-neutral-900 text-white flex justify-between items-center relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl -mr-16 -mt-16"></div>
@@ -2430,8 +2430,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                 </button>
               </div>
 
-              <form onSubmit={handleRequestReservation} className="max-h-[78vh] overflow-y-auto p-4 custom-scrollbar sm:p-6 lg:p-8">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_390px]">
+              <form onSubmit={handleRequestReservation} className="max-h-[82vh] overflow-y-auto p-4 custom-scrollbar sm:p-6 lg:p-8">
+                <div className="grid gap-7 xl:grid-cols-[minmax(760px,1fr)_620px]">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Solicitante</label>
@@ -2804,7 +2804,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   </div>
                 </div>
 
-                <aside className="lg:sticky lg:top-0 lg:self-start">
+                <aside className="xl:sticky xl:top-0 xl:self-start">
                   <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-neutral-100 shadow-xl">
                     <div className="flex items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-950 p-4 text-white">
                       <div>
@@ -2815,8 +2815,8 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                         {selectedRangeUnavailable ? 'Bloqueado' : reservationForm.check_in && reservationForm.check_out ? 'Liberado' : 'Pendente'}
                       </div>
                     </div>
-                    <div className="h-[620px] overflow-auto bg-neutral-200 p-3 custom-scrollbar">
-                      <div className="origin-top-left" style={{ width: 820, zoom: 0.43 }}>
+                    <div className="h-[calc(82vh-178px)] min-h-[660px] overflow-auto bg-neutral-200 p-5 custom-scrollbar">
+                      <div className="origin-top-left" style={{ width: 820, zoom: 0.68 }}>
                         <TravelVoucherPreview voucher={reservationDraftVoucher} company={company} hotelProfile={hotelProfile} />
                       </div>
                     </div>
