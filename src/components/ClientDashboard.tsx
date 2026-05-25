@@ -108,6 +108,7 @@ function TravelVoucherPreview({
             <p><strong>CODIGO DA RESERVA</strong><span className="ml-8">{code}</span></p>
             <p><strong>STATUS</strong><span className="ml-[77px]">{status}</span></p>
             <p><strong>EMPRESA</strong><span className="ml-[67px]">{company?.name || 'Particular'}</span></p>
+            <p><strong>SOLICITANTE</strong><span className="ml-[42px]">{voucher.requested_by || '-'}</span></p>
             <p><strong>EMITIDO EM</strong><span className="ml-[48px]">{new Date().toLocaleString('pt-BR')}</span></p>
           </div>
           <div className="space-y-1">
@@ -371,6 +372,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     occupancy_type: 'SGL' as 'SGL' | 'DBL' | 'TPL' | 'QDL',
     billing_profile_id: '',
     payment_method: 'BILLED' as 'BILLED' | 'VIRTUAL_CARD',
+    requested_by: profile.name || '',
     billing_info: ''
   });
 
@@ -799,8 +801,13 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     try {
       const resCode = generateReservationCode();
       const paxNames = reservationForm.pax_names.map(name => name.trim()).filter(Boolean);
+      const requesterName = reservationForm.requested_by.trim();
       if (paxNames.length === 0) {
         toast.error('Informe pelo menos um PAX.');
+        return;
+      }
+      if (!requesterName) {
+        toast.error('Informe o solicitante da reserva.');
         return;
       }
       const availability = await validateLiveReservationAvailability();
@@ -830,7 +837,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         billing_profile_id: reservationForm.billing_profile_id || undefined,
         company_id: profile.company_id!,
         reservation_code: resCode,
-        requested_by: profile.name,
+        requested_by: requesterName,
         created_at: new Date().toISOString(),
         status: 'REQUESTED',
         total_amount: reservationTotals.total
@@ -855,7 +862,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         await sendNotification({
           user_id: recipient.id,
           title: 'Nova Solicitação de Reserva',
-          message: `Cliente ${profile.name} (${company?.name || 'sem empresa'}) solicitou reserva (Ref: ${resCode}).`,
+          message: `Cliente ${requesterName} (${company?.name || 'sem empresa'}) solicitou reserva (Ref: ${resCode}).`,
           link: '/dashboard'
         });
       }
@@ -891,6 +898,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       occupancy_type: existingRes.occupancy_type || deriveOccupancyType(existingRes.guests_per_uh),
       billing_profile_id: existingRes.billing_profile_id || '',
       payment_method: existingRes.payment_method || 'BILLED',
+      requested_by: existingRes.requested_by || profile.name || '',
       billing_obs: existingRes.billing_obs || '',
       billing_info: existingRes.billing_info || ''
     });
@@ -2397,6 +2405,24 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
               <form onSubmit={handleRequestReservation} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Solicitante</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                      <input
+                        required
+                        type="text"
+                        value={reservationForm.requested_by}
+                        onChange={(e) => setReservationForm({ ...reservationForm, requested_by: e.target.value })}
+                        className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
+                        placeholder="Nome de quem esta solicitando a reserva"
+                      />
+                    </div>
+                    <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                      Esse nome aparecera no voucher e no historico da solicitacao.
+                    </p>
+                  </div>
+
                   {/* Guest Info */}
                   <div className="md:col-span-2">
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Nome Completo do Hóspede</label>
