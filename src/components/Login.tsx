@@ -3,7 +3,6 @@ import { supabase } from '../supabase';
 import { Loader2, ArrowLeft, ArrowRight, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
-import { startEmailCodeLogin, verifyEmailCodeLogin } from '../lib/emailCodeAuth';
 
 type LoginProps = {
   /** Mantido para compatibilidade: o componente agora e sempre auto-contido. */
@@ -13,36 +12,19 @@ type LoginProps = {
 export default function Login(_props: LoginProps = {}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [rememberDevice, setRememberDevice] = useState(true);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'forgot-password'>('login');
-  const [loginStep, setLoginStep] = useState<'credentials' | 'code'>('credentials');
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await startEmailCodeLogin(email, password);
-      setLoginStep('code');
-      toast.success('Enviamos um codigo de acesso para seu e-mail.');
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast.success('Bem-vindo de volta.');
     } catch (err: any) {
       console.error('Login error:', err);
       toast.error(err?.message || 'E-mail ou senha incorretos.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCodeLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await verifyEmailCodeLogin(email, code, rememberDevice);
-      toast.success('Bem-vindo de volta.');
-    } catch (err: any) {
-      console.error('Code login error:', err);
-      toast.error(err?.message || 'Codigo invalido ou expirado.');
     } finally {
       setLoading(false);
     }
@@ -124,7 +106,7 @@ export default function Login(_props: LoginProps = {}) {
           </p>
         </div>
 
-        {mode === 'login' && loginStep === 'credentials' ? (
+        {mode === 'login' ? (
           <form className="relative mt-8 space-y-5" onSubmit={handleEmailLogin}>
             <div>
               <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-stone-500">
@@ -189,57 +171,6 @@ export default function Login(_props: LoginProps = {}) {
             <p className="text-center text-[11px] text-stone-500">
               Sessao criptografada · LGPD · infra em nuvem brasileira
             </p>
-          </form>
-        ) : mode === 'login' ? (
-          <form className="relative mt-8 space-y-5" onSubmit={handleCodeLogin}>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginStep('credentials');
-                setCode('');
-              }}
-              className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-stone-500 transition hover:text-ink"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Trocar e-mail ou senha
-            </button>
-
-            <div>
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.18em] text-stone-500">
-                Codigo enviado por e-mail
-              </label>
-              <input
-                inputMode="numeric"
-                required
-                minLength={6}
-                maxLength={6}
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full rounded-xl border border-ink/15 bg-white px-4 py-3 text-center text-lg font-black tracking-[0.35em] text-ink outline-none transition placeholder:text-stone-400 focus:border-gold focus:ring-4 focus:ring-gold/20"
-                placeholder="000000"
-              />
-              <p className="mt-3 text-sm leading-relaxed text-ink/60">
-                O codigo expira em 5 minutos. Apos 3 tentativas invalidas, solicite um novo codigo.
-              </p>
-            </div>
-
-            <label className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white/70 px-4 py-3 text-sm text-ink/70">
-              <input
-                type="checkbox"
-                checked={rememberDevice}
-                onChange={(e) => setRememberDevice(e.target.checked)}
-                className="h-4 w-4"
-              />
-              Lembrar este dispositivo por 30 dias
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading || code.length !== 6}
-              className="group relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-full bg-ink px-5 py-3.5 text-sm font-medium text-paper transition hover:bg-ink/90 disabled:opacity-60"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Validar codigo e entrar</span>}
-            </button>
           </form>
         ) : (
           <form className="relative mt-8 space-y-5" onSubmit={handlePasswordResetRequest}>

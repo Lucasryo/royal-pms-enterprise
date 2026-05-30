@@ -10,11 +10,9 @@ import { canAccessView } from './lib/permissions';
 import { getConnectedMachineName } from './lib/device';
 import { ROLE_HOME_VIEW } from './lib/profileAccess';
 import { usePushNotifications } from './hooks/usePushNotifications';
-import { useEmailCodeSessionHeartbeat } from './hooks/useEmailCodeSessionHeartbeat';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
-import MarketingLanding from './components/MarketingLanding';
 import SeoHead from './components/SeoHead';
 import SystemSeoPage from './components/SystemSeoPage';
 import ResetPassword from './components/ResetPassword';
@@ -115,7 +113,6 @@ export default function App() {
   });
 
   const { status: pushStatus, subscribe: subscribePush } = usePushNotifications(profile?.id);
-  useEmailCodeSessionHeartbeat(Boolean(user && profile));
   const [currentView, setCurrentViewRaw] = useState<ViewType>(
     () => (sessionStorage.getItem('pms_current_view') as ViewType) || 'dashboard'
   );
@@ -528,7 +525,7 @@ export default function App() {
       <>
         <Toaster position="top-right" richColors />
         <SeoHead config={getSystemSeoConfig('/sistema/motor-de-reservas')} />
-        <MarketingLanding />
+        <Landing3D />
       </>
     );
   }
@@ -540,7 +537,7 @@ export default function App() {
         <SeoHead config={getNoIndexSeoConfig('Reservas Channel | Royal PMS')} />
         <Toaster position="top-right" richColors />
         {canOpenChannel ? (
-          <MarketingModuleDashboard profile={profile} />
+          <ReservationsChannelModule profile={profile} />
         ) : (
           <div className="mx-auto mt-24 max-w-md rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
             <ShieldCheck className="mx-auto h-10 w-10 text-amber-600" />
