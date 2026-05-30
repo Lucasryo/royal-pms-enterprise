@@ -1,5 +1,6 @@
 import React, { ReactElement, useState, useEffect, useRef, useMemo } from 'react';
 import FlowBuilder from './marketing/FlowBuilder';
+import AdminRegistrationCenter from './AdminRegistrationCenter';
 import QRCodeLib from 'qrcode';
 import { supabase, SUPABASE_URL } from '../supabase';
 import { UserProfile } from '../types';
@@ -5418,20 +5419,29 @@ function BotInsightsTab() {
   );
 }
 
-function ConfigsShell() {
-  const [sub, setSub] = useState<'integracoes' | 'financeiro'>('integracoes');
+function ConfigsShell({ profile }: { profile: UserProfile }) {
+  type ConfigSub = 'integracoes' | 'financeiro' | 'b2b';
+  const canViewB2B = ['reservations', 'finance', 'faturamento', 'admin'].includes(profile.role);
+  const [sub, setSub] = useState<ConfigSub>('integracoes');
+  const items: SubTabItem<ConfigSub>[] = [
+    { id: 'integracoes', label: 'Integracoes', icon: Link2 },
+    { id: 'financeiro', label: 'Financeiro', icon: QrCode },
+    ...(canViewB2B ? [{ id: 'b2b' as ConfigSub, label: 'Vinculos e Voucher B2B', icon: ShieldCheck }] : []),
+  ];
+
+  useEffect(() => {
+    if (sub === 'b2b' && !canViewB2B) setSub('integracoes');
+  }, [sub, canViewB2B]);
   return (
     <div>
-      <SubTabStrip<'integracoes' | 'financeiro'>
-        items={[
-          { id: 'integracoes', label: 'Integrações', icon: Link2 },
-          { id: 'financeiro', label: 'Financeiro', icon: QrCode },
-        ]}
+      <SubTabStrip<ConfigSub>
+        items={items}
         active={sub}
         onChange={setSub}
       />
       {sub === 'integracoes' && <IntegracoesTab />}
       {sub === 'financeiro' && <FinanceiroTab />}
+      {sub === 'b2b' && canViewB2B && <AdminRegistrationCenter profile={profile} mode="channel" />}
     </div>
   );
 }
@@ -5547,7 +5557,7 @@ export default function MarketingModuleDashboard({ profile }: MarketingModuleDas
           {activeTab === 'campanhas' && <CampanhasShell />}
           {activeTab === 'automacoes' && <AutomacoesShell />}
           {activeTab === 'analytics' && <AnalyticsTab />}
-          {activeTab === 'configs' && <ConfigsShell />}
+          {activeTab === 'configs' && <ConfigsShell profile={profile} />}
         </main>
       </div>
     </div>

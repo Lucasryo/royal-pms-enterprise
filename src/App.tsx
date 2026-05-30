@@ -14,6 +14,7 @@ import { useEmailCodeSessionHeartbeat } from './hooks/useEmailCodeSessionHeartbe
 import PushNotificationBanner from './components/PushNotificationBanner';
 import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
+import MarketingLanding from './components/MarketingLanding';
 import SeoHead from './components/SeoHead';
 import SystemSeoPage from './components/SystemSeoPage';
 import ResetPassword from './components/ResetPassword';
@@ -73,6 +74,8 @@ const NAV_SECTION_LABELS: Record<NavItem['section'], string> = {
 };
 
 const NAV_SECTION_ORDER: NavItem['section'][] = ['hotel', 'revenue', 'management', 'channels'];
+const RESERVAS_CHANNEL_PATH = '/reservas-channel';
+const RESERVAS_CHANNEL_ROLES: UserRole[] = ['reservations', 'finance', 'faturamento', 'admin'];
 
 const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   dashboard: { section: 'hotel', description: 'Resumo executivo e atalhos do dia' },
@@ -403,7 +406,7 @@ export default function App() {
       { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
-    const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit'];
+    const hiddenLegacyViews: ViewType[] = ['reservations', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit', 'marketing'];
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
@@ -517,8 +520,41 @@ export default function App() {
     );
   }
 
+  const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  const isReservasChannelRoute = normalizedPath === RESERVAS_CHANNEL_PATH;
+
+  if (isReservasChannelRoute && (!user || !profile)) {
+    return (
+      <>
+        <Toaster position="top-right" richColors />
+        <SeoHead config={getSystemSeoConfig('/sistema/motor-de-reservas')} />
+        <MarketingLanding />
+      </>
+    );
+  }
+
+  if (isReservasChannelRoute && user && profile) {
+    const canOpenChannel = RESERVAS_CHANNEL_ROLES.includes(profile.role);
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] p-4 font-sans text-gray-900 sm:p-6">
+        <SeoHead config={getNoIndexSeoConfig('Reservas Channel | Royal PMS')} />
+        <Toaster position="top-right" richColors />
+        {canOpenChannel ? (
+          <MarketingModuleDashboard profile={profile} />
+        ) : (
+          <div className="mx-auto mt-24 max-w-md rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
+            <ShieldCheck className="mx-auto h-10 w-10 text-amber-600" />
+            <h1 className="mt-4 text-2xl font-black text-neutral-950">Acesso restrito</h1>
+            <p className="mt-2 text-sm leading-6 text-neutral-500">
+              O Reservas Channel fica disponivel apenas para os perfis internos de reservas e financeiro do hotel.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!user || !profile) {
-    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
     const systemPath = normalizedPath.replace(/^\/sistemas(\/|$)/, '/sistema$1');
     const isSystemRoute = systemPath === '/sistema' || systemPath.startsWith('/sistema/');
     const systemSeoPage = getSystemSeoPage(systemPath);
@@ -539,7 +575,11 @@ export default function App() {
   const renderContent = () => {
     switch (currentView) {
       case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
-      case 'reservations': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="reservations" /> : <ReservationsChannelModule profile={profile} />;
+      case 'reservations':
+        if (profile.role === 'client' || profile.role === 'external_client') return <ClientDashboard profile={profile} initialTab="reservations" />;
+        return RESERVAS_CHANNEL_ROLES.includes(profile.role)
+          ? <ReservationsChannelModule profile={profile} />
+          : <DashboardOverview profile={profile} onNavigate={(view) => setCurrentView(view as ViewType)} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
       case 'maintenance': return <MaintenanceModuleDashboard profile={profile} />;
       case 'checkin': return <CheckInOutDashboard profile={profile} />;
@@ -571,7 +611,7 @@ export default function App() {
     }
   };
 
-  const isReservationsChannelShell = currentView === 'reservations' && profile.role !== 'client' && profile.role !== 'external_client';
+  const isReservationsChannelShell = currentView === 'reservations' && RESERVAS_CHANNEL_ROLES.includes(profile.role);
   if (isReservationsChannelShell) {
     return (
       <div className="h-screen overflow-hidden bg-[#f7f7fb] font-sans text-gray-900">

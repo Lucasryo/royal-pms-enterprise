@@ -1,9 +1,17 @@
-import { Building2, CreditCard, LogOut, Menu, Search, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { Building2, CreditCard, Link2, LogOut, Menu, Search, ShieldCheck } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase } from '../supabase';
 import B2BVirtualCardBilling from './finance/B2BVirtualCardBilling';
+import AdminRegistrationCenter from './AdminRegistrationCenter';
 
 export default function ReservationsChannelModule({ profile }: { profile: UserProfile }) {
+  const [activeTab, setActiveTab] = useState<'billing' | 'b2b-settings'>('billing');
+  const tabs = [
+    { id: 'billing' as const, label: 'Cobranca B2B', icon: CreditCard },
+    { id: 'b2b-settings' as const, label: 'Vinculos e Voucher B2B', icon: Link2 },
+  ];
+
   return (
     <div className="flex min-h-screen bg-[#f7f7fb] font-sans text-neutral-950">
       <aside className="hidden w-[300px] shrink-0 flex-col bg-[#20134b] p-6 text-white shadow-2xl lg:flex">
@@ -13,7 +21,7 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10">
               <ShieldCheck className="h-4 w-4 text-pink-300" />
             </span>
-            <span className="text-xl font-black tracking-tight">checkout</span>
+            <span className="text-xl font-black tracking-tight">Reservas Channel</span>
           </div>
         </div>
 
@@ -28,15 +36,23 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
         </div>
 
         <nav className="mt-3 space-y-2">
-          <div className="rounded-lg bg-[#5054c7] px-4 py-3">
-            <div className="flex items-center gap-3">
-              <CreditCard className="h-5 w-5" />
-              <span className="text-sm font-black">Reservas</span>
-            </div>
-          </div>
-          <div className="rounded-lg bg-white/10 px-4 py-3 pl-10 text-sm font-black">
-            Cobrança B2B
-          </div>
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm font-black transition ${
+                  selected ? 'bg-[#5054c7] text-white' : 'bg-white/10 text-white/80 hover:bg-white/15 hover:text-white'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="mt-auto">
@@ -48,7 +64,7 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
             <LogOut className="h-4 w-4" />
             Sair da Conta
           </button>
-          <p className="mt-5 text-xs text-white/70">Royal PMS B2B © 2026</p>
+          <p className="mt-5 text-xs text-white/70">Royal PMS B2B 2026</p>
         </div>
       </aside>
 
@@ -57,7 +73,9 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#5054c7]">Reservas Channel</p>
-              <h1 className="text-base font-black text-neutral-950">Cobrança B2B</h1>
+              <h1 className="text-base font-black text-neutral-950">
+                {activeTab === 'billing' ? 'Cobranca B2B' : 'Vinculos e Voucher B2B'}
+              </h1>
             </div>
             <button
               type="button"
@@ -74,40 +92,68 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
           <section className="mb-6 overflow-hidden rounded-lg bg-[#20134b] text-white shadow-sm">
             <div className="bg-[linear-gradient(90deg,rgba(32,19,75,1),rgba(66,55,108,.88)),url('/hotel/fachada.jpg')] bg-cover bg-center px-6 py-6">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-white/55">Reservas Channel</p>
-              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Pesquisa de reservas</h1>
+              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
+                {activeTab === 'billing' ? 'Pesquisa de reservas' : 'Vinculos e Voucher B2B'}
+              </h1>
             </div>
           </section>
 
-          <section className="mb-6 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto_auto]">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                <input
-                  readOnly
-                  placeholder="Código da reserva ou pedido"
-                  className="h-11 w-full rounded border border-neutral-300 bg-white pl-10 pr-3 text-sm outline-none"
-                />
-              </div>
-              <input
-                readOnly
-                placeholder="Nome do hóspede"
-                className="h-11 w-full rounded border border-neutral-300 bg-white px-3 text-sm outline-none"
-              />
-              <button className="h-11 rounded border border-neutral-300 px-5 text-sm font-bold text-neutral-700" type="button">
-                + Filtros
-              </button>
-              <button className="h-11 rounded bg-[#5054c7] px-6 text-sm font-black text-white" type="button">
-                Pesquisar
-              </button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Check-out</span>
-              <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Últimos 7 dias</span>
-              <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Cobrança B2B</span>
-            </div>
-          </section>
+          <div className="mb-6 flex gap-2 overflow-x-auto rounded-lg border border-neutral-200 bg-white p-2 shadow-sm">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const selected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex shrink-0 items-center gap-2 rounded px-4 py-2 text-sm font-black transition ${
+                    selected ? 'bg-[#5054c7] text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
-          <B2BVirtualCardBilling profile={profile} />
+          {activeTab === 'billing' ? (
+            <>
+              <section className="mb-6 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto_auto]">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                    <input
+                      readOnly
+                      placeholder="Codigo da reserva ou pedido"
+                      className="h-11 w-full rounded border border-neutral-300 bg-white pl-10 pr-3 text-sm outline-none"
+                    />
+                  </div>
+                  <input
+                    readOnly
+                    placeholder="Nome do hospede"
+                    className="h-11 w-full rounded border border-neutral-300 bg-white px-3 text-sm outline-none"
+                  />
+                  <button className="h-11 rounded border border-neutral-300 px-5 text-sm font-bold text-neutral-700" type="button">
+                    + Filtros
+                  </button>
+                  <button className="h-11 rounded bg-[#5054c7] px-6 text-sm font-black text-white" type="button">
+                    Pesquisar
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Check-out</span>
+                  <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Ultimos 7 dias</span>
+                  <span className="rounded bg-neutral-100 px-3 py-2 font-bold text-neutral-600">Cobranca B2B</span>
+                </div>
+              </section>
+
+              <B2BVirtualCardBilling profile={profile} />
+            </>
+          ) : (
+            <AdminRegistrationCenter profile={profile} mode="channel" />
+          )}
         </div>
       </main>
     </div>

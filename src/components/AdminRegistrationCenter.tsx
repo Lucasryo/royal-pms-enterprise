@@ -11,6 +11,7 @@ import TelegramPermissionsManager from './TelegramPermissionsManager';
 import { DEFAULT_VOUCHER_HOTEL_PROFILE } from '../lib/voucher';
 
 type CadastroTab = 'user' | 'company' | 'voucher' | 'link' | 'telegram';
+type RegistrationMode = 'admin' | 'channel';
 
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string; detail: string }> = [
   { value: 'client', label: 'Cliente', detail: 'Portal financeiro e documentos' },
@@ -69,8 +70,8 @@ const emptyBillingProfileForm = {
   active: true,
 };
 
-export default function AdminRegistrationCenter({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<CadastroTab>('user');
+export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { profile: UserProfile; mode?: RegistrationMode }) {
+  const [activeTab, setActiveTab] = useState<CadastroTab>(mode === 'channel' ? 'link' : 'user');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,6 +93,10 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
   useEffect(() => {
     void fetchCadastroData();
   }, []);
+
+  useEffect(() => {
+    setActiveTab(mode === 'channel' ? 'link' : 'user');
+  }, [mode]);
 
   const clients = useMemo(
     () => users.filter(user => user.role === 'client' || user.role === 'external_client'),
@@ -408,13 +413,16 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
     }
   }
 
-  const tabs: Array<{ id: CadastroTab; label: string; icon: ComponentType<{ className?: string }>; metric: string }> = [
+  const adminTabs: Array<{ id: CadastroTab; label: string; icon: ComponentType<{ className?: string }>; metric: string }> = [
     { id: 'user', label: 'Usuario PMS', icon: UserPlus, metric: `${users.length} usuarios` },
     { id: 'company', label: 'Empresa', icon: Building2, metric: `${companies.length} empresas` },
-    { id: 'voucher', label: 'Voucher B2B', icon: Save, metric: `${billingProfiles.length} perfis` },
-    { id: 'link', label: 'Vinculos', icon: Link2, metric: `${linkedClients}/${clients.length} clientes` },
     { id: 'telegram', label: 'Telegram', icon: ShieldCheck, metric: 'bot' },
   ];
+  const channelTabs: Array<{ id: CadastroTab; label: string; icon: ComponentType<{ className?: string }>; metric: string }> = [
+    { id: 'link', label: 'Vinculos', icon: Link2, metric: `${linkedClients}/${clients.length} clientes` },
+    { id: 'voucher', label: 'Voucher B2B', icon: Save, metric: `${billingProfiles.length} perfis` },
+  ];
+  const tabs = mode === 'channel' ? channelTabs : adminTabs;
 
   return (
     <div className="space-y-5 overflow-x-clip">
@@ -426,7 +434,9 @@ export default function AdminRegistrationCenter({ profile }: { profile: UserProf
               Central de cadastros do PMS
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-              Crie usuarios, empresas, vinculos de cliente e acessos Telegram em um fluxo unico de configuracao.
+              {mode === 'channel'
+                ? 'Gerencie vinculos corporativos e os dados usados nos vouchers B2B do Reservas Channel.'
+                : 'Crie usuarios, empresas e acessos Telegram em um fluxo unico de configuracao.'}
             </p>
           </div>
           <button

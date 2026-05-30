@@ -892,8 +892,8 @@ export default function Landing3D() {
   };
 
   const openChannelLogin = () => {
-    sessionStorage.setItem('pms_current_view', 'reservations');
-    openLogin();
+    setMenuOpen(false);
+    window.location.assign('/reservas-channel');
   };
 
   useEffect(() => {
@@ -986,6 +986,13 @@ export default function Landing3D() {
                   className="py-3 text-base font-medium text-ink/80 border-b border-ink/5"
                 >
                   Site do hotel
+                </a>
+                <a
+                  href="/reservas-channel"
+                  onClick={() => setMenuOpen(false)}
+                  className="py-3 text-base font-semibold text-ink border-b border-ink/5"
+                >
+                  Reservas Channel
                 </a>
                 <button
                   onClick={openLogin}

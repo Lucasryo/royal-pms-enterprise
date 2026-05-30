@@ -83,7 +83,7 @@ export function canAccessView(
     case 'housekeeping-staff':
       return ['admin', 'manager', 'housekeeping'].includes(profile.role);
     case 'marketing':
-      return ['admin', 'manager', 'marketing'].includes(profile.role);
+      return false;
     case 'profile':
       return true;
     default:
