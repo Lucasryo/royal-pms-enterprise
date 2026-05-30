@@ -893,7 +893,15 @@ export default function Landing3D() {
 
   const openChannelLogin = () => {
     setMenuOpen(false);
-    window.location.assign('/reservas-channel');
+    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (normalizedPath === '/reservas-channel') {
+      setLoginOpen(true);
+      if (window.location.hash !== '#login') {
+        window.history.replaceState(null, '', '#login');
+      }
+      return;
+    }
+    window.location.assign('/reservas-channel#login');
   };
 
   useEffect(() => {
@@ -988,7 +996,7 @@ export default function Landing3D() {
                   Site do hotel
                 </a>
                 <a
-                  href="/reservas-channel"
+                  href="/reservas-channel#login"
                   onClick={() => setMenuOpen(false)}
                   className="py-3 text-base font-semibold text-ink border-b border-ink/5"
                 >
