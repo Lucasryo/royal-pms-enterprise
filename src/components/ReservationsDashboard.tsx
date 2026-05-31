@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { UserProfile, Reservation, Company, ReservationRequest, FiscalFile, AuditLog } from '../types';
-import { AlertCircle, Building2, CalendarPlus, ChevronLeft, ChevronRight, Check, CheckCircle, Clock, DollarSign, Filter, FileText, Hash, History, Hotel, IdCard, Loader2, LogOut, MoreVertical, Pencil, Phone, Plus, Printer, Receipt, Search, User, UserPlus, X as CloseIcon, X, XCircle, Calendar, ArrowRightCircle } from 'lucide-react';
+import { AlertCircle, Ban, Building2, CalendarPlus, ChevronLeft, ChevronRight, Check, CheckCircle, Clock, DollarSign, Filter, FileText, Hash, History, Hotel, IdCard, Loader2, LogOut, MoreVertical, Pencil, Phone, Plus, Printer, Receipt, Search, User, UserPlus, X as CloseIcon, X, XCircle, Calendar, ArrowRightCircle } from 'lucide-react';
 import ReservationVoucher from './ReservationVoucher';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,6 +11,8 @@ import { logAudit, sendNotification } from '../lib/audit';
 import { notifyReservationCreated } from '../lib/notify';
 import { hasPermission } from '../lib/permissions';
 import ReservationsCalendar3D from './three/ReservationsCalendar3D';
+import BlockedDatesManager from './BlockedDatesManager';
+import PublicRatesManager from './PublicRatesManager';
 
 const slugifySegment = (value: string) =>
   value
@@ -103,7 +105,7 @@ const HISTORY_STAGE_STYLES: Record<ReservationHistoryEntry['stage'], { label: st
 };
 
 export default function ReservationsDashboard({ profile }: { profile: UserProfile }) {
-  const [activeSubTab, setActiveSubTab] = useState<'map' | 'requests'>('requests');
+  const [activeSubTab, setActiveSubTab] = useState<'map' | 'requests' | 'blocks' | 'rates'>('requests');
   const [requestsFilter, setRequestsFilter] = useState<'pending' | 'rejected' | 'all'>('pending');
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [reservationRequests, setReservationRequests] = useState<ReservationRequest[]>([]);
@@ -1129,7 +1131,7 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
       <div className="flex bg-neutral-100 p-1 rounded-xl max-w-full overflow-x-auto">
         <button
           onClick={() => setActiveSubTab('requests')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
             activeSubTab === 'requests' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
           }`}
         >
@@ -1142,14 +1144,38 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
         </button>
         <button
           onClick={() => setActiveSubTab('map')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
             activeSubTab === 'map' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
           }`}
         >
           Mapa / Reservas Ativas
         </button>
+        <button
+          onClick={() => setActiveSubTab('blocks')}
+          className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeSubTab === 'blocks' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          <Ban className="h-3.5 w-3.5" />
+          Bloqueio de Periodo
+        </button>
+        <button
+          onClick={() => setActiveSubTab('rates')}
+          className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            activeSubTab === 'rates' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          <DollarSign className="h-3.5 w-3.5" />
+          Tarifas Publicas
+        </button>
       </div>
 
+      {activeSubTab === 'blocks' ? (
+        <BlockedDatesManager profile={profile} />
+      ) : activeSubTab === 'rates' ? (
+        <PublicRatesManager profile={profile} />
+      ) : (
+        <>
       <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
@@ -1487,6 +1513,8 @@ export default function ReservationsDashboard({ profile }: { profile: UserProfil
           </div>
         )}
       </div>
+        </>
+      )}
 
       {voucherReservation && (
         <ReservationVoucher
