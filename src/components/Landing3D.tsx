@@ -933,7 +933,7 @@ export default function Landing3D() {
       <header className={`fixed inset-x-0 top-0 z-40 transition-all duration-500 ${
         scrolled ? 'border-b border-ink/10 bg-paper/85 backdrop-blur-xl' : 'bg-transparent'
       }`}>
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-10">
+        <div className="mx-auto flex max-w-[88rem] items-center justify-between gap-4 px-5 py-4 lg:px-10">
           <a href="#inicio" className="flex items-center gap-2.5" onClick={() => setMenuOpen(false)}>
             <div className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 bg-paper">
               <span className="font-display text-base italic leading-none text-ink">R</span>
@@ -944,7 +944,7 @@ export default function Landing3D() {
             </div>
           </a>
 
-          <nav className="hidden items-center gap-7 md:flex">
+          <nav className="hidden items-center gap-6 xl:flex">
             {navLinks.map(l => (
               <a key={l.href} href={l.href} className="group relative text-sm text-ink/80 hover:text-ink">
                 {l.label}
@@ -953,25 +953,29 @@ export default function Landing3D() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
-            <a href="/" className="hidden text-sm text-ink/70 hover:text-ink md:inline">
-              Site do hotel
-            </a>
-            <button onClick={openLogin} className="hidden text-sm text-ink/70 hover:text-ink md:inline">
-              Acessar
-            </button>
-            <button onClick={openChannelLogin} className="hidden text-sm font-medium text-ink hover:text-gold md:inline">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden items-center rounded-full border border-ink/10 bg-paper/70 p-1 shadow-sm backdrop-blur lg:flex">
+              <a href="/" className="rounded-full px-3 py-2 text-xs font-medium text-ink/65 transition hover:bg-ink/5 hover:text-ink">
+                Site do hotel
+              </a>
+              <button onClick={openLogin} className="rounded-full px-3 py-2 text-xs font-medium text-ink/65 transition hover:bg-ink/5 hover:text-ink">
+                Acessar
+              </button>
+            </div>
+            <button onClick={openChannelLogin} className="hidden items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-4 py-2.5 text-xs font-bold text-ink shadow-sm transition hover:border-gold/60 hover:bg-gold/20 md:inline-flex">
               Reservas Channel
             </button>
-            <a href="#contato" className="group hidden md:inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3">
-              Ver demonstração <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            <a href="#contato" className="group hidden items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper transition-all hover:gap-3 sm:inline-flex lg:px-5">
+              <span className="hidden lg:inline">Ver demonstracao</span>
+              <span className="lg:hidden">Demo</span>
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
-            <a href="#contato" className="inline-flex md:hidden items-center rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper">
+            <a href="#contato" className="inline-flex items-center rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper sm:hidden">
               Demo
             </a>
             <button
               onClick={() => setMenuOpen(o => !o)}
-              className="flex md:hidden h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper/80 text-ink"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-ink/15 bg-paper/80 text-ink xl:hidden"
               aria-label="Menu"
             >
               {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -984,7 +988,7 @@ export default function Landing3D() {
             <motion.div
               initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.25 }}
-              className="overflow-hidden border-b border-ink/10 bg-paper/95 backdrop-blur-xl md:hidden"
+              className="overflow-hidden border-b border-ink/10 bg-paper/95 backdrop-blur-xl xl:hidden"
             >
               <nav className="flex flex-col px-5 py-4 gap-1">
                 {navLinks.map(l => (

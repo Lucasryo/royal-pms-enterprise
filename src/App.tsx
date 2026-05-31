@@ -78,7 +78,7 @@ const RESERVAS_CHANNEL_ROLES: UserRole[] = ['reservations', 'finance', 'faturame
 
 const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   dashboard: { section: 'hotel', description: 'Resumo executivo e atalhos do dia' },
-  reservations: { section: 'channels', description: 'Channel, B2B e reservas corporativas' },
+  reservations: { section: 'hotel', description: 'Reservas, bloqueios, tarifas e ocupacao' },
   reception: { section: 'hotel', description: 'Check-in, UHs e turno' },
   maintenance: { section: 'hotel', description: 'Chamados e preventiva' },
   checkin: { section: 'hotel', description: 'Entradas, saídas e walk-in' },
@@ -380,7 +380,7 @@ export default function App() {
 
     const items = [
       { id: 'dashboard' as ViewType, label: 'Painel', icon: LayoutDashboard },
-      { id: 'reservations' as ViewType, label: 'Reservas Channel', icon: CalendarDays },
+      { id: 'reservations' as ViewType, label: 'Reservas', icon: CalendarDays },
       { id: 'reception' as ViewType, label: 'Recepção', icon: KeyRound },
       { id: 'maintenance' as ViewType, label: 'Manutenção', icon: Wrench },
       { id: 'checkin' as ViewType, label: 'Check-in/out', icon: KeyRound },
@@ -404,7 +404,7 @@ export default function App() {
       { id: 'marketing' as ViewType, label: 'Marketing', icon: Megaphone },
     ];
 
-    const hiddenLegacyViews: ViewType[] = ['reservations', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit', 'marketing'];
+    const hiddenLegacyViews: ViewType[] = ['checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'tariffs', 'registration', 'staff', 'audit', 'marketing'];
     return items.filter(item => !hiddenLegacyViews.includes(item.id) && canAccessView(profile, item.id));
   }, [profile]);
 
@@ -575,9 +575,7 @@ export default function App() {
       case 'profile': return <Profile profile={profile} onBack={() => setCurrentView(ROLE_HOME_VIEW[profile.role as UserRole] || 'dashboard')} />;
       case 'reservations':
         if (profile.role === 'client' || profile.role === 'external_client') return <ClientDashboard profile={profile} initialTab="reservations" />;
-        return RESERVAS_CHANNEL_ROLES.includes(profile.role)
-          ? <ReservationsChannelModule profile={profile} />
-          : <DashboardOverview profile={profile} onNavigate={(view) => setCurrentView(view as ViewType)} />;
+        return <ReservationsDashboard profile={profile} />;
       case 'reception': return <ReceptionModuleDashboard profile={profile} />;
       case 'maintenance': return <MaintenanceModuleDashboard profile={profile} />;
       case 'checkin': return <CheckInOutDashboard profile={profile} />;
@@ -608,17 +606,6 @@ export default function App() {
                <ReservationsDashboard profile={profile} />;
     }
   };
-
-  const isReservationsChannelShell = currentView === 'reservations' && RESERVAS_CHANNEL_ROLES.includes(profile.role);
-  if (isReservationsChannelShell) {
-    return (
-      <div className="min-h-screen overflow-y-auto bg-[#f7f7fb] font-sans text-gray-900">
-        <SeoHead config={getNoIndexSeoConfig('Reservas Channel | Royal PMS')} />
-        <Toaster position="top-right" richColors />
-        <ReservationsChannelModule profile={profile} />
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans text-gray-900">
