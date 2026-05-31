@@ -879,7 +879,7 @@ function HeroBackdrop() {
  * LANDING ROOT
  * ============================================================ */
 export default function Landing3D() {
-  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(() => window.location.hash === '#login');
   const [menuOpen, setMenuOpen]   = useState(false);
   const [scrolled, setScrolled]   = useState(false);
 
@@ -912,7 +912,10 @@ export default function Landing3D() {
   }, []);
 
   useEffect(() => {
-    if (window.location.hash === '#login') setLoginOpen(true);
+    const syncLoginHash = () => setLoginOpen(window.location.hash === '#login');
+    syncLoginHash();
+    window.addEventListener('hashchange', syncLoginHash);
+    return () => window.removeEventListener('hashchange', syncLoginHash);
   }, []);
 
   useEffect(() => {

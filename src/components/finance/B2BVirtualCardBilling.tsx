@@ -150,7 +150,15 @@ function reservationDocs(files: FiscalFile[], reservation: Reservation) {
   });
 }
 
-export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' }: { profile: UserProfile; initialTab?: B2BBillingMainTab }) {
+export default function B2BVirtualCardBilling({
+  profile,
+  initialTab = 'charges',
+  shell = 'default',
+}: {
+  profile: UserProfile;
+  initialTab?: B2BBillingMainTab;
+  shell?: 'default' | 'channel';
+}) {
   const canCharge = hasPermission(profile, 'canChargeVirtualCard', ['admin', 'manager', 'reception', 'finance', 'faturamento']);
   const canManageFinance = hasPermission(profile, 'canManageFinance' as any, ['admin', 'manager', 'finance', 'faturamento']);
   const [loading, setLoading] = useState(true);
@@ -541,7 +549,14 @@ export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' 
   }
 
   if (loading) {
-    return <div className="flex min-h-[45vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-neutral-300" /></div>;
+    return (
+      <div className="flex min-h-[45vh] items-center justify-center rounded-[2rem] border border-neutral-200 bg-white">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-violet-500" />
+          <p className="mt-3 text-xs font-black uppercase tracking-[0.22em] text-neutral-400">Carregando cobranças</p>
+        </div>
+      </div>
+    );
   }
 
   const selectedToken = selected ? tokenOf(selected.id) : null;
@@ -551,7 +566,7 @@ export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' 
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-neutral-200 bg-neutral-950 p-5 text-white shadow-sm">
+      {shell === 'default' && <div className="rounded-3xl border border-neutral-200 bg-neutral-950 p-5 text-white shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-300">Cobranças B2B</p>
@@ -571,9 +586,9 @@ export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' 
           <Kpi label="Problemas" value={totals.failed} />
           <Kpi label="A receber" value={money(totals.amount)} strong />
         </div>
-      </div>
+      </div>}
 
-      <div className="flex flex-wrap gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
+      {shell === 'default' && <div className="flex flex-wrap gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
         <button
           onClick={() => setMainTab('charges')}
           className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-black ${
@@ -590,7 +605,7 @@ export default function B2BVirtualCardBilling({ profile, initialTab = 'charges' 
         >
           <Settings className="h-4 w-4" /> Configuracoes
         </button>
-      </div>
+      </div>}
 
       {mainTab === 'settings' ? (
         <VirtualCardSettingsPanel
