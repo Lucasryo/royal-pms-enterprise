@@ -291,11 +291,14 @@ O Reservas Channel passa a operar como portal B2B isolado do PMS para o fluxo fa
 Escopo entregue nesta fase:
 
 - `/reservas-channel` tem landing propria e login direto do portal.
-- O cliente externo continua solicitando reservas pelo `ClientDashboard`.
-- Toda nova solicitacao do cliente notifica os perfis `admin`, `reservations`, `finance` e `faturamento`.
+- O cliente externo solicita reservas pelo `ClientDashboard`.
+- Se o periodo estiver disponivel, a reserva e confirmada automaticamente em `reservations`.
+- `booking_blocked_dates` e a tela de bloqueio de periodo controlam a indisponibilidade operacional.
+- Toda nova reserva confirmada pelo cliente notifica os perfis `admin`, `reservations`, `finance` e `faturamento`.
 - A reserva publica tambem notifica `finance` e `faturamento`, alem de reservas.
-- O portal interno do Reservas Channel tem a aba `Mesa B2B` para acompanhar solicitacoes, aprovar como faturado e avisar financeiro/faturamento.
-- A aba `Faturamento` mostra reservas com `payment_method = BILLED`, documentos vinculados e acao de aviso ao financeiro.
+- Reservas visualiza a reserva confirmada dentro do PMS.
+- Financeiro e faturamento visualizam a reserva confirmada dentro do Reservas Channel.
+- O Reservas Channel exibe reservas com `payment_method = BILLED`, documentos vinculados, voucher e acao de aviso ao financeiro.
 - `Vinculos e Voucher` permanece dentro do Reservas Channel e nao deve ser exposto ao cliente externo.
 
 Regra atual de cobranca:
@@ -306,13 +309,14 @@ Regra atual de cobranca:
 
 Fluxo operacional atual:
 
-1. Cliente cria solicitacao de reserva no portal externo.
-2. `reservation_requests` recebe o pedido com status `REQUESTED`.
-3. Reservas, financeiro e faturamento recebem notificacao interna.
-4. Reservas aprova na `Mesa B2B`.
-5. O sistema cria uma reserva confirmada com pagamento `BILLED`.
-6. Financeiro/faturamento acompanha a reserva na fila de faturamento do Reservas Channel.
-7. Documentos fiscais podem ser anexados e vinculados pela reserva/codigo.
+1. Cliente cria reserva no portal externo.
+2. Frontend valida disponibilidade contra bloqueios, reservas existentes e inventario.
+3. Banco bloqueia inserts em periodos cadastrados em `booking_blocked_dates`.
+4. Se disponivel, o sistema cria uma reserva confirmada com pagamento `BILLED`.
+5. Reservas recebe notificacao e visualiza no PMS.
+6. Financeiro/faturamento recebe notificacao e visualiza no Reservas Channel.
+7. Financeiro/faturamento abre o voucher da reserva dentro do Reservas Channel.
+8. Documentos fiscais podem ser anexados e vinculados pela reserva/codigo.
 
 Pendencias para a fase de banco:
 
@@ -320,3 +324,4 @@ Pendencias para a fase de banco:
 - Criar helper unico `notifyReservationRequestCreated` para portal do cliente, booking publico e parser de email.
 - Trocar avisos manuais por log persistente de sincronizacao por destinatario.
 - Testar RLS com perfis `client`, `reservations`, `finance` e `faturamento`.
+- Evoluir a validacao server-side para travar overbooking por inventario fisico, alem dos bloqueios de periodo.

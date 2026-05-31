@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -11,6 +11,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
@@ -49,8 +50,9 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
   const [companies, setCompanies] = useState<Company[]>([]);
   const [files, setFiles] = useState<FiscalFile[]>([]);
   const [search, setSearch] = useState('');
-  const [focus, setFocus] = useState<Focus>('requests');
+  const [focus, setFocus] = useState<Focus>('billing');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [voucher, setVoucher] = useState<Reservation | null>(null);
 
   const canApprove = ['admin', 'manager', 'reservations', 'reception'].includes(profile.role);
   const canNotifyFinance = ['admin', 'manager', 'reservations', 'finance', 'faturamento'].includes(profile.role);
@@ -256,7 +258,7 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
   return (
     <div className="space-y-5">
       <section className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Solicitacoes abertas" value={metrics.openRequests} icon={Clock} tone="amber" />
+        <MetricCard label="Excecoes pendentes" value={metrics.openRequests} icon={Clock} tone="amber" />
         <MetricCard label="Reservas faturadas" value={metrics.activeBilled} icon={Building2} tone="violet" />
         <MetricCard label="Check-out a faturar" value={metrics.checkedOut} icon={FileText} tone="emerald" />
         <MetricCard label="Valor pendente" value={money(metrics.pendingAmount)} icon={ShieldCheck} tone="dark" />
@@ -275,8 +277,8 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
           </div>
           <div className="flex flex-wrap gap-2">
             {([
-              ['requests', 'Solicitacoes'],
-              ['billing', 'Faturamento'],
+              ['billing', 'Reservas confirmadas'],
+              ['requests', 'Excecoes manuais'],
             ] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -312,6 +314,7 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
           docsFor={docsFor}
           busyId={busyId}
           onSendToFinance={sendToFinance}
+          onViewVoucher={setVoucher}
         />
       )}
 
@@ -330,6 +333,14 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
           </span>
         </div>
       </section>
+
+      {voucher && (
+        <VoucherModal
+          reservation={voucher}
+          companyName={companyName(voucher.company_id)}
+          onClose={() => setVoucher(null)}
+        />
+      )}
     </div>
   );
 }
@@ -455,18 +466,20 @@ function BillingTable({
   docsFor,
   busyId,
   onSendToFinance,
+  onViewVoucher,
 }: {
   reservations: Reservation[];
   companyName: (id?: string | null) => string;
   docsFor: (reservation: Reservation) => FiscalFile[];
   busyId: string | null;
   onSendToFinance: (reservation: Reservation) => void;
+  onViewVoucher: (reservation: Reservation) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-[2rem] border border-neutral-200 bg-white shadow-sm">
       <div className="border-b border-neutral-100 px-5 py-4">
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-600">Financeiro / faturamento</p>
-        <h3 className="mt-1 text-xl font-black text-neutral-950">Reservas faturadas para cobrar</h3>
+        <h3 className="mt-1 text-xl font-black text-neutral-950">Reservas confirmadas e vouchers</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1040px] text-left">
@@ -508,15 +521,25 @@ function BillingTable({
                     <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ${meta.tone}`}>{meta.label}</span>
                   </td>
                   <td className="px-5 py-4 text-right">
-                    <button
-                      type="button"
-                      disabled={busyId === reservation.id}
-                      onClick={() => onSendToFinance(reservation)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white transition hover:bg-black disabled:opacity-50"
-                    >
-                      {busyId === reservation.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      Avisar financeiro
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onViewVoucher(reservation)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-xs font-black text-neutral-700 transition hover:bg-neutral-50"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Voucher
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === reservation.id}
+                        onClick={() => onSendToFinance(reservation)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-neutral-950 px-4 py-2 text-xs font-black text-white transition hover:bg-black disabled:opacity-50"
+                      >
+                        {busyId === reservation.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        Avisar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -531,6 +554,73 @@ function BillingTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function VoucherModal({
+  reservation,
+  companyName,
+  onClose,
+}: {
+  reservation: Reservation;
+  companyName: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-neutral-100 bg-neutral-950 p-5 text-white">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300">Voucher B2B</p>
+            <h3 className="mt-1 text-2xl font-black">{reservation.reservation_code}</h3>
+            <p className="mt-1 text-sm text-white/60">{companyName} · {reservation.guest_name}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar voucher">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[72vh] overflow-y-auto p-5">
+          <div className="rounded-[1.5rem] border border-neutral-200 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <VoucherField label="Empresa" value={companyName} />
+              <VoucherField label="Status" value={RESERVATION_STATUS[reservation.status]?.label || reservation.status} />
+              <VoucherField label="Hospede principal" value={reservation.guest_name} />
+              <VoucherField label="PAX" value={(reservation.pax_names || [reservation.guest_name]).join(', ')} />
+              <VoucherField label="Check-in" value={dateBR(reservation.check_in)} />
+              <VoucherField label="Check-out" value={dateBR(reservation.check_out)} />
+              <VoucherField label="Diarias" value={nightsOf(reservation)} />
+              <VoucherField label="Categoria" value={`${reservation.category || '-'} · ${reservation.occupancy_type || 'SGL'}`} />
+              <VoucherField label="Centro de custo" value={reservation.cost_center || '-'} />
+              <VoucherField label="Pagamento" value="Faturado" />
+              <VoucherField label="Valor previsto" value={money(Number(reservation.total_amount || 0))} />
+              <VoucherField label="Solicitante" value={reservation.requested_by || reservation.contact_email || '-'} />
+            </div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <VoucherNote label="Dados fiscais" value={reservation.billing_info || 'Utilizar dados cadastrais vinculados a empresa.'} />
+              <VoucherNote label="Observacoes" value={reservation.billing_obs || 'Sem observacoes adicionais.'} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VoucherField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-2xl bg-neutral-50 p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
+      <p className="mt-2 text-sm font-black text-neutral-950">{value || '-'}</p>
+    </div>
+  );
+}
+
+function VoucherNote({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
+      <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-neutral-700">{value || '-'}</p>
     </div>
   );
 }

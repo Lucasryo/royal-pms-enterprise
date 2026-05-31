@@ -888,7 +888,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       const requestForm = { ...reservationForm, tariff: tariffValue };
       const reservationTotals = calculateReservationTotal(requestForm);
       const { iss_enabled, service_enabled, pax_names: _formPax, ...reservationValues } = reservationForm;
-      const newRequest: ReservationRequest = {
+      const newReservation = {
         ...reservationValues,
         tariff: tariffValue,
         guest_name: paxNames[0],
@@ -908,33 +908,33 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         reservation_code: resCode,
         requested_by: requesterName,
         created_at: new Date().toISOString(),
-        status: 'REQUESTED',
+        status: 'CONFIRMED',
         total_amount: reservationTotals.total
       };
 
-      const { data: insertedRequest, error } = await supabase
-        .from('reservation_requests')
-        .insert([newRequest])
+      const { data: insertedReservation, error } = await supabase
+        .from('reservations')
+        .insert([newReservation])
         .select()
         .single();
 
       if (error) throw error;
 
-      toast.success('Solicitação de reserva enviada!');
+      toast.success('Reserva confirmada automaticamente!');
       setShowReservationForm(false);
-      setViewingVoucher((insertedRequest || newRequest) as ReservationRequest);
+      setViewingVoucher((insertedReservation || newReservation) as Reservation);
       fetchReservations();
       
-      // Notify Reservas Channel staff: reservas and financeiro/faturamento see the same request.
+      // Notify Reservas Channel staff: reservas sees it in PMS, finance/faturamento in Reservas Channel.
       const { data: staffToNotify } = await supabase.from('profiles').select('id, role');
       const notifyRoles = ['admin', 'reservations', 'finance', 'faturamento'];
       const recipients = (staffToNotify || []).filter((u: any) => notifyRoles.includes(u.role));
       for (const recipient of recipients) {
         await sendNotification({
           user_id: recipient.id,
-          title: 'Nova Solicitação de Reserva',
-          message: `Cliente ${requesterName} (${company?.name || 'sem empresa'}) solicitou reserva (Ref: ${resCode}).`,
-          link: '/dashboard'
+          title: 'Nova reserva B2B confirmada',
+          message: `Cliente ${requesterName} (${company?.name || 'sem empresa'}) confirmou reserva faturada (Ref: ${resCode}).`,
+          link: recipient.role === 'finance' || recipient.role === 'faturamento' ? '/reservas-channel' : '/dashboard'
         });
       }
     } catch (error) {
@@ -996,7 +996,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
           user_id: recipient.id,
           title: 'Solicitacao de cancelamento de reserva',
           message: `Cliente ${profile.name} (${company?.name || 'sem empresa'}) solicitou cancelamento da reserva ${item.reservation_code} - ${item.guest_name}. Motivo: ${reason}`,
-          link: '/dashboard'
+          link: recipient.role === 'finance' || recipient.role === 'faturamento' ? '/reservas-channel' : '/dashboard'
         });
       }
 
@@ -3248,3 +3248,4 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     </div>
   );
 }
+
