@@ -488,12 +488,12 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
     contact_phone: reservationForm.contact_phone,
     iss_tax: reservationForm.iss_enabled ? reservationForm.iss_tax : 0,
     service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
-    payment_method: reservationForm.payment_method,
-    payment_token_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending_token' : undefined,
-    payment_charge_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending' : 'not_applicable',
-    payment_token_provider: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'gateway_tokenized' : undefined,
-    payment_charge_window_start: reservationForm.payment_method === 'VIRTUAL_CARD' ? reservationForm.check_in : undefined,
-    payment_charge_window_end: reservationForm.payment_method === 'VIRTUAL_CARD' && reservationForm.check_out ? format(addDays(localDate(reservationForm.check_out), 7), 'yyyy-MM-dd') : undefined,
+    payment_method: 'BILLED',
+    payment_token_status: undefined,
+    payment_charge_status: 'not_applicable',
+    payment_token_provider: undefined,
+    payment_charge_window_start: undefined,
+    payment_charge_window_end: undefined,
     billing_info: reservationForm.billing_info,
     requested_by: reservationForm.requested_by,
     occupancy_type: reservationForm.occupancy_type,
@@ -888,7 +888,6 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       const requestForm = { ...reservationForm, tariff: tariffValue };
       const reservationTotals = calculateReservationTotal(requestForm);
       const { iss_enabled, service_enabled, pax_names: _formPax, ...reservationValues } = reservationForm;
-      const virtualCardWindowEnd = format(addDays(localDate(reservationForm.check_out), 7), 'yyyy-MM-dd');
       const newRequest: ReservationRequest = {
         ...reservationValues,
         tariff: tariffValue,
@@ -898,11 +897,12 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
         service_tax: reservationForm.service_enabled ? reservationForm.service_tax : 0,
         occupancy_type: reservationForm.occupancy_type,
         billing_profile_id: reservationForm.billing_profile_id || undefined,
-        payment_token_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending_token' : undefined,
-        payment_charge_status: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'pending' : 'not_applicable',
-        payment_token_provider: reservationForm.payment_method === 'VIRTUAL_CARD' ? 'gateway_tokenized' : undefined,
-        payment_charge_window_start: reservationForm.payment_method === 'VIRTUAL_CARD' ? reservationForm.check_in : undefined,
-        payment_charge_window_end: reservationForm.payment_method === 'VIRTUAL_CARD' ? virtualCardWindowEnd : undefined,
+        payment_method: 'BILLED',
+        payment_token_status: undefined,
+        payment_charge_status: 'not_applicable',
+        payment_token_provider: undefined,
+        payment_charge_window_start: undefined,
+        payment_charge_window_end: undefined,
         property_scope: 'default',
         company_id: profile.company_id!,
         reservation_code: resCode,
@@ -921,30 +921,13 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       if (error) throw error;
 
       toast.success('Solicitação de reserva enviada!');
-      if (reservationForm.payment_method === 'VIRTUAL_CARD' && insertedRequest?.id) {
-        const { error: tokenError } = await supabase
-          .from('reservation_payment_tokens')
-          .insert([{
-            reservation_request_id: insertedRequest.id,
-            company_id: profile.company_id!,
-            provider: 'gateway_tokenized',
-            property_scope: 'default',
-            expected_amount: reservationTotals.total,
-            charge_window_start: reservationForm.check_in,
-            charge_window_end: virtualCardWindowEnd,
-            status: 'pending_token',
-            created_by: profile.id,
-          }]);
-        if (tokenError) throw tokenError;
-      }
-
       setShowReservationForm(false);
       setViewingVoucher((insertedRequest || newRequest) as ReservationRequest);
       fetchReservations();
       
-      // Notify admin, reservations and reception roles
+      // Notify Reservas Channel staff: reservas and financeiro/faturamento see the same request.
       const { data: staffToNotify } = await supabase.from('profiles').select('id, role');
-      const notifyRoles = ['admin', 'reservations', 'reception'];
+      const notifyRoles = ['admin', 'reservations', 'finance', 'faturamento'];
       const recipients = (staffToNotify || []).filter((u: any) => notifyRoles.includes(u.role));
       for (const recipient of recipients) {
         await sendNotification({
@@ -985,7 +968,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
       service_tax: existingRes.service_tax || 10,
       occupancy_type: existingRes.occupancy_type || deriveOccupancyType(existingRes.guests_per_uh),
       billing_profile_id: existingRes.billing_profile_id || '',
-      payment_method: existingRes.payment_method || 'BILLED',
+      payment_method: 'BILLED',
       requested_by: existingRes.requested_by || profile.name || '',
       billing_obs: existingRes.billing_obs || '',
       billing_info: existingRes.billing_info || ''
@@ -1005,7 +988,7 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
 
     try {
       const { data: staffToNotify } = await supabase.from('profiles').select('id, role');
-      const notifyRoles = ['admin', 'reservations', 'reception'];
+      const notifyRoles = ['admin', 'reservations', 'finance', 'faturamento'];
       const recipients = (staffToNotify || []).filter((u: any) => notifyRoles.includes(u.role));
 
       for (const recipient of recipients) {
@@ -2670,13 +2653,15 @@ export default function ClientDashboard({ profile, initialTab = 'active' }: { pr
                   <div>
                     <label className="block text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2">Forma de Pagamento</label>
                     <select
-                      value={reservationForm.payment_method}
-                      onChange={(e) => setReservationForm({...reservationForm, payment_method: e.target.value as any})}
+                      value="BILLED"
+                      onChange={() => setReservationForm({ ...reservationForm, payment_method: 'BILLED' })}
                       className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900/5 transition-all"
                     >
                       <option value="BILLED">Faturado para Empresa</option>
-                      <option value="VIRTUAL_CARD">Cartão Virtual / Voucher</option>
                     </select>
+                    <p className="mt-2 text-xs font-bold text-neutral-500">
+                      Cartao virtual sera liberado em uma fase futura. Neste momento o portal B2B trabalha somente faturado.
+                    </p>
                   </div>
 
                   {reservationForm.payment_method === 'VIRTUAL_CARD' && (

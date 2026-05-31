@@ -283,3 +283,40 @@ Campos que saem da configuracao:
 - Credenciais Cielo nao podem trafegar pelo navegador depois de salvas.
 - Dados de cartao completo e CVV nao devem ser persistidos.
 - Filtros de UI nao substituem politicas no banco e validacoes em Edge Functions.
+
+## Atualizacao: portal B2B faturado
+
+O Reservas Channel passa a operar como portal B2B isolado do PMS para o fluxo faturado.
+
+Escopo entregue nesta fase:
+
+- `/reservas-channel` tem landing propria e login direto do portal.
+- O cliente externo continua solicitando reservas pelo `ClientDashboard`.
+- Toda nova solicitacao do cliente notifica os perfis `admin`, `reservations`, `finance` e `faturamento`.
+- A reserva publica tambem notifica `finance` e `faturamento`, alem de reservas.
+- O portal interno do Reservas Channel tem a aba `Mesa B2B` para acompanhar solicitacoes, aprovar como faturado e avisar financeiro/faturamento.
+- A aba `Faturamento` mostra reservas com `payment_method = BILLED`, documentos vinculados e acao de aviso ao financeiro.
+- `Vinculos e Voucher` permanece dentro do Reservas Channel e nao deve ser exposto ao cliente externo.
+
+Regra atual de cobranca:
+
+- Forma padrao: `BILLED`.
+- Nao solicitar numero de cartao completo, CVV ou dados sensiveis no PMS.
+- Cartao virtual fica apenas como roadmap/preparacao tecnica; a cobranca real por gateway sera tratada em fase futura, server-side, com credenciais por propriedade.
+
+Fluxo operacional atual:
+
+1. Cliente cria solicitacao de reserva no portal externo.
+2. `reservation_requests` recebe o pedido com status `REQUESTED`.
+3. Reservas, financeiro e faturamento recebem notificacao interna.
+4. Reservas aprova na `Mesa B2B`.
+5. O sistema cria uma reserva confirmada com pagamento `BILLED`.
+6. Financeiro/faturamento acompanha a reserva na fila de faturamento do Reservas Channel.
+7. Documentos fiscais podem ser anexados e vinculados pela reserva/codigo.
+
+Pendencias para a fase de banco:
+
+- Criar campos persistentes para `channel_source`, `assigned_to`, `notified_at`, `finance_notified_at`, `billing_status` e `billing_owner_id`.
+- Criar helper unico `notifyReservationRequestCreated` para portal do cliente, booking publico e parser de email.
+- Trocar avisos manuais por log persistente de sincronizacao por destinatario.
+- Testar RLS com perfis `client`, `reservations`, `finance` e `faturamento`.

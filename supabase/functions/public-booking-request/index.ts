@@ -63,7 +63,7 @@ serve(async (req) => {
       const { data: reservationTeam } = await adminClient
         .from("profiles")
         .select("id")
-        .in("role", ["admin", "reservations"]);
+        .in("role", ["admin", "reservations", "finance", "faturamento"]);
       if (reservationTeam?.length) {
         await adminClient.from("notifications").insert(
           reservationTeam.map((member: { id: string }) => ({
@@ -143,7 +143,7 @@ serve(async (req) => {
     const { data: reservationTeam } = await adminClient
       .from("profiles")
       .select("id")
-      .in("role", ["admin", "reservations"]);
+      .in("role", ["admin", "reservations", "finance", "faturamento"]);
 
     if (reservationTeam?.length) {
       const quoteSummary = quoteResult.available

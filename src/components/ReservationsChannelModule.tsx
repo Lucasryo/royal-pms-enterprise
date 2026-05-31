@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import {
-  Activity, Bell, Building2, CalendarDays, ChevronRight, CreditCard, Hotel,
-  Link2, LogOut, Menu, Search, Settings, ShieldCheck, Sparkles, WalletCards,
+  Activity, Bell, Building2, CalendarDays, ChevronRight, CreditCard, FileText, Hotel,
+  Link2, LogOut, Menu, Search, ShieldCheck, Sparkles, WalletCards,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase } from '../supabase';
 import B2BVirtualCardBilling from './finance/B2BVirtualCardBilling';
 import AdminRegistrationCenter from './AdminRegistrationCenter';
+import ReservationsChannelB2BDesk from './ReservationsChannelB2BDesk';
 
-type ChannelTab = 'billing' | 'gateway' | 'b2b-settings';
+type ChannelTab = 'desk' | 'billing' | 'gateway' | 'b2b-settings';
 
 const tabs: Array<{
   id: ChannelTab;
@@ -18,18 +19,25 @@ const tabs: Array<{
   icon: typeof CreditCard;
 }> = [
   {
+    id: 'desk',
+    label: 'Mesa B2B',
+    eyebrow: 'Solicitacoes',
+    description: 'Entrada do cliente, aprovacao e sincronizacao com faturamento.',
+    icon: Activity,
+  },
+  {
     id: 'billing',
-    label: 'Cobranças',
-    eyebrow: 'Virtual card desk',
-    description: 'Pesquisa, conciliação e ação financeira por reserva.',
-    icon: CreditCard,
+    label: 'Faturamento',
+    eyebrow: 'Billed desk',
+    description: 'Reservas faturadas, documentos e avisos ao financeiro.',
+    icon: FileText,
   },
   {
     id: 'gateway',
-    label: 'Gateway',
-    eyebrow: 'Configuração',
-    description: 'Regras de captura, provedor e janela de cobrança.',
-    icon: Settings,
+    label: 'Cartao futuro',
+    eyebrow: 'Roadmap',
+    description: 'Preparacao para token e cobranca por cartao em fase futura.',
+    icon: CreditCard,
   },
   {
     id: 'b2b-settings',
@@ -41,7 +49,7 @@ const tabs: Array<{
 ];
 
 export default function ReservationsChannelModule({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<ChannelTab>('billing');
+  const [activeTab, setActiveTab] = useState<ChannelTab>('desk');
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const initials = useMemo(() => {
     const parts = profile.name.trim().split(/\s+/).slice(0, 2);
@@ -163,14 +171,14 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
                   <span className="text-[10px] font-black uppercase tracking-[0.22em] text-white/70">{active.eyebrow}</span>
                 </div>
                 <h2 className="mt-5 max-w-3xl text-3xl font-black tracking-tight sm:text-4xl lg:text-5xl">
-                  Central viva para reservas corporativas, cartões virtuais e vouchers B2B.
+                  Central viva para reservas corporativas, faturamento e vouchers B2B.
                 </h2>
                 <p className="mt-4 max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
                   {active.description} Tudo separado do PMS operacional para o time de reservas e financeiro trabalhar com foco.
                 </p>
                 <div className="mt-6 grid max-w-3xl gap-3 sm:grid-cols-3">
                   <HeroMetric icon={CalendarDays} label="Janela ativa" value="7 dias" />
-                  <HeroMetric icon={WalletCards} label="Fluxo" value="B2B card" />
+                  <HeroMetric icon={WalletCards} label="Fluxo" value="Faturado" />
                   <HeroMetric icon={Activity} label="Status" value="Ao vivo" />
                 </div>
               </div>
@@ -229,7 +237,8 @@ export default function ReservationsChannelModule({ profile }: { profile: UserPr
           </div>
 
           <section className="min-w-0">
-            {activeTab === 'billing' && <B2BVirtualCardBilling profile={profile} shell="channel" initialTab="charges" />}
+            {activeTab === 'desk' && <ReservationsChannelB2BDesk profile={profile} />}
+            {activeTab === 'billing' && <ReservationsChannelB2BDesk profile={profile} />}
             {activeTab === 'gateway' && <B2BVirtualCardBilling profile={profile} shell="channel" initialTab="settings" />}
             {activeTab === 'b2b-settings' && (
               <div className="rounded-[2rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
@@ -252,3 +261,4 @@ function HeroMetric({ icon: Icon, label, value }: { icon: typeof CalendarDays; l
     </div>
   );
 }
+
