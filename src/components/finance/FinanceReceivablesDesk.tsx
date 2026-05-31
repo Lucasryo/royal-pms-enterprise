@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabase';
 import { AuditLog, Company, FiscalFile, UserProfile } from '../../types';
 import { fileStatus, fmtDate, isFinancialFile, money, moneyShort, startOfToday } from './shared';
@@ -7,13 +7,22 @@ import {
   BarChart3,
   BellRing,
   Building2,
+  Calendar,
+  ChevronRight,
   CheckCircle2,
+  Clock as ClockIcon,
   ClipboardList,
   Copy,
+  DollarSign,
+  Eye,
+  FileText,
   Loader2,
   Mail,
   MessageSquare,
+  Printer,
   RefreshCw,
+  Search,
+  Sliders,
   Settings2,
   ShieldAlert,
   TrendingUp,
@@ -33,7 +42,8 @@ import { toast } from 'sonner';
 import { logAudit } from '../../lib/audit';
 
 type Risk = 'Baixo' | 'Medio' | 'Critico';
-type DeskTab = 'analytics' | 'companies' | 'parser' | 'billing' | 'rules';
+type DeskTab = 'analytics' | 'companies' | 'billing' | 'parser' | 'docs';
+type BillingFilter = 'all' | 'overdue' | 'upcoming';
 type ParsedInvoice = {
   invoiceNum: string;
   issueDate: string;
@@ -170,6 +180,14 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Record<string, boolean>>({});
   const [billingLevel, setBillingLevel] = useState<'1' | '2' | '3'>('2');
   const [billingChannel, setBillingChannel] = useState<'email' | 'whatsapp'>('email');
+  const [billingFilter, setBillingFilter] = useState<BillingFilter>('all');
+  const [companySearch, setCompanySearch] = useState('');
+  const [riskFilter, setRiskFilter] = useState<Risk | 'Todos'>('Todos');
+  const [expandedCompanyId, setExpandedCompanyId] = useState('');
+  const [showAgreement, setShowAgreement] = useState(false);
+  const [agreementDiscount, setAgreementDiscount] = useState(10);
+  const [agreementDownPayment, setAgreementDownPayment] = useState(20);
+  const [agreementInstallments, setAgreementInstallments] = useState(3);
   const [rules, setRules] = useState<CreditRules>(() => {
     try {
       return JSON.parse(localStorage.getItem('royal_credit_rules') || '') || DEFAULT_RULES;
@@ -304,9 +322,24 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
   const topCompanies = exposures.slice(0, 8);
   const criticalCompanies = exposures.filter((company) => company.risk === 'Critico');
   const billingCompany = exposures.find((company) => company.companyId === selectedCompanyId) || exposures.find((company) => company.overdue > 0) || exposures[0];
-  const billingInvoices = (billingCompany?.invoices || []).filter((file) => file.status !== 'PAID' && file.status !== 'CANCELLED');
+  const billingInvoices = (billingCompany?.invoices || []).filter((file) => {
+    if (file.status === 'PAID' || file.status === 'CANCELLED') return false;
+    if (billingFilter === 'overdue') return fileStatus(file) === 'overdue' || fileStatus(file) === 'disputed';
+    if (billingFilter === 'upcoming') return fileStatus(file) === 'pending';
+    return true;
+  });
   const selectedBillingInvoices = billingInvoices.filter((file) => selectedInvoiceIds[file.id] ?? fileStatus(file) === 'overdue');
   const selectedBillingTotal = selectedBillingInvoices.reduce((sum, file) => sum + Number(file.amount || 0), 0);
+  const selectedAgreementBase = selectedBillingTotal * (1 - agreementDiscount / 100);
+  const selectedAgreementDown = selectedAgreementBase * (agreementDownPayment / 100);
+  const selectedAgreementInstallment = agreementInstallments > 0 ? (selectedAgreementBase - selectedAgreementDown) / agreementInstallments : 0;
+  const filteredCompanies = exposures.filter((company) => {
+    const q = companySearch.trim().toLowerCase();
+    const matchesSearch = !q || company.name.toLowerCase().includes(q) || (company.cnpj || '').includes(q);
+    const matchesRisk = riskFilter === 'Todos' || company.risk === riskFilter;
+    return matchesSearch && matchesRisk;
+  });
+  const concentration = topCompanies.reduce((sum, company) => sum + company.total, 0);
   const pcldCount = files.filter((file) => !file.is_deleted && fileStatus(file) === 'overdue' && daysOverdue(file.due_date || file.dueDate) > 360).length;
   const dueSoonCount = files.filter((file) => {
     if (file.is_deleted || file.status === 'PAID' || file.status === 'CANCELLED') return false;
@@ -436,10 +469,13 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
       '3': 'Escalada critica',
     };
     const subject = `[${levelLabels[billingLevel]}] Titulos em aberto - Royal Macae Palace - ${billingCompany.name}`;
+    const agreementBlock = showAgreement
+      ? `\n\nPROPOSTA DE ACORDO:\nValor com desconto (${agreementDiscount}%): ${money(selectedAgreementBase)}\nEntrada (${agreementDownPayment}%): ${money(selectedAgreementDown)}\nSaldo em ${agreementInstallments} parcela(s): ${money(selectedAgreementInstallment)} cada\n`
+      : '';
     const body = billingChannel === 'email'
       ? `Prezados,\n\nIdentificamos titulos em aberto vinculados a ${companyLine}.\n\n${invoiceList}\n\nTotal selecionado: ${money(selectedBillingTotal)}\n\n${billingLevel === '1' ? 'Solicitamos conferencia e previsao de pagamento. Caso ja tenha sido liquidado, envie o comprovante para conciliacao.' : billingLevel === '2' ? 'Solicitamos regularizacao em ate 48 horas ou retorno com previsao formal de pagamento.' : 'Esta notificacao representa escalada critica da regua de cobranca. A ausencia de retorno podera bloquear novas condicoes comerciais e seguir para tratativa gerencial.'}\n\nAtenciosamente,\nFinanceiro Royal Macae Palace`
       : `*Royal Macae Palace - ${levelLabels[billingLevel]}*\n\nEmpresa: *${companyLine}*\n\n${invoiceList}\n\n*Total:* ${money(selectedBillingTotal)}\n\n${billingLevel === '1' ? 'Pode nos confirmar a previsao de pagamento?' : billingLevel === '2' ? 'Solicitamos regularizacao ou previsao formal em ate 48h.' : 'Pendencia em escalada critica. Precisamos de retorno do financeiro para evitar bloqueios comerciais.'}`;
-    return { subject, body };
+    return { subject, body: body + agreementBlock };
   }
 
   async function copyBillingText() {
@@ -457,53 +493,96 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
   }
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-600">Recebiveis B2B</p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-neutral-950">Painel financeiro corporativo</h2>
-            <p className="mt-1 max-w-2xl text-sm font-medium leading-6 text-neutral-500">
-              Aging, risco por empresa, alertas de cobranca e regras de credito usando as faturas reais do PMS.
-            </p>
+    <div className="space-y-6 bg-[#f6f8fb] p-1 text-slate-900">
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#4f46e5] text-white shadow-lg shadow-indigo-500/20">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-black tracking-tight text-slate-950">Royal Macae Palace Hotel</h2>
+              <p className="text-[11px] font-medium tracking-wide text-slate-500">SaaS Receivables & Delinquency Engine</p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'analytics', label: 'Analise', icon: BarChart3 },
-              { id: 'companies', label: 'Empresas', icon: Building2 },
-              { id: 'parser', label: 'Parser MD', icon: Upload },
-              { id: 'billing', label: 'Regua de Cobranca', icon: BellRing },
-              { id: 'rules', label: 'Regras', icon: Settings2 },
-            ].map((item) => {
-              const Icon = item.icon;
-              const active = tab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setTab(item.id as DeskTab)}
-                  className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black transition ${
-                    active ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500 hover:text-neutral-950'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {item.label}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+              <Calendar className="h-3.5 w-3.5" />
+              Ref. operacao: {new Date().toLocaleDateString('pt-BR')}
+            </span>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#4f46e5] px-4 py-2 text-xs font-black text-white shadow-lg shadow-indigo-500/20"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Exportar Relatorio (PDF)
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 py-5">
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-white p-2 text-indigo-600 shadow-sm">
+                  <TrendingUp className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-indigo-950">Dashboard de Demonstracao e Exportacao SaaS</p>
+                  <p className="mt-0.5 text-xs font-medium text-indigo-700">
+                    Cole relatórios em Markdown, gere faturas automaticamente e dispare a régua consolidada.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={fetchAll}
+                className="w-fit rounded-xl bg-indigo-100 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-indigo-700"
+              >
+                Resetar banco integrado
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard title="Total geral em carteira" value={money(stats.totalReceivable)} detail={`${exposures.length} empresas ativas`} icon={DollarSign} tone="neutral" />
+        <KpiCard title="Vencidos (inadimplencia)" value={money(stats.totalOverdue)} detail={`Taxa: ${stats.delinquencyRate.toFixed(1)}% da carteira`} icon={AlertTriangle} tone="red" />
+        <KpiCard title="A vencer (fluxo futuro)" value={money(stats.totalUpcoming)} detail="Faturamento em dia" icon={Calendar} tone="emerald" />
+        <KpiCard title="Atraso medio de divida" value={`${stats.averageDelay} dias`} detail={stats.averageDelay > rules.criticalOverdueDays ? 'Risco de provisao alto' : 'Carteira sob controle'} icon={ClockIcon} tone="amber" />
+      </div>
+
+      <div className="flex max-w-full gap-3 overflow-x-auto border-b border-slate-200 pb-3">
+        {[
+          { id: 'analytics', label: 'Monitor de Saude & Graficos', icon: BarChart3 },
+          { id: 'companies', label: 'Faturas por Empresa', icon: FileText },
+          { id: 'billing', label: 'Regua de Cobranca (Geral)', icon: BellRing },
+          { id: 'parser', label: 'Simulador / Importador ERP', icon: Sliders },
+          { id: 'docs', label: 'Documentacao / Como Fazer?', icon: Settings2 },
+        ].map((item) => {
+          const Icon = item.icon;
+          const active = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id as DeskTab)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-black transition ${
+                active ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:bg-white hover:text-slate-950'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {item.label}
+              {item.id === 'analytics' && criticalCompanies.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />}
+            </button>
+          );
+        })}
+      </div>
+
       {tab === 'analytics' && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard title="A receber" value={moneyShort(stats.totalReceivable)} detail={money(stats.totalReceivable)} icon={TrendingUp} tone="neutral" />
-            <KpiCard title="Vencido" value={moneyShort(stats.totalOverdue)} detail={`${stats.overdueInvoices} fatura(s)`} icon={AlertTriangle} tone="red" />
-            <KpiCard title="A vencer" value={moneyShort(stats.totalUpcoming)} detail="fluxo futuro" icon={CheckCircle2} tone="emerald" />
-            <KpiCard title="Risco critico" value={String(stats.criticalCount)} detail={`${stats.delinquencyRate.toFixed(1)}% inadimplencia`} icon={ShieldAlert} tone="amber" />
-          </div>
-
           <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
@@ -569,49 +648,116 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
       )}
 
       {tab === 'companies' && (
-        <div className="rounded-3xl border border-neutral-200 bg-white shadow-sm">
-          <div className="border-b border-neutral-100 p-5">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400">Carteira corporativa</p>
-            <h3 className="mt-1 text-lg font-black text-neutral-950">Empresas por exposicao financeira</h3>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-wide text-slate-950">Detalhamento operacional por empresa</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">Exibindo {filteredCompanies.length} de {exposures.length} empresas com faturas em aberto.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={companySearch}
+                  onChange={(event) => setCompanySearch(event.target.value)}
+                  placeholder="Pesquisar por empresa ou CNPJ..."
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 sm:w-72"
+                />
+              </div>
+              <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                {(['Todos', 'Critico', 'Medio', 'Baixo'] as const).map((risk) => (
+                  <button
+                    key={risk}
+                    type="button"
+                    onClick={() => setRiskFilter(risk)}
+                    className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${riskFilter === risk ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    {risk === 'Todos' ? 'Todos' : risk}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-left text-sm">
-              <thead className="bg-neutral-50 text-[10px] font-black uppercase tracking-widest text-neutral-400">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-500">
                 <tr>
-                  <th className="px-5 py-4">Empresa</th>
-                  <th className="px-5 py-4 text-right">A receber</th>
-                  <th className="px-5 py-4 text-right">Vencido</th>
-                  <th className="px-5 py-4 text-center">Atraso</th>
-                  <th className="px-5 py-4 text-center">Faturas</th>
-                  <th className="px-5 py-4">Risco</th>
-                  <th className="px-5 py-4">Proxima acao</th>
+                  <th className="px-5 py-4">Cooperado / Empresa</th>
+                  <th className="px-5 py-4 text-right">Total carteira</th>
+                  <th className="px-5 py-4 text-right text-rose-600">Inadimplente (vencido)</th>
+                  <th className="px-5 py-4 text-center">Aval de risco</th>
+                  <th className="px-5 py-4 text-right">Acoes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
-                {topCompanies.map((company) => (
-                  <tr key={company.companyId} className="hover:bg-neutral-50/70">
-                    <td className="px-5 py-4">
-                      <p className="font-black text-neutral-950">{company.name}</p>
-                      <p className="mt-0.5 text-xs text-neutral-400">{company.cnpj || 'CNPJ nao informado'}</p>
-                    </td>
-                    <td className="px-5 py-4 text-right font-black text-neutral-950">{money(company.total)}</td>
-                    <td className="px-5 py-4 text-right font-black text-red-600">{money(company.overdue)}</td>
-                    <td className="px-5 py-4 text-center font-bold text-neutral-600">{company.oldestOverdueDays || '-'}d</td>
-                    <td className="px-5 py-4 text-center font-bold text-neutral-600">{company.count}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase ring-1 ${RISK_TONE[company.risk]}`}>
-                        {company.risk}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-xs font-bold text-neutral-500">
-                      {company.risk === 'Critico'
-                        ? 'Escalar cobranca e revisar limite'
-                        : company.risk === 'Medio'
-                          ? 'Enviar lembrete preventivo'
-                          : 'Manter acompanhamento'}
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-slate-100">
+                {filteredCompanies.map((company) => {
+                  const expanded = expandedCompanyId === company.companyId;
+                  const overduePercent = company.total > 0 ? Math.round((company.overdue / company.total) * 100) : 0;
+                  return (
+                    <Fragment key={company.companyId}>
+                      <tr className="hover:bg-slate-50/70">
+                        <td className="px-5 py-4">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedCompanyId(expanded ? '' : company.companyId)}
+                            className="mr-3 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                          >
+                            <ChevronRight className={`h-4 w-4 transition ${expanded ? 'rotate-90' : ''}`} />
+                          </button>
+                          <span className="inline-block align-middle">
+                            <span className="block font-black text-slate-950">{company.name}</span>
+                            <span className="mt-0.5 block font-mono text-[11px] text-slate-400">CNPJ: {company.cnpj || 'nao informado'}</span>
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right font-mono font-bold text-slate-950">{money(company.total)}</td>
+                        <td className="px-5 py-4 text-right font-mono font-black text-rose-600">
+                          {company.overdue > 0 ? (
+                            <>
+                              {money(company.overdue)}
+                              <span className="block text-[10px]">({overduePercent}% atrasado)</span>
+                            </>
+                          ) : '-'}
+                        </td>
+                        <td className="px-5 py-4 text-center">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${RISK_TONE[company.risk]}`}>
+                            {company.risk}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCompanyId(company.companyId);
+                              setSelectedInvoiceIds({});
+                              setTab('billing');
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-600 hover:border-indigo-200 hover:text-indigo-700"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Faturas
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr className="bg-slate-50/70">
+                          <td colSpan={5} className="px-12 py-4">
+                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                              {company.invoices.slice(0, 9).map((file) => (
+                                <div key={file.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="truncate text-xs font-black text-slate-800">{(file.original_name || 'Fatura').split(' - ')[0]}</p>
+                                    <p className="text-xs font-black text-slate-950">{money(Number(file.amount || 0))}</p>
+                                  </div>
+                                  <p className="mt-1 text-[11px] font-medium text-slate-400">Vcto {fmtDate(file.due_date || file.dueDate)} | {daysOverdue(file.due_date || file.dueDate)}d atraso</p>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -697,95 +843,231 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
       )}
 
       {tab === 'billing' && (
-        <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-600">Regua de Cobranca</p>
-            <h3 className="mt-1 text-lg font-black text-neutral-950">Selecione a empresa e os titulos</h3>
-            <select
-              value={billingCompany?.companyId || ''}
-              onChange={(event) => {
-                setSelectedCompanyId(event.target.value);
-                setSelectedInvoiceIds({});
-              }}
-              className="mt-5 w-full rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold outline-none focus:border-neutral-950 focus:bg-white"
-            >
-              {exposures.map((company) => (
-                <option key={company.companyId} value={company.companyId}>{company.name} - {money(company.overdue || company.total)}</option>
-              ))}
-            </select>
-
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {(['1', '2', '3'] as const).map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  onClick={() => setBillingLevel(level)}
-                  className={`rounded-xl px-3 py-2 text-xs font-black transition ${billingLevel === level ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500'}`}
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="grid gap-4 lg:grid-cols-[1fr_390px] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+                  <BellRing className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-950">Regua de Cobranca Consolidada</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    Selecione faturas agregadas por devedor, configure o template e gere mensagens com o valor original dos titulos.
+                  </p>
+                </div>
+              </div>
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Empresa devedora</span>
+                <select
+                  value={billingCompany?.companyId || ''}
+                  onChange={(event) => {
+                    setSelectedCompanyId(event.target.value);
+                    setSelectedInvoiceIds({});
+                  }}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold outline-none focus:border-indigo-500 focus:bg-white"
                 >
-                  Nivel {level}
-                </button>
-              ))}
-              {(['email', 'whatsapp'] as const).map((channel) => (
-                <button
-                  key={channel}
-                  type="button"
-                  onClick={() => setBillingChannel(channel)}
-                  className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-black transition ${billingChannel === channel ? 'bg-emerald-600 text-white' : 'bg-neutral-100 text-neutral-500'}`}
-                >
-                  {channel === 'email' ? <Mail className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
-                  {channel}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-5 max-h-[440px] space-y-2 overflow-y-auto pr-1">
-              {billingInvoices.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-neutral-200 p-8 text-center text-sm text-neutral-400">Sem titulos abertos.</div>
-              ) : billingInvoices.map((file) => {
-                const selected = selectedInvoiceIds[file.id] ?? fileStatus(file) === 'overdue';
-                return (
-                  <button
-                    key={file.id}
-                    type="button"
-                    onClick={() => toggleBillingInvoice(file.id)}
-                    className={`w-full rounded-2xl border p-4 text-left transition ${selected ? 'border-neutral-950 bg-neutral-950 text-white' : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-white'}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-black">{(file.original_name || 'Fatura').split(' - ')[0]}</span>
-                      <span className="text-sm font-black">{money(Number(file.amount || 0))}</span>
-                    </div>
-                    <p className={`mt-1 text-xs ${selected ? 'text-white/55' : 'text-neutral-400'}`}>Vencimento {fmtDate(file.due_date || file.dueDate)} | atraso {daysOverdue(file.due_date || file.dueDate)}d</p>
-                  </button>
-                );
-              })}
+                  {exposures.map((company) => (
+                    <option key={company.companyId} value={company.companyId}>{company.name} [{money(company.overdue || company.total)}]</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400">Texto gerado</p>
-                <h3 className="mt-1 text-lg font-black text-neutral-950">{billingChannel === 'email' ? 'E-mail de cobranca' : 'WhatsApp financeiro'}</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
+                <p className="text-[10px] font-black uppercase tracking-widest">Multas por atraso isento</p>
+                <p className="mt-2 text-xs leading-5">Nao ha incidencia de taxas de multas de atraso. Os titulos sao unificados pelo valor historico de emissao.</p>
               </div>
-              <button onClick={copyBillingText} className="flex items-center gap-2 rounded-xl bg-neutral-950 px-3 py-2 text-xs font-black text-white">
-                <Copy className="h-3.5 w-3.5" />
-                Copiar
-              </button>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
+                <p className="text-[10px] font-black uppercase tracking-widest">Juros de mora isento</p>
+                <p className="mt-2 text-xs leading-5">A cobranca de juros esta permanentemente desativada no monitoramento do hotel corporativo.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Status geral</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="font-black text-slate-950">{billingCompany?.name || 'Sem empresa'}</p>
+                  {billingCompany && <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${RISK_TONE[billingCompany.risk]}`}>Risco: {billingCompany.risk}</span>}
+                </div>
+              </div>
             </div>
-            <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-              {billingChannel === 'email' && (
-                <p className="mb-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-neutral-700">
-                  Assunto: {generateBillingText().subject}
-                </p>
-              )}
-              <pre className="max-h-[560px] whitespace-pre-wrap font-sans text-sm leading-6 text-neutral-700">{generateBillingText().body}</pre>
+
+            <div className="mb-4 flex flex-col gap-3 border-y border-slate-100 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                {[
+                  ['all', `Todas (${billingCompany?.count || 0})`],
+                  ['overdue', `Vencidas (${billingCompany?.overdueCount || 0})`],
+                  ['upcoming', `A vencer (${billingCompany?.upcomingCount || 0})`],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setBillingFilter(id as BillingFilter)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-black ${billingFilter === id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-3 text-xs font-black text-indigo-700">
+                <button
+                  type="button"
+                  onClick={() => setSelectedInvoiceIds(Object.fromEntries(billingInvoices.map((file) => [file.id, true])))}
+                >
+                  Marcar visiveis ({billingInvoices.length})
+                </button>
+                <button type="button" onClick={() => setSelectedInvoiceIds({})} className="text-slate-500">Limpar visiveis</button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full min-w-[880px] text-left text-sm">
+                <thead className="bg-slate-50 text-[11px] font-black text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Incluir</th>
+                    <th className="px-4 py-3">Titulo</th>
+                    <th className="px-4 py-3">Emissao</th>
+                    <th className="px-4 py-3">Data Vcto</th>
+                    <th className="px-4 py-3 text-right">Valor Original</th>
+                    <th className="px-4 py-3 text-center">Atraso</th>
+                    <th className="px-4 py-3 text-right">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {billingInvoices.map((file) => {
+                    const delay = daysOverdue(file.due_date || file.dueDate);
+                    const selected = selectedInvoiceIds[file.id] ?? fileStatus(file) === 'overdue';
+                    return (
+                      <tr key={file.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <input type="checkbox" checked={selected} onChange={() => toggleBillingInvoice(file.id)} className="h-4 w-4 accent-indigo-600" />
+                        </td>
+                        <td className="px-4 py-3 font-mono font-black text-slate-700">{(file.original_name || 'Fatura').split(' - ')[0]}</td>
+                        <td className="px-4 py-3 text-slate-400">{fmtDate(file.upload_date || file.uploadDate)}</td>
+                        <td className="px-4 py-3">{fmtDate(file.due_date || file.dueDate)}</td>
+                        <td className="px-4 py-3 text-right font-mono">{money(Number(file.amount || 0))}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-black ${delay > 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                            {delay > 0 ? `${delay}d vencido` : `${Math.abs(delay)}d regular`}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-black text-indigo-700">{selected ? money(Number(file.amount || 0)) : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[390px_1fr]">
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-black uppercase tracking-wide text-slate-950">Sumario do lote selecionado</p>
+                <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Faturas em lote</span><b>{selectedBillingInvoices.length} titulos</b></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Subtotal original</span><b>{money(selectedBillingTotal)}</b></div>
+                  <div className="flex justify-between border-t border-dashed border-slate-200 pt-4 text-lg font-black text-indigo-700">
+                    <span>Total consolidado</span><span>{money(selectedBillingTotal)}</span>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800">
+                  Isencao de encargos ativa: nao aplicamos multas ou juros de mora.
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Simulador</p>
+                <h4 className="mt-1 text-sm font-black text-slate-950">Negociar acordo de boleto / promissoria</h4>
+                <label className="mt-4 flex items-center gap-2 text-xs font-black text-indigo-700">
+                  <input type="checkbox" checked={showAgreement} onChange={(event) => setShowAgreement(event.target.checked)} className="h-4 w-4 accent-indigo-600" />
+                  Habilitar acordo parcelado
+                </label>
+                {showAgreement && (
+                  <div className="mt-4 grid gap-3">
+                    <NumberMini label="Desconto %" value={agreementDiscount} onChange={setAgreementDiscount} />
+                    <NumberMini label="Entrada %" value={agreementDownPayment} onChange={setAgreementDownPayment} />
+                    <NumberMini label="Parcelas" value={agreementInstallments} onChange={setAgreementInstallments} />
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl bg-[#191756] p-5 text-white shadow-sm">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-white/55">Regua corporativa ativa</p>
+                {['Reconciliacao e Notificacao', 'Atestado Oficial', 'Notificacao em Lote'].map((step, index) => (
+                  <div key={step} className="mt-4 flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-xs font-black">{index + 1}</span>
+                    <div>
+                      <p className="text-xs font-black">{step}</p>
+                      <p className="mt-1 text-[11px] leading-4 text-white/65">
+                        {index === 0 ? 'Disparo amigavel de e-mails detalhados.' : index === 1 ? 'Aviso formalizado para diretoria de compras.' : 'Procedimento final antes de bloqueios comerciais.'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex rounded-xl bg-slate-100 p-1">
+                  {(['email', 'whatsapp'] as const).map((channel) => (
+                    <button key={channel} type="button" onClick={() => setBillingChannel(channel)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-black ${billingChannel === channel ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}>
+                      {channel === 'email' ? <Mail className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
+                      {channel === 'email' ? 'E-mail HTML' : 'WhatsApp'}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex rounded-xl bg-slate-100 p-1">
+                  {(['1', '2', '3'] as const).map((level) => (
+                    <button key={level} type="button" onClick={() => setBillingLevel(level)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-black ${billingLevel === level ? 'bg-amber-100 text-amber-700 shadow-sm' : 'text-slate-500'}`}>
+                      Nivel {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                {billingChannel === 'email' && <p className="mb-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-700">Assunto: {generateBillingText().subject}</p>}
+                <pre className="min-h-[360px] max-h-[560px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-4 font-mono text-xs leading-6 text-slate-800 shadow-inner">{generateBillingText().body}</pre>
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <button onClick={copyBillingText} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm">
+                  <Copy className="h-4 w-4" />
+                  Copiar canal consolidado
+                </button>
+                <button onClick={copyBillingText} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-indigo-500/20">
+                  <MessageSquare className="h-4 w-4" />
+                  Disparar lote integrado
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {tab === 'rules' && (
+      {tab === 'docs' && (
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400">Documentacao operacional</p>
+            <h3 className="mt-1 text-lg font-black text-neutral-950">Como usar o motor financeiro</h3>
+            <div className="mt-5 space-y-3">
+              {[
+                ['1. Importar ERP', 'Cole o .md no importador, processe e confira a previa antes de gravar no financeiro.'],
+                ['2. Conferir empresas', 'Abra Faturas por Empresa para validar carteira, inadimplencia e risco.'],
+                ['3. Cobrar lote', 'Entre na Regua de Cobranca, selecione titulos e copie o canal consolidado.'],
+              ].map(([title, text]) => (
+                <div key={title} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                  <p className="text-sm font-black text-neutral-950">{title}</p>
+                  <p className="mt-1 text-xs font-medium leading-5 text-neutral-500">{text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400">Monitor de parametros</p>
             <h3 className="mt-1 text-lg font-black text-neutral-950">Regras de risco de credito</h3>
@@ -817,8 +1099,7 @@ export default function FinanceReceivablesDesk({ profile }: { profile: UserProfi
               </button>
             </div>
           </div>
-
-          <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5">
+          <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-5 xl:col-span-2">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-white p-3 text-neutral-950 shadow-sm">
                 <ClipboardList className="h-5 w-5" />
@@ -911,5 +1192,19 @@ function InsightCard({
         </div>
       </div>
     </div>
+  );
+}
+
+function NumberMini({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block">
+      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500 focus:bg-white"
+      />
+    </label>
   );
 }
