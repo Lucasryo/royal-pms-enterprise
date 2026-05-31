@@ -13,6 +13,7 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import PushNotificationBanner from './components/PushNotificationBanner';
 import HotelLanding from './components/HotelLanding';
 import Landing3D from './components/Landing3D';
+import ReservasChannelLanding from './components/ReservasChannelLanding';
 import SeoHead from './components/SeoHead';
 import SystemSeoPage from './components/SystemSeoPage';
 import ResetPassword from './components/ResetPassword';
@@ -525,7 +526,7 @@ export default function App() {
       <>
         <Toaster position="top-right" richColors />
         <SeoHead config={getSystemSeoConfig('/sistema/motor-de-reservas')} />
-        <Landing3D />
+        <ReservasChannelLanding />
       </>
     );
   }
