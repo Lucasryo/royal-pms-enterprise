@@ -612,7 +612,7 @@ export default function App() {
   const isReservationsChannelShell = currentView === 'reservations' && RESERVAS_CHANNEL_ROLES.includes(profile.role);
   if (isReservationsChannelShell) {
     return (
-      <div className="h-screen overflow-hidden bg-[#f7f7fb] font-sans text-gray-900">
+      <div className="min-h-screen overflow-y-auto bg-[#f7f7fb] font-sans text-gray-900">
         <SeoHead config={getNoIndexSeoConfig('Reservas Channel | Royal PMS')} />
         <Toaster position="top-right" richColors />
         <ReservationsChannelModule profile={profile} />

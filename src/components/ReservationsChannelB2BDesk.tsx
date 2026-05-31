@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -11,12 +11,12 @@ import {
   Search,
   Send,
   ShieldCheck,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../supabase';
 import { Company, FiscalFile, Reservation, ReservationRequest, UserProfile } from '../types';
 import { logAudit, sendNotification } from '../lib/audit';
+import B2BReservationVoucherModal from './B2BReservationVoucherModal';
 
 type StaffRecipient = { id: string; role: string; company_id?: string | null };
 type Focus = 'requests' | 'billing';
@@ -335,9 +335,9 @@ export default function ReservationsChannelB2BDesk({ profile }: { profile: UserP
       </section>
 
       {voucher && (
-        <VoucherModal
+        <B2BReservationVoucherModal
           reservation={voucher}
-          companyName={companyName(voucher.company_id)}
+          company={companies.find((company) => company.id === voucher.company_id) || null}
           onClose={() => setVoucher(null)}
         />
       )}
@@ -558,69 +558,3 @@ function BillingTable({
   );
 }
 
-function VoucherModal({
-  reservation,
-  companyName,
-  onClose,
-}: {
-  reservation: Reservation;
-  companyName: string;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-neutral-100 bg-neutral-950 p-5 text-white">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300">Voucher B2B</p>
-            <h3 className="mt-1 text-2xl font-black">{reservation.reservation_code}</h3>
-            <p className="mt-1 text-sm text-white/60">{companyName} · {reservation.guest_name}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar voucher">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="max-h-[72vh] overflow-y-auto p-5">
-          <div className="rounded-[1.5rem] border border-neutral-200 p-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <VoucherField label="Empresa" value={companyName} />
-              <VoucherField label="Status" value={RESERVATION_STATUS[reservation.status]?.label || reservation.status} />
-              <VoucherField label="Hospede principal" value={reservation.guest_name} />
-              <VoucherField label="PAX" value={(reservation.pax_names || [reservation.guest_name]).join(', ')} />
-              <VoucherField label="Check-in" value={dateBR(reservation.check_in)} />
-              <VoucherField label="Check-out" value={dateBR(reservation.check_out)} />
-              <VoucherField label="Diarias" value={nightsOf(reservation)} />
-              <VoucherField label="Categoria" value={`${reservation.category || '-'} · ${reservation.occupancy_type || 'SGL'}`} />
-              <VoucherField label="Centro de custo" value={reservation.cost_center || '-'} />
-              <VoucherField label="Pagamento" value="Faturado" />
-              <VoucherField label="Valor previsto" value={money(Number(reservation.total_amount || 0))} />
-              <VoucherField label="Solicitante" value={reservation.requested_by || reservation.contact_email || '-'} />
-            </div>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <VoucherNote label="Dados fiscais" value={reservation.billing_info || 'Utilizar dados cadastrais vinculados a empresa.'} />
-              <VoucherNote label="Observacoes" value={reservation.billing_obs || 'Sem observacoes adicionais.'} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function VoucherField({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="rounded-2xl bg-neutral-50 p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
-      <p className="mt-2 text-sm font-black text-neutral-950">{value || '-'}</p>
-    </div>
-  );
-}
-
-function VoucherNote({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-neutral-200 p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">{label}</p>
-      <p className="mt-2 whitespace-pre-line text-sm font-semibold leading-6 text-neutral-700">{value || '-'}</p>
-    </div>
-  );
-}
