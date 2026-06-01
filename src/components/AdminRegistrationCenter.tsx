@@ -488,52 +488,58 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
       </div>
 
       {activeTab === 'user' && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-          <div className="min-w-0 overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-            <div className="border-b border-neutral-100 bg-neutral-950 p-4 text-white sm:p-6">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-300">Novo acesso</p>
-              <h3 className="mt-2 text-xl font-black sm:text-2xl">Montar acesso PMS</h3>
-              <p className="mt-2 text-sm leading-6 text-neutral-300">
-                Comece por um perfil tipico e ajuste excecoes sem criar um cargo novo.
-              </p>
-            </div>
-
-            <div className="space-y-5 p-4 sm:p-6">
-              <div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Perfil tipico</p>
-                    <h4 className="text-base font-black text-neutral-950">Escolha a base do acesso</h4>
-                  </div>
-                  <p className="text-xs font-bold text-neutral-500">
-                    {changedPermissionCount > 0 ? `${changedPermissionCount} ajuste(s) fora do padrao` : 'Sem excecoes no perfil'}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0 space-y-4">
+            <section className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
+              <div className="grid gap-0 lg:grid-cols-[220px_minmax(0,1fr)]">
+                <div className="bg-neutral-950 p-5 text-white">
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-300">Passo 1</p>
+                  <h3 className="mt-2 text-lg font-black">Perfil de trabalho</h3>
+                  <p className="mt-2 text-xs font-medium leading-5 text-neutral-300">
+                    Escolha o ponto de partida. As permissoes podem ser ajustadas no final.
                   </p>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {ROLE_OPTIONS.map(role => {
-                    const selected = userForm.role === role.value;
-                    return (
-                      <button
-                        key={role.value}
-                        type="button"
-                        onClick={() => handleRoleChange(role.value)}
-                        className={`min-h-[88px] rounded-2xl border p-3 text-left transition ${
-                          selected
-                            ? 'border-neutral-950 bg-neutral-950 text-white shadow-sm'
-                            : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:border-neutral-400 hover:bg-white'
-                        }`}
-                      >
-                        <span className="block text-sm font-black">{role.label}</span>
-                        <span className={`mt-1 block text-xs font-bold leading-5 ${selected ? 'text-neutral-300' : 'text-neutral-500'}`}>
-                          {role.detail}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div className="p-4 sm:p-5">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+                    {ROLE_OPTIONS.map(role => {
+                      const selected = userForm.role === role.value;
+                      return (
+                        <button
+                          key={role.value}
+                          type="button"
+                          onClick={() => handleRoleChange(role.value)}
+                          className={`group min-h-24 rounded-2xl border p-3 text-left transition ${
+                            selected
+                              ? 'border-neutral-950 bg-neutral-950 text-white shadow-sm'
+                              : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:border-neutral-400 hover:bg-white'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="block text-sm font-black">{role.label}</span>
+                            {selected && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300" />}
+                          </div>
+                          <span className={`mt-2 block text-xs font-bold leading-5 ${selected ? 'text-neutral-300' : 'text-neutral-500'}`}>
+                            {role.detail}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
+            </section>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <section className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex items-start gap-3">
+                <StepBadge value="2" />
+                <div className="min-w-0">
+                  <h3 className="text-base font-black text-neutral-950">Dados de login</h3>
+                  <p className="mt-1 text-sm font-medium leading-6 text-neutral-500">
+                    Informacoes usadas para acessar o PMS e identificar o colaborador nos logs.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <CadastroField label="Nome completo" icon={Users}>
                   <input required value={userForm.name} onChange={event => setUserForm(prev => ({ ...prev, name: event.target.value }))} placeholder="Ex: Ana Souza" className={inputClass} />
                 </CadastroField>
@@ -547,13 +553,26 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                   <input required minLength={6} type="password" value={userForm.password} onChange={event => setUserForm(prev => ({ ...prev, password: event.target.value }))} placeholder="Minimo 6 caracteres" className={inputClass} />
                 </CadastroField>
               </div>
+            </section>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Perfil aplicado</p>
-                  <p className="mt-1 text-lg font-black text-neutral-950">{selectedRole.label}</p>
-                  <p className="mt-1 text-xs font-bold leading-5 text-neutral-500">{selectedRole.detail}</p>
+            <section className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <StepBadge value="3" />
+                  <div className="min-w-0">
+                    <h3 className="text-base font-black text-neutral-950">Vinculo operacional</h3>
+                    <p className="mt-1 text-sm font-medium leading-6 text-neutral-500">
+                      Clientes e reservas podem receber empresa vinculada; equipe interna opera sem obrigatoriedade.
+                    </p>
+                  </div>
                 </div>
+                <span className={`w-fit rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                  shouldLinkCompany ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-100' : 'bg-neutral-100 text-neutral-500 ring-1 ring-neutral-200'
+                }`}>
+                  {shouldLinkCompany ? 'Empresa opcional' : 'Sem empresa exigida'}
+                </span>
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]">
                 <label className="space-y-1">
                   <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Empresa vinculada</span>
                   <select
@@ -566,52 +585,65 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                     {companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
                   </select>
                 </label>
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Perfil aplicado</p>
+                  <p className="mt-1 text-lg font-black text-neutral-950">{selectedRole.label}</p>
+                  <p className="mt-1 text-xs font-bold leading-5 text-neutral-500">{selectedRole.detail}</p>
+                </div>
               </div>
+            </section>
 
-              <div className="min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
-                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <section className="min-w-0 rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <StepBadge value="4" />
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Permissoes</p>
-                    <h4 className="text-sm font-black text-neutral-950">Adicionar ou retirar funcoes do perfil</h4>
-                    <p className="mt-1 text-xs font-bold text-neutral-500">
-                      Exemplo: selecione Recepcao e habilite Eventos apenas para este usuario.
+                    <h3 className="text-base font-black text-neutral-950">Permissoes finas</h3>
+                    <p className="mt-1 text-sm font-medium leading-6 text-neutral-500">
+                      Ajuste excecoes sem criar outro cargo. Use restaurar para voltar ao padrao do perfil.
                     </p>
                   </div>
-                  <button type="button" onClick={() => setPermissions(DEFAULT_PERMISSIONS[userForm.role] || DEFAULT_PERMISSIONS.client)} className="w-full rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 ring-1 ring-neutral-200 hover:text-neutral-950 sm:w-auto">
-                    Restaurar perfil
-                  </button>
                 </div>
+                <button type="button" onClick={() => setPermissions(DEFAULT_PERMISSIONS[userForm.role] || DEFAULT_PERMISSIONS.client)} className="w-full rounded-xl bg-neutral-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 ring-1 ring-neutral-200 hover:bg-white hover:text-neutral-950 sm:w-auto">
+                  Restaurar perfil
+                </button>
+              </div>
+              <div className="mt-5 min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-neutral-50 p-2">
                 <div className="min-w-0 rounded-xl bg-white">
                   <PermissionsSelector permissions={permissions} onChange={setPermissions} role={userForm.role} />
                 </div>
               </div>
-
-              <button type="button" onClick={handleCreateUser} disabled={savingUser} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60">
-                {savingUser ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Criar acesso PMS
-              </button>
-            </div>
+            </section>
           </div>
 
-          <aside className="min-w-0 space-y-5">
-            <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
-              <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Perfil selecionado</p>
-              <h3 className="mt-2 text-xl font-black text-neutral-950">{selectedRole.label}</h3>
-              <p className="mt-2 text-sm leading-6 text-neutral-500">{selectedRole.detail}</p>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Ativas</p>
-                  <p className="mt-1 text-xl font-black text-neutral-950">{enabledPermissionCount}</p>
-                </div>
-                <div className="rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Excecoes</p>
-                  <p className="mt-1 text-xl font-black text-neutral-950">{changedPermissionCount}</p>
-                </div>
-              </div>
-              <div className="mt-3 rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
-                <p className="text-xs font-bold text-neutral-600">
-                  {shouldLinkCompany ? 'Este perfil pode ser vinculado a uma empresa.' : 'Este perfil opera sem vinculo obrigatorio com empresa.'}
+          <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">
+            <div className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
+              <div className="bg-neutral-950 p-5 text-white">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-300">Revisao</p>
+                <h3 className="mt-2 text-xl font-black">Novo acesso PMS</h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-300">
+                  Confira o pacote antes de criar o usuario.
                 </p>
+              </div>
+              <div className="space-y-3 p-4">
+                <AccessReviewRow label="Nome" value={userForm.name || 'Nao informado'} />
+                <AccessReviewRow label="E-mail" value={userForm.email || 'Nao informado'} />
+                <AccessReviewRow label="Perfil" value={selectedRole.label} />
+                <AccessReviewRow label="Empresa" value={shouldLinkCompany ? (companies.find(company => company.id === userForm.companyId)?.name || 'Sem empresa') : 'Nao exigida'} />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Ativas</p>
+                    <p className="mt-1 text-xl font-black text-neutral-950">{enabledPermissionCount}</p>
+                  </div>
+                  <div className="rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Excecoes</p>
+                    <p className="mt-1 text-xl font-black text-neutral-950">{changedPermissionCount}</p>
+                  </div>
+                </div>
+                <button type="button" onClick={handleCreateUser} disabled={savingUser} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60">
+                  {savingUser ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Criar acesso PMS
+                </button>
               </div>
             </div>
             <ProfileAccessMatrix />
@@ -914,6 +946,23 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
 const inputClass = 'w-full rounded-xl border border-neutral-200 bg-neutral-50 py-3 pl-10 pr-4 text-sm text-neutral-900 outline-none transition focus:border-neutral-900 focus:bg-white focus:ring-4 focus:ring-neutral-900/5';
 const plainInputClass = 'w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-900 outline-none transition focus:border-neutral-900 focus:bg-white focus:ring-4 focus:ring-neutral-900/5';
 const selectClass = 'w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold text-neutral-900 outline-none transition focus:border-neutral-900 focus:bg-white focus:ring-4 focus:ring-neutral-900/5 disabled:cursor-not-allowed disabled:text-neutral-400';
+
+function StepBadge({ value }: { value: string }) {
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-neutral-950 text-sm font-black text-white shadow-sm">
+      {value}
+    </span>
+  );
+}
+
+function AccessReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-black text-neutral-950">{value}</p>
+    </div>
+  );
+}
 
 function CadastroField({ label, icon: Icon, children }: { label: string; icon: ComponentType<{ className?: string }>; children: React.ReactNode }) {
   return (

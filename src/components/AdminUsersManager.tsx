@@ -93,6 +93,8 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
   const changedPermissionCount = draft
     ? (Object.keys(draft.permissions) as Array<keyof UserPermissions>).filter(key => draft.permissions[key] !== (DEFAULT_PERMISSIONS[draft.role] || DEFAULT_PERMISSIONS.client)[key]).length
     : 0;
+  const selectedCompany = draft?.company_id ? companies.find(company => company.id === draft.company_id) : null;
+  const selectedPermissionCount = draft ? Object.values(draft.permissions).filter(Boolean).length : 0;
 
   async function callManageFunction(body: Record<string, unknown>) {
     const { data: { session } } = await supabase.auth.getSession();
@@ -242,36 +244,39 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(320px,0.45fr)_minmax(0,0.55fr)]">
-        <div className="min-w-0 rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
-          <div className="border-b border-neutral-100 p-4 sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+        <section className="min-w-0 overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
+          <div className="border-b border-neutral-100 bg-neutral-950 p-4 text-white sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Lista</p>
-                <h3 className="mt-1 text-base font-black text-neutral-950">Usuarios cadastrados</h3>
+                <p className="text-[10px] font-black uppercase tracking-widest text-sky-300">Diretorio</p>
+                <h3 className="mt-1 text-lg font-black">Usuarios cadastrados</h3>
+                <p className="mt-1 text-xs font-medium leading-5 text-neutral-300">Filtre e selecione um perfil para editar.</p>
               </div>
-              <span className="rounded-full bg-neutral-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-neutral-500 ring-1 ring-neutral-200">
+              <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white ring-1 ring-white/10">
                 {filteredUsers.length}/{users.length}
               </span>
             </div>
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_140px_130px]">
+            <div className="mt-4 grid grid-cols-1 gap-2">
               <div className="relative min-w-0">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" className="w-full rounded-xl border border-neutral-200 bg-neutral-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-neutral-900 focus:bg-white" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500" />
+                <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por nome ou e-mail" className="w-full rounded-xl border border-white/10 bg-white py-2.5 pl-10 pr-3 text-sm text-neutral-950 outline-none focus:ring-4 focus:ring-sky-300/20" />
               </div>
-              <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)} className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-xs font-bold outline-none focus:border-neutral-900">
-                <option value="">Perfil</option>
-                {ROLE_OPTIONS.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
-              </select>
-              <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-xs font-bold outline-none focus:border-neutral-900">
-                <option value="all">Todos</option>
-                <option value="active">Ativos</option>
-                <option value="inactive">Inativos</option>
-              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)} className="rounded-xl border border-white/10 bg-white px-3 py-2.5 text-xs font-bold text-neutral-900 outline-none focus:ring-4 focus:ring-sky-300/20">
+                  <option value="">Perfil</option>
+                  {ROLE_OPTIONS.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
+                </select>
+                <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="rounded-xl border border-white/10 bg-white px-3 py-2.5 text-xs font-bold text-neutral-900 outline-none focus:ring-4 focus:ring-sky-300/20">
+                  <option value="all">Todos</option>
+                  <option value="active">Ativos</option>
+                  <option value="inactive">Inativos</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div className="max-h-[720px] overflow-y-auto p-2">
+          <div className="max-h-[760px] overflow-y-auto bg-neutral-50 p-2">
             {filteredUsers.map(user => {
               const selected = user.id === selectedId;
               return (
@@ -280,22 +285,23 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                   type="button"
                   onClick={() => selectUser(user)}
                   className={`mb-2 w-full rounded-2xl border p-3 text-left transition ${
-                    selected ? 'border-neutral-950 bg-neutral-950 text-white shadow-sm' : 'border-neutral-200 bg-neutral-50 text-neutral-800 hover:border-neutral-300 hover:bg-white'
+                    selected ? 'border-neutral-950 bg-white text-neutral-950 shadow-sm ring-2 ring-neutral-950/5' : 'border-neutral-200 bg-white/70 text-neutral-800 hover:border-neutral-300 hover:bg-white'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black">{user.name}</p>
-                      <p className={`truncate text-xs font-bold ${selected ? 'text-neutral-300' : 'text-neutral-500'}`}>{user.email}</p>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <UserAvatar name={user.name} active={selected} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black">{user.name}</p>
+                        <p className="truncate text-xs font-bold text-neutral-500">{user.email}</p>
+                      </div>
                     </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase ${user.active === false ? 'bg-red-100 text-red-700' : selected ? 'bg-white/15 text-white' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {user.active === false ? 'Inativo' : 'Ativo'}
-                    </span>
+                    <StatusPill active={user.active !== false} />
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${selected ? 'bg-white/15 text-neutral-200' : 'bg-white text-neutral-500 ring-1 ring-neutral-200'}`}>{roleLabel(user.role)}</span>
+                  <div className="ml-11 mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-black uppercase text-neutral-600 ring-1 ring-neutral-200">{roleLabel(user.role)}</span>
                     {user.telegram_binding && (
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${selected ? 'bg-emerald-400/20 text-emerald-100' : 'bg-emerald-50 text-emerald-700'}`}>Telegram</span>
+                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase text-emerald-700 ring-1 ring-emerald-100">Telegram</span>
                     )}
                   </div>
                 </button>
@@ -305,79 +311,134 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
               <div className="rounded-2xl bg-neutral-50 p-8 text-center text-sm font-bold text-neutral-400">Nenhum usuario encontrado.</div>
             )}
           </div>
-        </div>
+        </section>
 
         <div className="min-w-0 space-y-5">
           {!draft || !selectedUser ? (
-            <div className="rounded-3xl border border-neutral-200 bg-white p-8 text-center text-sm font-bold text-neutral-400 shadow-sm">
+            <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-8 text-center text-sm font-bold text-neutral-400 shadow-sm">
               {loading ? 'Carregando usuarios...' : 'Selecione um usuario para editar.'}
             </div>
           ) : (
             <>
-              <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Edicao</p>
-                    <h3 className="mt-1 truncate text-xl font-black text-neutral-950 sm:text-2xl">{selectedUser.name}</h3>
-                    <p className="mt-1 truncate text-sm font-bold text-neutral-500">{selectedUser.email}</p>
-                  </div>
-                  <label className="flex w-full shrink-0 cursor-pointer items-center justify-between gap-3 rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200 sm:w-52">
-                    <span>
-                      <span className="block text-[10px] font-black uppercase tracking-widest text-neutral-400">Status</span>
-                      <span className={`block text-sm font-black ${draft.active ? 'text-emerald-700' : 'text-red-700'}`}>{draft.active ? 'Ativo' : 'Inativo'}</span>
-                    </span>
-                    <input type="checkbox" checked={draft.active} onChange={event => updateDraft({ active: event.target.checked })} className="h-5 w-5 accent-neutral-950" />
-                  </label>
-                </div>
-
-                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <UserField label="Nome" icon={Users}>
-                    <input value={draft.name} onChange={event => updateDraft({ name: event.target.value })} className={inputClass} />
-                  </UserField>
-                  <UserField label="E-mail" icon={Mail}>
-                    <input type="email" value={draft.email} onChange={event => updateDraft({ email: event.target.value })} className={inputClass} />
-                  </UserField>
-                  <UserField label="Telefone" icon={Phone}>
-                    <input value={draft.phone} onChange={event => updateDraft({ phone: event.target.value })} className={inputClass} />
-                  </UserField>
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Perfil</span>
-                    <select value={draft.role} onChange={event => handleRoleChange(event.target.value as UserRole)} className={selectClass}>
-                      {ROLE_OPTIONS.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
-                    </select>
-                  </label>
-                  <label className="space-y-1 sm:col-span-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Empresa vinculada</span>
-                    <select value={draft.company_id} onChange={event => updateDraft({ company_id: event.target.value })} className={selectClass}>
-                      <option value="">Sem empresa</option>
-                      {companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mt-5 min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
-                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Permissoes granulares</p>
-                      <p className="mt-1 text-xs font-bold text-neutral-500">{changedPermissionCount} excecao(oes) em relacao ao perfil.</p>
+              <section className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
+                <div className="border-b border-neutral-100 bg-white p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <UserAvatar name={selectedUser.name} active size="lg" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Perfil selecionado</p>
+                        <h3 className="mt-1 truncate text-xl font-black text-neutral-950 sm:text-2xl">{selectedUser.name}</h3>
+                        <p className="mt-1 truncate text-sm font-bold text-neutral-500">{selectedUser.email}</p>
+                      </div>
                     </div>
-                    <button type="button" onClick={() => updateDraft({ permissions: DEFAULT_PERMISSIONS[draft.role] || DEFAULT_PERMISSIONS.client })} className="w-full rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 ring-1 ring-neutral-200 hover:text-neutral-950 sm:w-auto">
-                      Restaurar perfil
+                    <label className="flex w-full shrink-0 cursor-pointer items-center justify-between gap-3 rounded-2xl bg-neutral-50 p-3 ring-1 ring-neutral-200 sm:w-56">
+                      <span>
+                        <span className="block text-[10px] font-black uppercase tracking-widest text-neutral-400">Status</span>
+                        <span className={`block text-sm font-black ${draft.active ? 'text-emerald-700' : 'text-red-700'}`}>{draft.active ? 'Ativo' : 'Inativo'}</span>
+                      </span>
+                      <input type="checkbox" checked={draft.active} onChange={event => updateDraft({ active: event.target.checked })} className="h-5 w-5 accent-neutral-950" />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-0 xl:grid-cols-[minmax(0,1fr)_300px]">
+                  <div className="min-w-0 space-y-5 p-4 sm:p-5">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <EditorStep value="1" />
+                        <div>
+                          <h4 className="text-base font-black text-neutral-950">Identidade e contato</h4>
+                          <p className="mt-1 text-sm font-medium text-neutral-500">Dados exibidos no PMS e usados nos logs.</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <UserField label="Nome" icon={Users}>
+                          <input value={draft.name} onChange={event => updateDraft({ name: event.target.value })} className={inputClass} />
+                        </UserField>
+                        <UserField label="E-mail" icon={Mail}>
+                          <input type="email" value={draft.email} onChange={event => updateDraft({ email: event.target.value })} className={inputClass} />
+                        </UserField>
+                        <UserField label="Telefone" icon={Phone}>
+                          <input value={draft.phone} onChange={event => updateDraft({ phone: event.target.value })} className={inputClass} />
+                        </UserField>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Perfil</span>
+                          <select value={draft.role} onChange={event => handleRoleChange(event.target.value as UserRole)} className={selectClass}>
+                            {ROLE_OPTIONS.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <EditorStep value="2" />
+                        <div>
+                          <h4 className="text-base font-black text-neutral-950">Empresa e acesso</h4>
+                          <p className="mt-1 text-sm font-medium text-neutral-500">Vinculo corporativo e escopo operacional.</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Empresa vinculada</span>
+                          <select value={draft.company_id} onChange={event => updateDraft({ company_id: event.target.value })} className={selectClass}>
+                            <option value="">Sem empresa</option>
+                            {companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                          </select>
+                        </label>
+                        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Empresa atual</p>
+                          <p className="mt-1 truncate text-sm font-black text-neutral-950">{selectedCompany?.name || 'Sem vinculo'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 sm:p-4">
+                      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3">
+                          <EditorStep value="3" />
+                          <div>
+                            <h4 className="text-base font-black text-neutral-950">Permissoes granulares</h4>
+                            <p className="mt-1 text-xs font-bold text-neutral-500">{changedPermissionCount} excecao(oes) em relacao ao perfil.</p>
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => updateDraft({ permissions: DEFAULT_PERMISSIONS[draft.role] || DEFAULT_PERMISSIONS.client })} className="w-full rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-neutral-600 ring-1 ring-neutral-200 hover:text-neutral-950 sm:w-auto">
+                          Restaurar perfil
+                        </button>
+                      </div>
+                      <div className="min-w-0 rounded-xl bg-white">
+                        <PermissionsSelector permissions={draft.permissions} onChange={permissions => updateDraft({ permissions })} role={draft.role} />
+                      </div>
+                    </div>
+
+                    <button type="button" onClick={saveProfile} disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60">
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Salvar alteracoes
                     </button>
                   </div>
-                  <div className="min-w-0 rounded-xl bg-white">
-                    <PermissionsSelector permissions={draft.permissions} onChange={permissions => updateDraft({ permissions })} role={draft.role} />
-                  </div>
-                </div>
 
-                <button type="button" onClick={saveProfile} disabled={saving} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-neutral-800 disabled:opacity-60">
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Salvar alteracoes
-                </button>
-              </div>
+                  <aside className="border-t border-neutral-100 bg-neutral-50 p-4 xl:border-l xl:border-t-0">
+                    <div className="grid grid-cols-2 gap-2">
+                      <UserMetric label="Permissoes" value={selectedPermissionCount} />
+                      <UserMetric label="Excecoes" value={changedPermissionCount} />
+                    </div>
+                    <div className="mt-3 rounded-2xl bg-white p-4 ring-1 ring-neutral-200">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Resumo</p>
+                      <p className="mt-2 text-sm font-black text-neutral-950">{roleLabel(draft.role)}</p>
+                      <p className="mt-1 text-xs font-bold leading-5 text-neutral-500">
+                        {selectedCompany?.name || 'Sem empresa vinculada'}
+                      </p>
+                    </div>
+                    <div className="mt-3 rounded-2xl bg-white p-4 ring-1 ring-neutral-200">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Estado</p>
+                      <div className="mt-2"><StatusPill active={draft.active} /></div>
+                    </div>
+                  </aside>
+                </div>
+              </section>
 
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
                   <div className="flex items-start gap-3">
                     <div className="rounded-2xl bg-neutral-950 p-3 text-white"><KeyRound className="h-5 w-5" /></div>
                     <div>
@@ -392,7 +453,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                   </button>
                 </div>
 
-                <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
                   <div className="flex items-start gap-3">
                     <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700"><ShieldCheck className="h-5 w-5" /></div>
                     <div className="min-w-0">
@@ -444,6 +505,49 @@ function roleLabel(role: UserRole) {
 
 const inputClass = 'w-full rounded-xl border border-neutral-200 bg-neutral-50 py-3 pl-10 pr-4 text-sm text-neutral-900 outline-none transition focus:border-neutral-900 focus:bg-white focus:ring-4 focus:ring-neutral-900/5';
 const selectClass = 'w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold text-neutral-900 outline-none transition focus:border-neutral-900 focus:bg-white focus:ring-4 focus:ring-neutral-900/5';
+
+function UserAvatar({ name, active, size = 'md' }: { name: string; active?: boolean; size?: 'md' | 'lg' }) {
+  const initials = name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'U';
+  return (
+    <span className={`flex shrink-0 items-center justify-center rounded-2xl font-black ${
+      size === 'lg' ? 'h-14 w-14 text-base' : 'h-9 w-9 text-xs'
+    } ${active ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-500 ring-1 ring-neutral-200'}`}>
+      {initials}
+    </span>
+  );
+}
+
+function StatusPill({ active }: { active: boolean }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
+      active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-red-50 text-red-700 ring-1 ring-red-100'
+    }`}>
+      {active ? 'Ativo' : 'Inativo'}
+    </span>
+  );
+}
+
+function EditorStep({ value }: { value: string }) {
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-xs font-black text-white">
+      {value}
+    </span>
+  );
+}
+
+function UserMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl bg-white p-3 ring-1 ring-neutral-200">
+      <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
+      <p className="mt-1 text-xl font-black tabular-nums text-neutral-950">{value}</p>
+    </div>
+  );
+}
 
 function UserField({ label, icon: Icon, children }: { label: string; icon: ComponentType<{ className?: string }>; children: ReactNode }) {
   return (
