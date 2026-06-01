@@ -488,7 +488,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
       </div>
 
       {activeTab === 'user' && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="min-w-0 space-y-4">
             <section className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
               <div className="grid gap-0 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -500,7 +500,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                   </p>
                 </div>
                 <div className="p-4 sm:p-5">
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                     {ROLE_OPTIONS.map(role => {
                       const selected = userForm.role === role.value;
                       return (
@@ -539,7 +539,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                   </p>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
                 <CadastroField label="Nome completo" icon={Users}>
                   <input required value={userForm.name} onChange={event => setUserForm(prev => ({ ...prev, name: event.target.value }))} placeholder="Ex: Ana Souza" className={inputClass} />
                 </CadastroField>
@@ -572,7 +572,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                   {shouldLinkCompany ? 'Empresa opcional' : 'Sem empresa exigida'}
                 </span>
               </div>
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]">
+              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)] 2xl:grid-cols-[minmax(0,1fr)_360px]">
                 <label className="space-y-1">
                   <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Empresa vinculada</span>
                   <select
@@ -616,7 +616,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
             </section>
           </div>
 
-          <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <aside className="min-w-0 space-y-4 2xl:sticky 2xl:top-4 2xl:self-start">
             <div className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
               <div className="bg-neutral-950 p-5 text-white">
                 <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-300">Revisao</p>

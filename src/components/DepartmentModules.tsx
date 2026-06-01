@@ -2705,8 +2705,8 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
   return (
     <div className="space-y-5 pb-12">
       <section className="overflow-hidden rounded-[1.75rem] border border-neutral-200 bg-white shadow-sm">
-        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="relative min-w-0 border-b border-neutral-100 bg-neutral-950 p-5 text-white sm:p-7 lg:border-b-0 lg:border-r lg:border-white/10">
+        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_520px]">
+          <div className="relative min-w-0 border-b border-neutral-100 bg-neutral-950 p-5 text-white sm:p-7 xl:border-b-0 xl:border-r xl:border-white/10">
             <div className="relative z-10">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-amber-200 ring-1 ring-white/10">
@@ -2732,7 +2732,7 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
           </div>
 
           <div className="min-w-0 bg-neutral-50 p-3 sm:p-4">
-            <div className="grid gap-2">
+            <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-1">
               {sections.map((section) => {
                 const selected = active === section.id;
                 return (

@@ -244,7 +244,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[460px_minmax(0,1fr)]">
         <section className="min-w-0 overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
           <div className="border-b border-neutral-100 bg-neutral-950 p-4 text-white sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -341,7 +341,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-0 xl:grid-cols-[minmax(0,1fr)_300px]">
+                <div className="grid grid-cols-1 gap-0 2xl:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="min-w-0 space-y-5 p-4 sm:p-5">
                     <div>
                       <div className="flex items-center gap-3">
@@ -417,7 +417,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
                     </button>
                   </div>
 
-                  <aside className="border-t border-neutral-100 bg-neutral-50 p-4 xl:border-l xl:border-t-0">
+                  <aside className="border-t border-neutral-100 bg-neutral-50 p-4 2xl:border-l 2xl:border-t-0">
                     <div className="grid grid-cols-2 gap-2">
                       <UserMetric label="Permissoes" value={selectedPermissionCount} />
                       <UserMetric label="Excecoes" value={changedPermissionCount} />
