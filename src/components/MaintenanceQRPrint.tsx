@@ -164,6 +164,9 @@ export default function MaintenanceQRPrint() {
             <p className="mt-1 text-xs sm:text-sm text-neutral-500">
               Cada QR abre o formulario publico de chamado pra UH correspondente — sem login.
             </p>
+            <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">
+              QR fixo sem prazo de expiracao
+            </p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button

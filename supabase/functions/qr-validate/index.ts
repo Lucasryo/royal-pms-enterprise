@@ -9,8 +9,7 @@ const corsHeaders = {
 };
 
 async function hmac(roomNumber: string): Promise<string> {
-  const year = new Date().getFullYear().toString();
-  const input = `${roomNumber}:${year}`;
+  const input = roomNumber.trim();
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(QR_SECRET),

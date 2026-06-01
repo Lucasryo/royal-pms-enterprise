@@ -240,7 +240,7 @@ export default function PublicMaintenanceReport({ roomNumber, qrToken = '' }: { 
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto" />
           <h1 className="mt-4 text-xl font-black text-neutral-900">QR Code inválido</h1>
           <p className="mt-2 text-sm text-neutral-500">
-            Este QR Code não é válido ou está desatualizado. Solicite um novo adesivo à recepção.
+            Este QR Code nao corresponde a esta UH. Solicite a verificacao do adesivo na recepcao.
           </p>
         </div>
       </div>

@@ -1,11 +1,9 @@
-// HMAC-SHA256 token for QR code URLs — prevents room number enumeration
-// Set VITE_QR_SECRET in .env for a custom secret; falls back to a default.
-// Token rotates annually (YYYY included in HMAC input) — no reprinting needed.
+// HMAC-SHA256 token for QR code URLs. The input is intentionally stable so
+// printed maintenance QR stickers do not expire.
 const QR_SECRET = import.meta.env.VITE_QR_SECRET || "royal-pms-default-qr-secret";
 
 async function hmac(roomNumber: string): Promise<string> {
-  const year  = new Date().getFullYear().toString(); // rotação anual
-  const input = `${roomNumber}:${year}`;
+  const input = roomNumber.trim();
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(QR_SECRET),
@@ -25,7 +23,7 @@ export async function generateQRToken(roomNumber: string): Promise<string> {
   return hmac(roomNumber);
 }
 
-// 1C: constant-time comparison — prevents timing attacks
+// Constant-time comparison prevents timing attacks.
 export async function validateQRToken(token: string, roomNumber: string): Promise<boolean> {
   if (!token) return false;
   const expected = await hmac(roomNumber);
