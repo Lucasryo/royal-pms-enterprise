@@ -426,11 +426,11 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
 
   return (
     <div className="space-y-5 overflow-x-clip">
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+      <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-600">Cadastro</p>
-            <h2 className="mt-1 text-xl font-black tracking-tight text-neutral-950 sm:text-2xl">
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-600">Configuracao inicial</p>
+            <h2 className="mt-1 text-lg font-black tracking-tight text-neutral-950 sm:text-xl">
               Central de cadastros do PMS
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
@@ -450,7 +450,7 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <CadastroKpi label="Empresas" value={companies.length} />
           <CadastroKpi label="Usuarios" value={users.length} />
           <CadastroKpi label="Ativos" value={activeUsers} />
@@ -458,8 +458,8 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
         </div>
       </div>
 
-      <div className="rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm">
-        <div className="flex max-w-full gap-1 overflow-x-auto">
+      <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
           {tabs.map(tab => {
             const Icon = tab.icon;
             const selected = activeTab === tab.id;
@@ -468,14 +468,18 @@ export default function AdminRegistrationCenter({ profile, mode = 'admin' }: { p
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-left transition sm:px-4 ${
-                  selected ? 'bg-neutral-950 text-white shadow-sm' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950'
+                className={`flex min-h-20 items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                  selected
+                    ? 'border-neutral-950 bg-neutral-950 text-white shadow-sm'
+                    : 'border-neutral-200 bg-neutral-50 text-neutral-600 hover:border-neutral-300 hover:bg-white hover:text-neutral-950'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                <span>
-                  <span className="block text-xs font-black">{tab.label}</span>
-                  <span className={`block text-[10px] font-bold ${selected ? 'text-neutral-300' : 'text-neutral-400'}`}>{tab.metric}</span>
+                <span className={`rounded-xl p-2 ${selected ? 'bg-white/10' : 'bg-white ring-1 ring-neutral-200'}`}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-black">{tab.label}</span>
+                  <span className={`mt-1 block truncate text-[10px] font-bold ${selected ? 'text-neutral-300' : 'text-neutral-400'}`}>{tab.metric}</span>
                 </span>
               </button>
             );

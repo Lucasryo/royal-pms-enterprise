@@ -214,11 +214,11 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
 
   return (
     <div className="space-y-5 overflow-x-clip">
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+      <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-600">Usuarios</p>
-            <h2 className="mt-1 text-xl font-black tracking-tight text-neutral-950 sm:text-2xl">Gestao de acessos PMS</h2>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-sky-600">Acessos</p>
+            <h2 className="mt-1 text-lg font-black tracking-tight text-neutral-950 sm:text-xl">Gestao de usuarios PMS</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
               Edite perfil, status, permissoes, senha, empresa e vinculo Telegram de cada usuario.
             </p>
@@ -234,7 +234,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <UserKpi label="Usuarios" value={users.length} />
           <UserKpi label="Ativos" value={activeCount} />
           <UserKpi label="Inativos" value={users.length - activeCount} />
@@ -243,7 +243,7 @@ export default function AdminUsersManager({ profile }: { profile: UserProfile })
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(320px,0.45fr)_minmax(0,0.55fr)]">
-        <div className="min-w-0 rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="min-w-0 rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm">
           <div className="border-b border-neutral-100 p-4 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

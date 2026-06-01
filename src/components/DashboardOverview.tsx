@@ -7,7 +7,7 @@ import {
   TrendingUp, Users, Calendar, Clock, ArrowUpRight,
   ArrowDownRight, Hotel, CheckCircle2, AlertCircle,
   DollarSign, Activity, ChevronRight, FileText, Building2,
-  Ban, Globe, ShieldCheck
+  Ban, Globe, ShieldCheck, Wrench, Utensils, BarChart3, Receipt, Megaphone, KeyRound
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
@@ -298,12 +298,16 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
   const occupancyPct = stats.totalRooms > 0 ? Math.round((stats.occupiedRooms / stats.totalRooms) * 100) : 0;
   const availableRooms = Math.max(0, stats.totalRooms - stats.occupiedRooms);
   const moduleCards = useMemo(() => ([
-    { id: 'reservations', title: 'Reservas', description: 'Reservas, tarifas, bloqueios e ocupacao.', icon: Calendar, tone: 'bg-blue-50 text-blue-600 border-blue-100' },
-    { id: 'reception', title: 'Recepcao', description: 'Check-in/out, governanca e turno operacional.', icon: Hotel, tone: 'bg-amber-50 text-amber-600 border-amber-100' },
+    { id: 'reservations', title: 'Reservas Channel', description: 'Channel, B2B, reservas corporativas e tarifas.', icon: Calendar, tone: 'bg-blue-50 text-blue-600 border-blue-100' },
+    { id: 'reception', title: 'Recepcao', description: 'Check-in/out, governanca, UHs e turno.', icon: KeyRound, tone: 'bg-amber-50 text-amber-600 border-amber-100' },
+    { id: 'maintenance', title: 'Manutencao', description: 'Chamados QR/Telegram, preventiva e quadro ao vivo.', icon: Wrench, tone: 'bg-red-50 text-red-600 border-red-100' },
+    { id: 'pos', title: 'Restaurante', description: 'POS, comandas, consumo e folio.', icon: Utensils, tone: 'bg-orange-50 text-orange-600 border-orange-100' },
+    { id: 'events', title: 'Eventos', description: 'Saloes, orcamentos, agenda e execucao.', icon: Globe, tone: 'bg-violet-50 text-violet-600 border-violet-100' },
     { id: 'finance', title: 'Financeiro', description: 'Faturas, bancos, cobranca e documentos.', icon: FileText, tone: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-    { id: 'events', title: 'Eventos', description: 'Saloes, orcamentos, agenda e execucao.', icon: Globe, tone: 'bg-purple-50 text-purple-600 border-purple-100' },
-    { id: 'reports', title: 'Relatorios', description: 'Indicadores executivos e exportacoes.', icon: Activity, tone: 'bg-slate-50 text-slate-600 border-slate-100' },
-    { id: 'admin-control', title: 'Controle geral', description: 'Usuarios, empresas, acessos e auditoria.', icon: ShieldCheck, tone: 'bg-neutral-100 text-neutral-700 border-neutral-200' },
+    { id: 'prio-billing', title: 'Faturamento Prio', description: 'Geracao, conferencia e fechamento Prio.', icon: Receipt, tone: 'bg-cyan-50 text-cyan-700 border-cyan-100' },
+    { id: 'reports', title: 'Relatorios', description: 'Indicadores executivos e exportacoes.', icon: BarChart3, tone: 'bg-slate-50 text-slate-600 border-slate-100' },
+    { id: 'marketing', title: 'Marketing', description: 'Omni-inbox, campanhas e atendimento.', icon: Megaphone, tone: 'bg-pink-50 text-pink-600 border-pink-100' },
+    { id: 'admin-control', title: 'Admin', description: 'Usuarios, empresas, acessos e auditoria.', icon: ShieldCheck, tone: 'bg-neutral-100 text-neutral-700 border-neutral-200' },
   ]).filter(module => canAccessView(profile, module.id)), [profile]);
 
   const greeting = (() => {
@@ -336,10 +340,14 @@ export default function DashboardOverview({ profile, onNavigate }: { profile: Us
         <div className="rounded-3xl border border-gray-200 bg-white p-4 md:p-6 shadow-sm">
           <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-400">Mapa do PMS</p>
-              <h2 className="mt-1 text-lg md:text-xl font-black tracking-tight text-gray-900">Centrais principais</h2>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-400">Menu de modulos</p>
+              <h2 className="mt-1 text-lg md:text-xl font-black tracking-tight text-gray-900">
+                {profile.role === 'admin' ? 'Admin flutua por todos os modulos' : 'Sua area de trabalho'}
+              </h2>
             </div>
-            <p className="text-xs font-bold text-gray-400">Acesse pelo contexto certo, sem duplicar caminho.</p>
+            <p className="text-xs font-bold text-gray-400">
+              {profile.role === 'admin' ? 'Uma unica tela para alternar PMS, Channel e gestao.' : 'Acesso liberado conforme o seu login.'}
+            </p>
           </div>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {moduleCards.map((module) => (

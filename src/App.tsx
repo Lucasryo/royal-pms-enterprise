@@ -347,7 +347,7 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     if (!canAccessView(profile, currentView)) {
-      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'tariffs', 'admin-control', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
+      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'reports', 'marketing', 'admin-control', 'maintenance-qr', 'housekeeping-staff', 'tariffs', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
       const next = order.find(v => canAccessView(profile, v));
       if (next && next !== currentView) setCurrentView(next);
     }
@@ -602,7 +602,7 @@ export default function App() {
         return (profile.role === 'client' || profile.role === 'external_client')
                ? <ClientDashboard profile={profile} initialTab={profile.role === 'external_client' ? 'reservations' : 'active'} />
                : 
-               (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'reception' || profile.role === 'reservations' || profile.role === 'eventos' || profile.role === 'restaurant' || profile.role === 'housekeeping' || profile.role === 'maintenance') ? <DashboardOverview profile={profile} onNavigate={(view) => setCurrentView(view as ViewType)} /> :
+               (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'reception' || profile.role === 'reservations' || profile.role === 'eventos' || profile.role === 'restaurant' || profile.role === 'housekeeping' || profile.role === 'maintenance' || profile.role === 'marketing') ? <DashboardOverview profile={profile} onNavigate={(view) => setCurrentView(view as ViewType)} /> :
                <ReservationsDashboard profile={profile} />;
     }
   };

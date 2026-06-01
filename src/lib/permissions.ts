@@ -32,7 +32,7 @@ export function canAccessView(
 
   switch (view) {
     case 'dashboard':
-      return hasPermission(profile, 'canViewDashboard', ['admin', 'manager', 'reservations', 'client', 'external_client', 'faturamento', 'reception', 'finance', 'eventos']);
+      return hasPermission(profile, 'canViewDashboard', ['admin', 'manager', 'reservations', 'client', 'external_client', 'faturamento', 'reception', 'finance', 'eventos', 'restaurant', 'housekeeping', 'maintenance', 'marketing']);
     case 'reservations':
       return hasPermission(profile, 'canViewReservations', ['admin', 'manager', 'reservations', 'client', 'external_client']);
     case 'reception':

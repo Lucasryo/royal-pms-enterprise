@@ -2626,10 +2626,46 @@ export function EventsModuleDashboard({ profile }: { profile: UserProfile }) {
 
 export function AdminControlModuleDashboard({ profile }: { profile: UserProfile }) {
   type AdminSection = 'registration' | 'users' | 'audit';
-  const sections: Array<{ id: AdminSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
-    { id: 'registration', label: 'Cadastro', icon: Building2, subtitle: 'Criar usuarios, empresas, vinculos e Telegram' },
-    { id: 'users', label: 'Usuarios', icon: UserCog, subtitle: 'Editar perfil, status, senha e vinculos' },
-    { id: 'audit', label: 'Auditoria', icon: ShieldCheck, subtitle: 'Trilha de acoes do PMS' },
+  const sections: Array<{
+    id: AdminSection;
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    subtitle: string;
+    detail: string;
+    metricLabel: string;
+    metricValue: (stats: { companies: number; users: number; audit: number }) => number;
+    tone: string;
+  }> = [
+    {
+      id: 'registration',
+      label: 'Cadastro',
+      icon: Building2,
+      subtitle: 'Empresas, perfis e vinculos',
+      detail: 'Crie usuarios, empresas, perfis fiscais, vinculos de clientes e acessos Telegram.',
+      metricLabel: 'empresas',
+      metricValue: stats => stats.companies,
+      tone: 'from-amber-50 to-white text-amber-700 ring-amber-200',
+    },
+    {
+      id: 'users',
+      label: 'Usuarios',
+      icon: UserCog,
+      subtitle: 'Acessos e permissoes',
+      detail: 'Edite perfil, status, empresa, senha, permissoes granulares e vinculo Telegram.',
+      metricLabel: 'usuarios',
+      metricValue: stats => stats.users,
+      tone: 'from-sky-50 to-white text-sky-700 ring-sky-200',
+    },
+    {
+      id: 'audit',
+      label: 'Auditoria',
+      icon: ShieldCheck,
+      subtitle: 'Rastreabilidade',
+      detail: 'Consulte a trilha de acoes do PMS por modulo, usuario e tipo de evento.',
+      metricLabel: 'eventos',
+      metricValue: stats => stats.audit,
+      tone: 'from-emerald-50 to-white text-emerald-700 ring-emerald-200',
+    },
   ];
   const [active, setActive] = useState<AdminSection>('registration');
   const [stats, setStats] = useState({ companies: 0, users: 0, audit: 0 });
@@ -2653,6 +2689,8 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
     return () => { mounted = false; };
   }, []);
 
+  const activeSection = sections.find(section => section.id === active) || sections[0];
+
   const renderSection = () => {
     switch (active) {
       case 'registration':
@@ -2665,54 +2703,78 @@ export function AdminControlModuleDashboard({ profile }: { profile: UserProfile 
   };
 
   return (
-    <div className={moduleShellClass}>
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-5 pb-12">
+      <section className="overflow-hidden rounded-[1.75rem] border border-neutral-200 bg-white shadow-sm">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="relative min-w-0 border-b border-neutral-100 bg-neutral-950 p-5 text-white sm:p-7 lg:border-b-0 lg:border-r lg:border-white/10">
+            <div className="relative z-10">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-amber-200 ring-1 ring-white/10">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Admin
+                </span>
+                <span className="rounded-full bg-emerald-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200 ring-1 ring-emerald-300/20">
+                  Controle total
+                </span>
+              </div>
+              <h1 className="mt-5 max-w-2xl text-2xl font-black tracking-tight sm:text-3xl">
+                Controle, acesso e governanca do PMS
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-medium leading-7 text-neutral-300">
+                Uma central para organizar quem acessa o sistema, quais empresas estao cadastradas, como os clientes se vinculam ao hotel e o que foi feito na operacao.
+              </p>
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <AdminStat label="Empresas" value={stats.companies} icon={Building2} tone="dark" />
+                <AdminStat label="Usuarios" value={stats.users} icon={Users} tone="dark" />
+                <AdminStat label="Eventos" value={stats.audit} icon={Activity} tone="dark" />
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 bg-neutral-50 p-3 sm:p-4">
+            <div className="grid gap-2">
+              {sections.map((section) => {
+                const selected = active === section.id;
+                return (
+                  <AdminSectionButton
+                    key={section.id}
+                    section={section}
+                    selected={selected}
+                    stats={stats}
+                    onClick={() => setActive(section.id)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[1.75rem] border border-neutral-200 bg-white shadow-sm">
+        <div className="border-b border-neutral-100 bg-white px-4 py-4 sm:px-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className={`rounded-2xl bg-gradient-to-br p-3 ring-1 ${activeSection.tone}`}>
+                <activeSection.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400">Subaba ativa</p>
+                <h2 className="mt-1 text-lg font-black text-neutral-950 sm:text-xl">{activeSection.label}</h2>
+                <p className="mt-1 text-sm font-bold leading-5 text-neutral-500">{activeSection.subtitle}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 rounded-2xl bg-neutral-50 px-3 py-2 ring-1 ring-neutral-200">
+              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{activeSection.metricLabel}</span>
+              <span className="text-lg font-black tabular-nums text-neutral-950">{activeSection.metricValue(stats)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-[#f8f8f6] p-3 sm:p-5">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-600">Modulo Admin</p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-neutral-950 sm:text-3xl">Controle, acesso e governanca</h1>
-            <p className="mt-2 max-w-3xl text-xs leading-6 text-neutral-500 sm:text-sm sm:leading-7">
-              Central para cadastros, usuarios, permissoes, Telegram e auditoria. Use esta area para manter o PMS organizado, rastreavel e pronto para operacao.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-            <AdminStat label="Empresas" value={stats.companies} icon={Building2} />
-            <AdminStat label="Usuarios" value={stats.users} icon={Users} />
-            <AdminStat label="Eventos" value={stats.audit} icon={ShieldCheck} />
+            {renderSection()}
           </div>
         </div>
-      </div>
-
-      <div className="-mx-2 flex flex-wrap items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2 shadow-sm sm:mx-0">
-        <span className="hidden pl-1 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-400 sm:inline">Admin</span>
-        <span className="hidden h-4 w-px bg-neutral-200 sm:inline" />
-        <div className="flex max-w-full flex-1 gap-1 overflow-x-auto">
-          {sections.map((section) => {
-            const Icon = section.icon;
-            const selected = active === section.id;
-            return (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => setActive(section.id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition ${
-                  selected
-                    ? 'bg-neutral-950 text-white shadow-sm'
-                    : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'
-                }`}
-                title={section.subtitle}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{section.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="min-w-0">
-        {renderSection()}
-      </div>
+      </section>
     </div>
   );
 }
@@ -2721,19 +2783,78 @@ function AdminStat({
   label,
   value,
   icon: Icon,
+  tone = 'light',
 }: {
   label: string;
   value: number;
   icon: ComponentType<{ className?: string }>;
+  tone?: 'light' | 'dark';
 }) {
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+    <div className={`rounded-2xl p-3 ${
+      tone === 'dark'
+        ? 'border border-white/10 bg-white/10 text-white'
+        : 'border border-neutral-200 bg-neutral-50 text-neutral-950'
+    }`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{label}</p>
-        <Icon className="h-3.5 w-3.5 text-neutral-400" />
+        <p className={`text-[9px] font-black uppercase tracking-widest ${tone === 'dark' ? 'text-neutral-300' : 'text-neutral-400'}`}>{label}</p>
+        <Icon className={`h-3.5 w-3.5 ${tone === 'dark' ? 'text-amber-200' : 'text-neutral-400'}`} />
       </div>
-      <p className="mt-2 text-xl font-black tabular-nums text-neutral-950 sm:text-2xl">{value}</p>
+      <p className="mt-2 text-xl font-black tabular-nums sm:text-2xl">{value}</p>
     </div>
+  );
+}
+
+function AdminSectionButton({
+  section,
+  selected,
+  stats,
+  onClick,
+}: {
+  section: {
+    id: string;
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    subtitle: string;
+    detail: string;
+    metricLabel: string;
+    metricValue: (stats: { companies: number; users: number; audit: number }) => number;
+    tone: string;
+  };
+  selected: boolean;
+  stats: { companies: number; users: number; audit: number };
+  onClick: () => void;
+}) {
+  const Icon = section.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group w-full rounded-2xl border p-4 text-left transition ${
+        selected
+          ? 'border-neutral-950 bg-white shadow-sm ring-2 ring-neutral-950/5'
+          : 'border-neutral-200 bg-white/70 hover:border-neutral-300 hover:bg-white'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`rounded-2xl bg-gradient-to-br p-3 ring-1 ${section.tone}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-black text-neutral-950">{section.label}</p>
+              <p className="mt-0.5 text-xs font-bold text-neutral-500">{section.subtitle}</p>
+            </div>
+            <div className={`rounded-xl px-2.5 py-1 text-right ${selected ? 'bg-neutral-950 text-white' : 'bg-neutral-100 text-neutral-600'}`}>
+              <p className="text-sm font-black tabular-nums">{section.metricValue(stats)}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest opacity-70">{section.metricLabel}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs font-medium leading-5 text-neutral-500">{section.detail}</p>
+        </div>
+      </div>
+    </button>
   );
 }
 

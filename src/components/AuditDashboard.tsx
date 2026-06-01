@@ -123,11 +123,11 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
   return (
     <div className="space-y-5 overflow-x-clip pb-12">
       {/* Header */}
-      <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-6">
+      <div className="rounded-[1.5rem] border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-600">Auditoria</p>
-          <h1 className="mt-1 text-xl font-black tracking-tight text-gray-900 sm:text-2xl">Log de auditoria</h1>
+          <h1 className="mt-1 text-lg font-black tracking-tight text-gray-900 sm:text-xl">Log de auditoria</h1>
           <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">
             Histórico completo de ações por módulo
           </p>
@@ -154,7 +154,7 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex max-w-full gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
+      <div className="flex max-w-full gap-2 overflow-x-auto rounded-[1.5rem] border border-neutral-200 bg-white p-2 shadow-sm">
         {TABS.map(tab => {
           const Icon = tab.icon;
           const count = countFor(tab.id);
@@ -186,7 +186,7 @@ export default function AuditDashboard({ profile }: { profile: UserProfile }) {
         key={activeTab}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-3xl border border-neutral-200 shadow-sm overflow-hidden"
+        className="overflow-hidden rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm"
       >
         <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
