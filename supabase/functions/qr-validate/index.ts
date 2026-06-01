@@ -10,6 +10,15 @@ const corsHeaders = {
 
 async function hmac(roomNumber: string): Promise<string> {
   const input = roomNumber.trim();
+  return sign(input);
+}
+
+async function legacyAnnualHmac(roomNumber: string, year: number): Promise<string> {
+  const input = `${roomNumber.trim()}:${year}`;
+  return sign(input);
+}
+
+async function sign(input: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(QR_SECRET),
@@ -58,8 +67,13 @@ serve(async (req) => {
       });
     }
 
-    const expected = await hmac(room_number);
-    const valid = await constantTimeCompare(token, expected);
+    const expectedTokens = [await hmac(room_number)];
+    const currentYear = new Date().getFullYear();
+    for (let year = 2024; year <= currentYear; year++) {
+      expectedTokens.push(await legacyAnnualHmac(room_number, year));
+    }
+    const valid = await Promise.all(expectedTokens.map((expected) => constantTimeCompare(token, expected)))
+      .then((matches) => matches.some(Boolean));
 
     return new Response(JSON.stringify({ valid, room_number }), {
       status: 200,

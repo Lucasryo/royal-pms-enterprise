@@ -4,6 +4,15 @@ const QR_SECRET = import.meta.env.VITE_QR_SECRET || "royal-pms-default-qr-secret
 
 async function hmac(roomNumber: string): Promise<string> {
   const input = roomNumber.trim();
+  return sign(input);
+}
+
+async function legacyAnnualHmac(roomNumber: string, year: number): Promise<string> {
+  const input = `${roomNumber.trim()}:${year}`;
+  return sign(input);
+}
+
+async function sign(input: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(QR_SECRET),
@@ -26,7 +35,16 @@ export async function generateQRToken(roomNumber: string): Promise<string> {
 // Constant-time comparison prevents timing attacks.
 export async function validateQRToken(token: string, roomNumber: string): Promise<boolean> {
   if (!token) return false;
-  const expected = await hmac(roomNumber);
+  const expectedTokens = [await hmac(roomNumber)];
+  const currentYear = new Date().getFullYear();
+  for (let year = 2024; year <= currentYear; year++) {
+    expectedTokens.push(await legacyAnnualHmac(roomNumber, year));
+  }
+
+  return expectedTokens.some((expected) => secureCompare(token, expected));
+}
+
+function secureCompare(token: string, expected: string): boolean {
   const enc = new TextEncoder();
   const a = enc.encode(token.padEnd(expected.length, "\0"));
   const b = enc.encode(expected);
