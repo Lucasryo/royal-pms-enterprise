@@ -19,6 +19,7 @@ export const APP_VIEW_LABELS: Record<AppView, string> = {
   companies: 'Empresas',
   tracking: 'Rastreio',
   finance: 'Financas',
+  'collection-rules': 'Regua',
   tariffs: 'Tarifas',
   registration: 'Cadastro',
   staff: 'Equipe',

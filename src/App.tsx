@@ -33,6 +33,7 @@ import POSDashboard from './components/POSDashboard';
 import PrioBillingGenerator from './components/PrioBillingGenerator';
 import ReportsDashboard from './components/ReportsDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
+import FinanceReceivablesDesk from './components/finance/FinanceReceivablesDesk';
 import PublicMaintenanceReport from './components/PublicMaintenanceReport';
 import MaintenanceQueueBoard from './components/MaintenanceQueueBoard';
 import MaintenanceQRPrint from './components/MaintenanceQRPrint';
@@ -87,6 +88,7 @@ const NAV_META: Record<ViewType, Pick<NavItem, 'section' | 'description'>> = {
   pos: { section: 'hotel', description: 'Consumo, comandas e caixa' },
   events: { section: 'hotel', description: 'Agenda, orçamentos e salões' },
   finance: { section: 'revenue', description: 'Faturas, bancos e cobrança' },
+  'collection-rules': { section: 'revenue', description: 'Regua de cobranca e inadimplencia' },
   'prio-billing': { section: 'revenue', description: 'Geração e conferência Prio' },
   tariffs: { section: 'revenue', description: 'Tarifário corporativo' },
   reports: { section: 'revenue', description: 'Indicadores e exportações' },
@@ -347,7 +349,7 @@ export default function App() {
   useEffect(() => {
     if (!profile) return;
     if (!canAccessView(profile, currentView)) {
-      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'prio-billing', 'reports', 'marketing', 'admin-control', 'maintenance-qr', 'housekeeping-staff', 'tariffs', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
+      const order: ViewType[] = ['dashboard', 'reservations', 'reception', 'maintenance', 'pos', 'events', 'finance', 'collection-rules', 'prio-billing', 'reports', 'marketing', 'admin-control', 'maintenance-qr', 'housekeeping-staff', 'tariffs', 'checkin', 'housekeeping', 'operations', 'guests', 'companies', 'tracking', 'registration', 'staff', 'audit'];
       const next = order.find(v => canAccessView(profile, v));
       if (next && next !== currentView) setCurrentView(next);
     }
@@ -392,6 +394,7 @@ export default function App() {
       { id: 'companies' as ViewType, label: 'Empresas', icon: Building2 },
       { id: 'tracking' as ViewType, label: 'Rastreio', icon: Search },
       { id: 'finance' as ViewType, label: 'Finanças', icon: FileText },
+      { id: 'collection-rules' as ViewType, label: 'Regua', icon: BarChart3 },
       { id: 'prio-billing' as ViewType, label: 'Faturamento Prio', icon: Receipt },
       { id: 'tariffs' as ViewType, label: 'Tarifas', icon: DollarSign },
       { id: 'registration' as ViewType, label: 'Cadastro', icon: UserPlus },
@@ -588,6 +591,7 @@ export default function App() {
       case 'registration': return <AdminDashboard profile={profile} initialTab="registration" />;
       case 'events': return <EventsModuleDashboard profile={profile} />;
       case 'finance': return (profile.role === 'admin' || profile.role === 'faturamento' || profile.role === 'finance' || profile.role === 'manager') ? <FinanceBillingModuleDashboard profile={profile} /> : <ClientDashboard profile={profile} initialTab="active" />;
+      case 'collection-rules': return <FinanceReceivablesDesk profile={profile} initialTab="billing" />;
       case 'prio-billing': return (profile.role === 'client' || profile.role === 'external_client') ? <ClientDashboard profile={profile} initialTab="active" /> : <PrioBillingGenerator profile={profile} />;
       case 'reports': return <ReportsDashboard profile={profile} />;
       case 'companies': return <AdminDashboard profile={profile} initialTab="companies" />;

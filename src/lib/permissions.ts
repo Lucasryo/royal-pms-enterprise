@@ -65,6 +65,8 @@ export function canAccessView(
       return hasPermission(profile, 'canViewTracking', ['admin', 'reservations', 'faturamento', 'finance', 'reception']);
     case 'finance':
       return hasPermission(profile, 'canViewFinance', ['admin', 'client', 'faturamento', 'finance']);
+    case 'collection-rules':
+      return hasPermission(profile, 'canViewFinance', ['admin', 'faturamento', 'finance', 'manager']);
     case 'tariffs':
       return hasPermission(profile, 'canViewTariffs', ['admin', 'faturamento', 'reservations', 'finance']);
     case 'registration':

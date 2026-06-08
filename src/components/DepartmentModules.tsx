@@ -2535,7 +2535,7 @@ export function FinanceBillingModuleDashboard({ profile }: { profile: UserProfil
   type FinSection = 'finance' | 'receivables' | 'documents' | 'tracking';
   const sections: Array<{ id: FinSection; label: string; icon: ComponentType<{ className?: string }>; subtitle: string }> = [
     { id: 'finance',   label: 'Gestao financeira',   icon: CreditCard,    subtitle: 'Folio, pagamentos e baixa' },
-    { id: 'receivables', label: 'Recebiveis B2B', icon: BarChart3, subtitle: 'Aging, risco e regua SaaS' },
+    { id: 'receivables', label: 'Regua', icon: BarChart3, subtitle: 'Aging, risco e cobranca B2B' },
     { id: 'documents', label: 'Faturas e arquivos',  icon: FileText,      subtitle: 'Documentos, NFs e anexos' },
     { id: 'tracking',  label: 'Rastreio e cobranca', icon: ClipboardList, subtitle: 'AR, vencidos e disputas' },
   ];

@@ -8,6 +8,7 @@ export type ViewType =
   | 'guests'
   | 'companies'
   | 'finance'
+  | 'collection-rules'
   | 'staff'
   | 'tariffs'
   | 'tracking'

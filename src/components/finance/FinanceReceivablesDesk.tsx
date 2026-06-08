@@ -167,12 +167,18 @@ function parseMarkdownReport(markdown: string, referenceDate = startOfToday()): 
   return companies.filter((company) => company.invoices.length > 0);
 }
 
-export default function FinanceReceivablesDesk({ profile }: { profile: UserProfile }) {
+export default function FinanceReceivablesDesk({
+  profile,
+  initialTab = 'analytics',
+}: {
+  profile: UserProfile;
+  initialTab?: DeskTab;
+}) {
   const [loading, setLoading] = useState(true);
   const [files, setFiles] = useState<FiscalFile[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [tab, setTab] = useState<DeskTab>('analytics');
+  const [tab, setTab] = useState<DeskTab>(initialTab);
   const [markdownInput, setMarkdownInput] = useState(PARSER_SAMPLE);
   const [parsedPreview, setParsedPreview] = useState<ParsedCompany[]>([]);
   const [importing, setImporting] = useState(false);
