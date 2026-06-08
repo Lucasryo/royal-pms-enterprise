@@ -44,6 +44,15 @@ import { logAudit } from '../../lib/audit';
 type Risk = 'Baixo' | 'Medio' | 'Critico';
 type DeskTab = 'analytics' | 'companies' | 'billing' | 'parser' | 'docs';
 type BillingFilter = 'all' | 'overdue' | 'upcoming';
+type CollectionStage = {
+  id: string;
+  label: string;
+  window: string;
+  description: string;
+  action: string;
+  tone: string;
+  matches: (delay: number) => boolean;
+};
 type ParsedInvoice = {
   invoiceNum: string;
   issueDate: string;
@@ -92,6 +101,70 @@ const RISK_TONE: Record<Risk, string> = {
 };
 
 const BUCKET_COLORS = ['#111827', '#10b981', '#f59e0b', '#ef4444', '#7c3aed'];
+const COLLECTION_STAGES: CollectionStage[] = [
+  {
+    id: 'preventive',
+    label: 'Preventiva',
+    window: 'D-7 ate D0',
+    description: 'Lembrete antes do atraso, com conferencia de documento e previsao de pagamento.',
+    action: 'Enviar aviso preventivo',
+    tone: 'border-blue-200 bg-blue-50 text-blue-800',
+    matches: (delay) => delay <= 0,
+  },
+  {
+    id: 'soft',
+    label: 'Cobranca inicial',
+    window: 'D+1 ate D+7',
+    description: 'Primeiro contato de cobranca, objetivo e sem escalada comercial.',
+    action: 'Solicitar previsao em 48h',
+    tone: 'border-amber-200 bg-amber-50 text-amber-800',
+    matches: (delay) => delay > 0 && delay <= 7,
+  },
+  {
+    id: 'active',
+    label: 'Ativa',
+    window: 'D+8 ate D+30',
+    description: 'Follow-up formal com registro, responsavel financeiro e prazo de retorno.',
+    action: 'Formalizar cobranca oficial',
+    tone: 'border-orange-200 bg-orange-50 text-orange-800',
+    matches: (delay) => delay > 7 && delay <= 30,
+  },
+  {
+    id: 'executive',
+    label: 'Executiva',
+    window: 'D+31 ate D+90',
+    description: 'Escalada para gerente, restricao de novas condicoes e proposta de acordo.',
+    action: 'Acionar gestor da carteira',
+    tone: 'border-red-200 bg-red-50 text-red-800',
+    matches: (delay) => delay > 30 && delay <= 90,
+  },
+  {
+    id: 'critical',
+    label: 'Critica',
+    window: 'D+91+',
+    description: 'Tratar como risco critico, negociar formalmente ou preparar encaminhamento juridico.',
+    action: 'Abrir tratativa critica',
+    tone: 'border-slate-300 bg-slate-100 text-slate-800',
+    matches: (delay) => delay > 90,
+  },
+];
+const BILLING_LEVEL_META = {
+  '1': {
+    title: 'Conferencia preventiva',
+    sla: 'Retorno esperado em 72h',
+    escalation: 'Sem bloqueio comercial',
+  },
+  '2': {
+    title: 'Cobranca oficial',
+    sla: 'Retorno esperado em 48h',
+    escalation: 'Monitorar novas reservas faturadas',
+  },
+  '3': {
+    title: 'Escalada critica',
+    sla: 'Retorno esperado em 24h',
+    escalation: 'Submeter a gerencia e bloquear novas condicoes',
+  },
+} as const;
 
 const parseDate = (value?: string) => {
   if (!value) return null;
@@ -325,8 +398,41 @@ export default function FinanceReceivablesDesk({
     return buckets;
   }, [files]);
 
+  const stageSummary = useMemo(() => COLLECTION_STAGES.map((stage) => {
+    const matching = files.filter((file) => {
+      if (file.is_deleted) return false;
+      const status = fileStatus(file);
+      if (status === 'paid' || status === 'cancelled') return false;
+      const due = parseDate(file.due_date || file.dueDate);
+      if (!due) return false;
+      const delay = daysOverdue(file.due_date || file.dueDate);
+      if (stage.id === 'preventive') {
+        const limit = new Date(startOfToday());
+        limit.setDate(limit.getDate() + 7);
+        return status === 'pending' && due >= startOfToday() && due <= limit;
+      }
+      return (status === 'overdue' || status === 'disputed') && stage.matches(delay);
+    });
+    return {
+      ...stage,
+      count: matching.length,
+      total: matching.reduce((sum, file) => sum + Number(file.amount || 0), 0),
+      companies: new Set(matching.map(getCompanyId)).size,
+    };
+  }), [files]);
+
   const topCompanies = exposures.slice(0, 8);
   const criticalCompanies = exposures.filter((company) => company.risk === 'Critico');
+  const recommendedBatch = useMemo(
+    () => exposures
+      .filter((company) => company.overdue > 0)
+      .sort((a, b) => {
+        const riskWeight = (risk: Risk) => (risk === 'Critico' ? 2 : risk === 'Medio' ? 1 : 0);
+        return riskWeight(b.risk) - riskWeight(a.risk) || b.oldestOverdueDays - a.oldestOverdueDays || b.overdue - a.overdue;
+      })
+      .slice(0, 12),
+    [exposures]
+  );
   const billingCompany = exposures.find((company) => company.companyId === selectedCompanyId) || exposures.find((company) => company.overdue > 0) || exposures[0];
   const billingInvoices = (billingCompany?.invoices || []).filter((file) => {
     if (file.status === 'PAID' || file.status === 'CANCELLED') return false;
@@ -336,6 +442,9 @@ export default function FinanceReceivablesDesk({
   });
   const selectedBillingInvoices = billingInvoices.filter((file) => selectedInvoiceIds[file.id] ?? fileStatus(file) === 'overdue');
   const selectedBillingTotal = selectedBillingInvoices.reduce((sum, file) => sum + Number(file.amount || 0), 0);
+  const selectedDelayMax = selectedBillingInvoices.reduce((max, file) => Math.max(max, daysOverdue(file.due_date || file.dueDate)), 0);
+  const selectedStage = COLLECTION_STAGES.find((stage) => stage.id !== 'preventive' && stage.matches(selectedDelayMax)) || COLLECTION_STAGES[0];
+  const collectionSla = BILLING_LEVEL_META[billingLevel];
   const selectedAgreementBase = selectedBillingTotal * (1 - agreementDiscount / 100);
   const selectedAgreementDown = selectedAgreementBase * (agreementDownPayment / 100);
   const selectedAgreementInstallment = agreementInstallments > 0 ? (selectedAgreementBase - selectedAgreementDown) / agreementInstallments : 0;
@@ -462,6 +571,23 @@ export default function FinanceReceivablesDesk({
     setSelectedInvoiceIds((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
   }
 
+  function selectBillingInvoices(mode: 'visible' | 'overdue' | 'critical' | 'open' | 'none') {
+    if (mode === 'none') {
+      setSelectedInvoiceIds({});
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    billingInvoices.forEach((file) => {
+      const status = fileStatus(file);
+      const delay = daysOverdue(file.due_date || file.dueDate);
+      if (mode === 'visible') next[file.id] = true;
+      if (mode === 'overdue') next[file.id] = status === 'overdue' || status === 'disputed';
+      if (mode === 'critical') next[file.id] = delay > 30 && (status === 'overdue' || status === 'disputed');
+      if (mode === 'open') next[file.id] = status !== 'paid' && status !== 'cancelled';
+    });
+    setSelectedInvoiceIds(next);
+  }
+
   function generateBillingText() {
     if (!billingCompany || selectedBillingInvoices.length === 0) return { subject: '', body: 'Selecione ao menos uma fatura para gerar a regua.' };
     const invoiceList = selectedBillingInvoices.map((file) => {
@@ -469,18 +595,15 @@ export default function FinanceReceivablesDesk({
       return `- ${(file.original_name || 'Fatura').split(' - ')[0]} | Vencimento: ${fmtDate(file.due_date || file.dueDate)} | Valor: ${money(Number(file.amount || 0))}${delay > 0 ? ` | Atraso: ${delay} dia(s)` : ' | A vencer'}`;
     }).join('\n');
     const companyLine = `${billingCompany.name}${billingCompany.cnpj ? ` (CNPJ: ${billingCompany.cnpj})` : ''}`;
-    const levelLabels = {
-      '1': 'Conferencia preventiva',
-      '2': 'Cobranca oficial',
-      '3': 'Escalada critica',
-    };
-    const subject = `[${levelLabels[billingLevel]}] Titulos em aberto - Royal Macae Palace - ${billingCompany.name}`;
+    const protocol = `RMP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${billingCompany.companyId.slice(0, 6).toUpperCase()}`;
+    const subject = `[${collectionSla.title}] Titulos em aberto - Royal Macae Palace - ${billingCompany.name}`;
     const agreementBlock = showAgreement
       ? `\n\nPROPOSTA DE ACORDO:\nValor com desconto (${agreementDiscount}%): ${money(selectedAgreementBase)}\nEntrada (${agreementDownPayment}%): ${money(selectedAgreementDown)}\nSaldo em ${agreementInstallments} parcela(s): ${money(selectedAgreementInstallment)} cada\n`
       : '';
+    const governanceBlock = `\n\nProtocolo: ${protocol}\nEtapa da regua: ${selectedStage.label} (${selectedStage.window})\nSLA: ${collectionSla.sla}\nEscalada: ${collectionSla.escalation}`;
     const body = billingChannel === 'email'
-      ? `Prezados,\n\nIdentificamos titulos em aberto vinculados a ${companyLine}.\n\n${invoiceList}\n\nTotal selecionado: ${money(selectedBillingTotal)}\n\n${billingLevel === '1' ? 'Solicitamos conferencia e previsao de pagamento. Caso ja tenha sido liquidado, envie o comprovante para conciliacao.' : billingLevel === '2' ? 'Solicitamos regularizacao em ate 48 horas ou retorno com previsao formal de pagamento.' : 'Esta notificacao representa escalada critica da regua de cobranca. A ausencia de retorno podera bloquear novas condicoes comerciais e seguir para tratativa gerencial.'}\n\nAtenciosamente,\nFinanceiro Royal Macae Palace`
-      : `*Royal Macae Palace - ${levelLabels[billingLevel]}*\n\nEmpresa: *${companyLine}*\n\n${invoiceList}\n\n*Total:* ${money(selectedBillingTotal)}\n\n${billingLevel === '1' ? 'Pode nos confirmar a previsao de pagamento?' : billingLevel === '2' ? 'Solicitamos regularizacao ou previsao formal em ate 48h.' : 'Pendencia em escalada critica. Precisamos de retorno do financeiro para evitar bloqueios comerciais.'}`;
+      ? `Prezados,\n\nIdentificamos titulos em aberto vinculados a ${companyLine}.\n\n${invoiceList}\n\nTotal selecionado: ${money(selectedBillingTotal)}${governanceBlock}\n\n${billingLevel === '1' ? 'Solicitamos conferencia e previsao de pagamento. Caso ja tenha sido liquidado, envie o comprovante para conciliacao.' : billingLevel === '2' ? 'Solicitamos regularizacao em ate 48 horas ou retorno com previsao formal de pagamento.' : 'Esta notificacao representa escalada critica da regua de cobranca. A ausencia de retorno podera bloquear novas condicoes comerciais e seguir para tratativa gerencial.'}\n\nAtenciosamente,\nFinanceiro Royal Macae Palace`
+      : `*Royal Macae Palace - ${collectionSla.title}*\n\nEmpresa: *${companyLine}*\n\n${invoiceList}\n\n*Total:* ${money(selectedBillingTotal)}${governanceBlock}\n\n${billingLevel === '1' ? 'Pode nos confirmar a previsao de pagamento?' : billingLevel === '2' ? 'Solicitamos regularizacao ou previsao formal em ate 48h.' : 'Pendencia em escalada critica. Precisamos de retorno do financeiro para evitar bloqueios comerciais.'}`;
     return { subject, body: body + agreementBlock };
   }
 
@@ -535,9 +658,9 @@ export default function FinanceReceivablesDesk({
                   <TrendingUp className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-xs font-black text-indigo-950">Dashboard de Demonstracao e Exportacao SaaS</p>
+                  <p className="text-xs font-black text-indigo-950">Central profissional de regua, lotes e inadimplencia</p>
                   <p className="mt-0.5 text-xs font-medium text-indigo-700">
-                    Cole relatórios em Markdown, gere faturas automaticamente e dispare a régua consolidada.
+                    Importe o Markdown do ERP, acompanhe a cadencia por atraso e prepare lotes de cobranca com governanca.
                   </p>
                 </div>
               </div>
@@ -546,7 +669,7 @@ export default function FinanceReceivablesDesk({
                 onClick={fetchAll}
                 className="w-fit rounded-xl bg-indigo-100 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-indigo-700"
               >
-                Resetar banco integrado
+                Atualizar carteira
               </button>
             </div>
           </div>
@@ -560,13 +683,89 @@ export default function FinanceReceivablesDesk({
         <KpiCard title="Atraso medio de divida" value={`${stats.averageDelay} dias`} detail={stats.averageDelay > rules.criticalOverdueDays ? 'Risco de provisao alto' : 'Carteira sob controle'} icon={ClockIcon} tone="amber" />
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Cadencia operacional</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">Pipeline da regua de cobranca</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTab('billing')}
+              className="inline-flex w-fit items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white"
+            >
+              <BellRing className="h-3.5 w-3.5" />
+              Abrir lotes
+            </button>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {stageSummary.map((stage) => (
+              <div key={stage.id} className={`rounded-2xl border p-4 ${stage.tone}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-70">{stage.window}</p>
+                    <h4 className="mt-1 text-sm font-black">{stage.label}</h4>
+                  </div>
+                  <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-black">{stage.count}</span>
+                </div>
+                <p className="mt-3 text-xl font-black">{moneyShort(stage.total)}</p>
+                <p className="mt-1 text-[11px] font-bold opacity-75">{stage.companies} empresa(s)</p>
+                <p className="mt-3 text-[11px] leading-4 opacity-80">{stage.action}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Fila prioritaria</p>
+              <h3 className="mt-1 text-lg font-black text-slate-950">Lotes recomendados</h3>
+            </div>
+            <span className="rounded-full bg-rose-50 px-3 py-1 text-[10px] font-black uppercase text-rose-700">
+              {recommendedBatch.length} devedores
+            </span>
+          </div>
+          <div className="mt-4 space-y-2">
+            {recommendedBatch.slice(0, 5).map((company, index) => (
+              <button
+                key={company.companyId}
+                type="button"
+                onClick={() => {
+                  setSelectedCompanyId(company.companyId);
+                  setSelectedInvoiceIds({});
+                  setBillingFilter('overdue');
+                  setTab('billing');
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-white"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-black text-slate-950">{index + 1}. {company.name}</span>
+                  <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{company.overdueCount} titulo(s), maior atraso {company.oldestOverdueDays}d</span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-mono text-xs font-black text-rose-600">{moneyShort(company.overdue)}</span>
+                  <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${RISK_TONE[company.risk]}`}>{company.risk}</span>
+                </span>
+              </button>
+            ))}
+            {recommendedBatch.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm font-medium text-slate-400">
+                Nenhum lote vencido para priorizar.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="flex max-w-full gap-3 overflow-x-auto border-b border-slate-200 pb-3">
         {[
-          { id: 'analytics', label: 'Monitor de Saude & Graficos', icon: BarChart3 },
-          { id: 'companies', label: 'Faturas por Empresa', icon: FileText },
-          { id: 'billing', label: 'Regua de Cobranca (Geral)', icon: BellRing },
-          { id: 'parser', label: 'Simulador / Importador ERP', icon: Sliders },
-          { id: 'docs', label: 'Documentacao / Como Fazer?', icon: Settings2 },
+          { id: 'analytics', label: 'Painel executivo', icon: BarChart3 },
+          { id: 'companies', label: 'Carteira por empresa', icon: FileText },
+          { id: 'billing', label: 'Lotes de cobranca', icon: BellRing },
+          { id: 'parser', label: 'Importador ERP', icon: Sliders },
+          { id: 'docs', label: 'Playbook e regras', icon: Settings2 },
         ].map((item) => {
           const Icon = item.icon;
           const active = tab === item.id;
@@ -857,10 +1056,21 @@ export default function FinanceReceivablesDesk({
                   <BellRing className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-slate-950">Regua de Cobranca Consolidada</h3>
+                  <h3 className="text-lg font-black text-slate-950">Lotes de cobranca e comunicacao consolidada</h3>
                   <p className="mt-1 text-sm leading-6 text-slate-500">
-                    Selecione faturas agregadas por devedor, configure o template e gere mensagens com o valor original dos titulos.
+                    Selecione faturas por devedor, aplique o nivel da regua e gere comunicacoes com SLA, protocolo e escalada.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${selectedStage.tone}`}>
+                      Etapa: {selectedStage.label} ({selectedStage.window})
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-600">
+                      Maior atraso selecionado: {selectedDelayMax}d
+                    </span>
+                    <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">
+                      {collectionSla.sla}
+                    </span>
+                  </div>
                 </div>
               </div>
               <label className="block">
@@ -883,13 +1093,14 @@ export default function FinanceReceivablesDesk({
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
-                <p className="text-[10px] font-black uppercase tracking-widest">Multas por atraso isento</p>
-                <p className="mt-2 text-xs leading-5">Nao ha incidencia de taxas de multas de atraso. Os titulos sao unificados pelo valor historico de emissao.</p>
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-indigo-800">
+                <p className="text-[10px] font-black uppercase tracking-widest">Nivel ativo</p>
+                <p className="mt-2 text-sm font-black">{collectionSla.title}</p>
+                <p className="mt-1 text-xs leading-5">{collectionSla.escalation}</p>
               </div>
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
-                <p className="text-[10px] font-black uppercase tracking-widest">Juros de mora isento</p>
-                <p className="mt-2 text-xs leading-5">A cobranca de juros esta permanentemente desativada no monitoramento do hotel corporativo.</p>
+                <p className="text-[10px] font-black uppercase tracking-widest">Encargos desativados</p>
+                <p className="mt-2 text-xs leading-5">Nao ha incidencia de multas ou juros. O lote usa o valor original dos titulos em aberto.</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Status geral</p>
@@ -917,14 +1128,17 @@ export default function FinanceReceivablesDesk({
                   </button>
                 ))}
               </div>
-              <div className="flex gap-3 text-xs font-black text-indigo-700">
+              <div className="flex flex-wrap gap-3 text-xs font-black text-indigo-700">
                 <button
                   type="button"
-                  onClick={() => setSelectedInvoiceIds(Object.fromEntries(billingInvoices.map((file) => [file.id, true])))}
+                  onClick={() => selectBillingInvoices('visible')}
                 >
                   Marcar visiveis ({billingInvoices.length})
                 </button>
-                <button type="button" onClick={() => setSelectedInvoiceIds({})} className="text-slate-500">Limpar visiveis</button>
+                <button type="button" onClick={() => selectBillingInvoices('overdue')}>Selecionar vencidas</button>
+                <button type="button" onClick={() => selectBillingInvoices('critical')}>Criticas +30d</button>
+                <button type="button" onClick={() => selectBillingInvoices('open')}>Tudo aberto</button>
+                <button type="button" onClick={() => selectBillingInvoices('none')} className="text-slate-500">Limpar</button>
               </div>
             </div>
 
@@ -975,6 +1189,8 @@ export default function FinanceReceivablesDesk({
                 <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Faturas em lote</span><b>{selectedBillingInvoices.length} titulos</b></div>
                   <div className="flex justify-between"><span className="text-slate-500">Subtotal original</span><b>{money(selectedBillingTotal)}</b></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Etapa recomendada</span><b>{selectedStage.label}</b></div>
+                  <div className="flex justify-between"><span className="text-slate-500">SLA de retorno</span><b>{collectionSla.sla.replace('Retorno esperado em ', '')}</b></div>
                   <div className="flex justify-between border-t border-dashed border-slate-200 pt-4 text-lg font-black text-indigo-700">
                     <span>Total consolidado</span><span>{money(selectedBillingTotal)}</span>
                   </div>
@@ -1047,7 +1263,7 @@ export default function FinanceReceivablesDesk({
                 </button>
                 <button onClick={copyBillingText} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-indigo-500/20">
                   <MessageSquare className="h-4 w-4" />
-                  Disparar lote integrado
+                  Preparar lote integrado
                 </button>
               </div>
             </div>
