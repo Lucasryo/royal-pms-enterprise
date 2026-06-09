@@ -778,6 +778,7 @@ function classifyInvoiceType(line: string) {
 }
 
 export function validateImportRows(parsed: ParsedCompany[], companies: Company[], files: FiscalFile[]): ImportValidationRow[] {
+  const activeFiles = files.filter((file) => !file.is_deleted);
   return parsed.flatMap((company) => {
     const matched = companies.find((existing) =>
       (company.cnpj && existing.cnpj === company.cnpj) ||
@@ -786,7 +787,7 @@ export function validateImportRows(parsed: ParsedCompany[], companies: Company[]
     );
 
     return company.invoices.map((invoice, index) => {
-      const existingByNumber = files.find((file) =>
+      const existingByNumber = activeFiles.find((file) =>
         getCompanyId(file) === matched?.id &&
         normalizeKey(file.original_name || '').includes(normalizeKey(invoice.invoiceNum))
       );

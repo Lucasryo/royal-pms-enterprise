@@ -2,6 +2,27 @@
 -- Mantem a carteira atual em public.files e adiciona somente o que precisa de
 -- configuracao, rastreabilidade e importacao estruturada.
 
+create or replace function public.current_user_can_manage_finance()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and (
+        p.role in ('admin', 'manager', 'finance', 'faturamento')
+        or coalesce((p.permissions ->> 'canManageFinance')::boolean, false)
+        or coalesce((p.permissions ->> 'canManageBilling')::boolean, false)
+      )
+  );
+$$;
+
+grant execute on function public.current_user_can_manage_finance() to authenticated, service_role;
+
 alter table public.files
   add column if not exists collection_status text default 'open'
     check (collection_status in (

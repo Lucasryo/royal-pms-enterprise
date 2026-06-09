@@ -26,6 +26,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Trash2,
   Upload,
   XCircle,
 } from 'lucide-react';
@@ -177,7 +178,7 @@ export default function FinanceReceivablesDesk({
   async function fetchAll() {
     setLoading(true);
     const [filesRes, companiesRes, bankRes, rulesRes, templatesRes, eventsRes, importsRes] = await Promise.all([
-      supabase.from('files').select('*').order('due_date', { ascending: true, nullsFirst: false }),
+      supabase.from('files').select('*').not('is_deleted', 'is', true).order('due_date', { ascending: true, nullsFirst: false }),
       supabase.from('companies').select('*').order('name'),
       supabase.from('bank_accounts').select('*').order('is_default', { ascending: false }).order('bank_name'),
       optionalSelect<CollectionRule>('collection_rules', 'active,stage'),
@@ -479,6 +480,61 @@ export default function FinanceReceivablesDesk({
       toast.success(`Importacao concluida: ${created} criada(s), ${updated} atualizada(s).`, { id: toastId });
     } catch (error: any) {
       toast.error(error.message || 'Falha ao confirmar importacao.', { id: toastId });
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function resetReceivablesInvoices() {
+    const activeFinancialFiles = files.filter((file) => !file.is_deleted && FINANCIAL_TYPES.includes(file.type));
+    if (activeFinancialFiles.length === 0) {
+      toast.message('Nao ha faturas financeiras ativas para zerar.');
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Esta acao vai zerar ${activeFinancialFiles.length} fatura(s) financeiras da Regua sem apagar empresas/clientes.\nDigite ZERAR para confirmar.`
+    );
+    if (confirmation !== 'ZERAR') return;
+
+    setImporting(true);
+    const toastId = toast.loading('Zerando faturas financeiras...');
+    try {
+      const now = new Date().toISOString();
+      const ids = activeFinancialFiles.map((file) => file.id);
+      const resetPayload = {
+        is_deleted: true,
+        deleted_at: now,
+        deleted_by: profile.id,
+        status: 'CANCELLED',
+        tracking_status: 'blocked',
+        tracking_notes: `Zerado para reimportacao da Regua em ${new Date().toLocaleString('pt-BR')} por ${profile.name}`,
+        tracking_updated_at: now,
+        tracking_updated_by: profile.name,
+      };
+
+      for (let index = 0; index < ids.length; index += 100) {
+        const chunk = ids.slice(index, index + 100);
+        const { error } = await supabase.from('files').update(resetPayload).in('id', chunk);
+        if (error) throw error;
+      }
+
+      setFiles((prev) => prev.filter((file) => !ids.includes(file.id)));
+      setValidationRows((prev) => prev.map((row) => row.action === 'duplicate'
+        ? { ...row, action: 'create', selected: true, reason: 'Carteira zerada. Nova fatura sera criada.' }
+        : row
+      ));
+      await logAudit({
+        user_id: profile.id,
+        user_name: profile.name,
+        action: 'Regua - faturas financeiras zeradas',
+        details: { count: ids.length },
+        type: 'delete',
+      });
+      toast.success(`${ids.length} fatura(s) zerada(s). Reimporte ou gere a pre-validacao novamente.`, { id: toastId });
+      await fetchAll();
+    } catch (error: any) {
+      toast.error(error.message || 'Falha ao zerar faturas.', { id: toastId });
     } finally {
       setImporting(false);
     }
@@ -1078,6 +1134,16 @@ export default function FinanceReceivablesDesk({
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <ActionButton onClick={runMarkdownParser} icon={Eye}>Gerar pre-validacao</ActionButton>
                 <ActionButton onClick={() => setMarkdownInput(PARSER_SAMPLE)} icon={FileText}>Exemplo</ActionButton>
+              </div>
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                <p className="text-xs font-bold leading-5 text-rose-800">
+                  Ambiente de teste: zere a carteira financeira antes de reimportar o PDF para evitar duplicidade de faturas antigas.
+                </p>
+                <button onClick={resetReceivablesInvoices} disabled={importing}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Zerar faturas da Regua
+                </button>
               </div>
             </div>
             <div className="min-w-0">

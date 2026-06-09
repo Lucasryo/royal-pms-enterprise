@@ -415,6 +415,27 @@ Validacao:
 - `npm run test:receivables` passou.
 - `npm run build` passou.
 
+### 2026-06-09 - Reset de carteira para teste de reimportacao
+
+Problema encontrado:
+
+- A carteira tinha faturas antigas/importadas incorretamente e o importador acusava duplicidade ao carregar o PDF corrigido.
+- Faturas marcadas como excluidas ainda podiam entrar na comparacao de duplicidade se estivessem no estado da tela.
+- A migration da Regua dependia da funcao `current_user_can_manage_finance()` sem cria-la.
+
+Correcao feita:
+
+- Adicionado botao `Zerar faturas da Regua` na aba Importador.
+- O reset marca faturas financeiras como excluidas em lotes de 100, sem apagar empresas/clientes.
+- A tela passou a carregar `files` ignorando `is_deleted = true`.
+- `validateImportRows` passou a ignorar faturas excluidas na deteccao de duplicidade.
+- A migration agora cria `public.current_user_can_manage_finance()` antes das policies.
+
+Validacao:
+
+- `npm run lint` passou.
+- `npm run test:receivables` passou.
+
 ## Historico de alteracoes
 
 ### 2026-06-08 - Auditoria inicial e memoria do modulo
