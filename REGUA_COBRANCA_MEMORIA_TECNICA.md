@@ -453,6 +453,8 @@ Correcao feita:
 - Adicionados comandos operacionais: selecionar validas, limpar selecao e exportar previa CSV.
 - `validateImportRows` agora compara CNPJ normalizado e detecta duplicidade dentro do proprio PDF/Markdown.
 - A importacao parcial deixa o arquivo em `awaiting_validation` para revisao, em vez de fingir sucesso total.
+- O reset de carteira deixou de usar `window.prompt` e passou a usar modal proprio com confirmacao `ZERAR`.
+- Carteira ativa da Regua foi zerada pelo fluxo local autenticado: a tela passou de 858 faturas ativas para `R$ 0,00`, `0 cliente(s)` e `0/0`.
 
 Validacao:
 
@@ -461,6 +463,7 @@ Validacao:
 - `npm run build` passou.
 - Browser local desktop na aba Regua/Importador: `overflowX = 0` e novos controles visiveis.
 - Browser local mobile 390px na aba Regua/Importador com pre-validacao gerada: `overflowX = 0`.
+- Browser local na aba Regua/Importador: modal de reset confirmado com `ZERAR` e carteira zerada.
 
 ## Historico de alteracoes
 

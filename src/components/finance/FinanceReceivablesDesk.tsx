@@ -174,6 +174,8 @@ export default function FinanceReceivablesDesk({
   const [importing, setImporting] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [templateDraft, setTemplateDraft] = useState<EmailTemplate>(DEFAULT_EMAIL_TEMPLATES[1]);
   const [ruleDrafts, setRuleDrafts] = useState<CollectionRule[]>(DEFAULT_COLLECTION_RULES);
 
@@ -533,17 +535,27 @@ export default function FinanceReceivablesDesk({
     }
   }
 
-  async function resetReceivablesInvoices() {
+  function requestResetReceivablesInvoices() {
     const activeFinancialFiles = files.filter((file) => !file.is_deleted && FINANCIAL_TYPES.includes(file.type));
     if (activeFinancialFiles.length === 0) {
       toast.message('Nao ha faturas financeiras ativas para zerar.');
       return;
     }
+    setResetConfirmText('');
+    setResetConfirmOpen(true);
+  }
 
-    const confirmation = window.prompt(
-      `Esta acao vai zerar ${activeFinancialFiles.length} fatura(s) financeiras da Regua sem apagar empresas/clientes.\nDigite ZERAR para confirmar.`
-    );
-    if (confirmation !== 'ZERAR') return;
+  async function resetReceivablesInvoices() {
+    const activeFinancialFiles = files.filter((file) => !file.is_deleted && FINANCIAL_TYPES.includes(file.type));
+    if (activeFinancialFiles.length === 0) {
+      setResetConfirmOpen(false);
+      toast.message('Nao ha faturas financeiras ativas para zerar.');
+      return;
+    }
+    if (resetConfirmText.trim() !== 'ZERAR') {
+      toast.error('Digite ZERAR para confirmar.');
+      return;
+    }
 
     setImporting(true);
     const toastId = toast.loading('Zerando faturas financeiras...');
@@ -580,6 +592,8 @@ export default function FinanceReceivablesDesk({
         type: 'delete',
       });
       toast.success(`${ids.length} fatura(s) zerada(s). Reimporte ou gere a pre-validacao novamente.`, { id: toastId });
+      setResetConfirmOpen(false);
+      setResetConfirmText('');
       await fetchAll();
     } catch (error: any) {
       toast.error(error.message || 'Falha ao zerar faturas.', { id: toastId });
@@ -1215,7 +1229,7 @@ export default function FinanceReceivablesDesk({
                 <p className="text-xs font-bold leading-5 text-rose-800">
                   Ambiente de teste: zere a carteira financeira antes de reimportar o PDF para evitar duplicidade de faturas antigas.
                 </p>
-                <button onClick={resetReceivablesInvoices} disabled={importing}
+                <button onClick={requestResetReceivablesInvoices} disabled={importing}
                   className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">
                   <Trash2 className="h-3.5 w-3.5" />
                   Zerar faturas da Regua
@@ -1361,6 +1375,42 @@ export default function FinanceReceivablesDesk({
             </div>
           </div>
         </Panel>
+      )}
+
+      {resetConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-rose-100 bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-rose-50 p-2 text-rose-700">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-950">Zerar faturas financeiras</p>
+                <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                  Esta acao marca as faturas financeiras ativas como canceladas/excluidas para permitir reimportacao limpa do PDF. Empresas e clientes permanecem.
+                </p>
+              </div>
+            </div>
+            <label className="mt-4 block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Digite ZERAR</span>
+              <input value={resetConfirmText} onChange={(event) => setResetConfirmText(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-black outline-none focus:border-rose-400"
+                autoFocus
+              />
+            </label>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button onClick={() => setResetConfirmOpen(false)} disabled={importing}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={resetReceivablesInvoices} disabled={importing || resetConfirmText.trim() !== 'ZERAR'}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">
+                {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Confirmar reset
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {tab === 'templates' && (
