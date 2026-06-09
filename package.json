@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rimraf dist",
     "lint": "tsc --noEmit",
-    "test:bot": "tsx scripts/bot-telegram.test.ts"
+    "test:bot": "tsx scripts/bot-telegram.test.ts",
+    "test:receivables": "tsx scripts/receivables-parser.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",

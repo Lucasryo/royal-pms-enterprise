@@ -4,7 +4,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
  * send-resend-email
  *  - Funcao generica de envio via Resend
  *  - Requer secret: RESEND_API_KEY
- *  - Aceita { to, subject, html, from?, replyTo? }
+ *  - Aceita { to, subject, html, from?, replyTo?, attachments? }
  *  - from default vem do body ou cai num placeholder seguro
  * ============================================================ */
 
@@ -23,6 +23,11 @@ type Body = {
   html: string;
   from?: string;
   replyTo?: string;
+  attachments?: Array<{
+    filename: string;
+    content: string;
+    contentType?: string;
+  }>;
 };
 
 serve(async (req) => {
@@ -44,6 +49,17 @@ serve(async (req) => {
       subject: body.subject,
       html: body.html,
       ...(body.replyTo ? { reply_to: body.replyTo } : {}),
+      ...(Array.isArray(body.attachments) && body.attachments.length > 0
+        ? {
+            attachments: body.attachments
+              .filter((item) => item?.filename && item?.content)
+              .map((item) => ({
+                filename: item.filename,
+                content: item.content,
+                ...(item.contentType ? { content_type: item.contentType } : {}),
+              })),
+          }
+        : {}),
     };
 
     const res = await fetch("https://api.resend.com/emails", {

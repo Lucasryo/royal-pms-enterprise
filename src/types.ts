@@ -304,6 +304,16 @@ export interface FiscalFile {
   tracking_notes?: string;
   tracking_updated_at?: string;
   tracking_updated_by?: string;
+  collection_status?: 'open' | 'awaiting_return' | 'awaiting_receipt' | 'payment_promised' | 'disputed' | 'negotiating' | 'legal' | 'paid' | 'cancelled';
+  promise_payment_date?: string;
+  collection_owner?: string;
+  last_collection_event_at?: string;
+  next_collection_action_at?: string;
+  collection_stage?: string;
+  collection_notes?: string;
+  purchase_order?: string;
+  billing_email_snapshot?: string;
+  source_import_id?: string;
   nh?: string;
   event_os_number?: string;
   reservation_code?: string;
