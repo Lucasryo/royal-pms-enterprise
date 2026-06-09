@@ -394,6 +394,27 @@ Validacao:
 - `npm run test:receivables` passou com amostra que reproduz o PDF agrupado.
 - `npm run lint` passou.
 
+### 2026-06-09 - Hotfix responsivo da pre-validacao do importador
+
+Problema encontrado:
+
+- Em viewport estreita, a tabela de pre-validacao tinha largura minima grande e explodia o painel.
+- O botao `Confirmar importacao`, o resumo e a lista de linhas ficavam sobrepostos/espremidos.
+
+Correcao feita:
+
+- A pre-validacao agora renderiza cards editaveis no mobile.
+- A tabela completa fica visivel somente em telas grandes.
+- Containers receberam `min-w-0` para impedir overflow horizontal.
+- Botoes da area de importacao passam a empilhar corretamente em telas pequenas.
+
+Validacao:
+
+- Browser local em viewport 390px: `scrollWidth` igual a `clientWidth`, sem overflow horizontal.
+- `npm run lint` passou.
+- `npm run test:receivables` passou.
+- `npm run build` passou.
+
 ## Historico de alteracoes
 
 ### 2026-06-08 - Auditoria inicial e memoria do modulo

@@ -1064,8 +1064,8 @@ export default function FinanceReceivablesDesk({
 
       {tab === 'importer' && (
         <Panel title="Importador ERP" eyebrow="PDF, Markdown, JSON e pre-validacao humana">
-          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <div>
+          <div className="grid min-w-0 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="min-w-0">
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
                 <Upload className="mx-auto h-8 w-8 text-slate-400" />
                 <p className="mt-2 text-sm font-black text-slate-950">Upload de PDF do ERP</p>
@@ -1075,18 +1075,18 @@ export default function FinanceReceivablesDesk({
               <textarea value={markdownInput} onChange={(event) => setMarkdownInput(event.target.value)}
                 className="mt-4 h-[360px] w-full rounded-2xl border border-slate-200 bg-white p-4 font-mono text-xs leading-6 outline-none focus:border-indigo-400"
               />
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <ActionButton onClick={runMarkdownParser} icon={Eye}>Gerar pre-validacao</ActionButton>
                 <ActionButton onClick={() => setMarkdownInput(PARSER_SAMPLE)} icon={FileText}>Exemplo</ActionButton>
               </div>
             </div>
-            <div>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
+            <div className="min-w-0">
+              <div className="mb-3 grid gap-2 sm:flex sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-sm font-black text-slate-950">Pre-validacao editavel</p>
                   <p className="text-xs font-medium text-slate-500">{validationRows.length} linha(s), {validationRows.filter((row) => row.selected).length} selecionada(s)</p>
                 </div>
-                <button onClick={confirmImport} disabled={importing || validationRows.length === 0} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">
+                <button onClick={confirmImport} disabled={importing || validationRows.length === 0} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50 sm:w-auto">
                   {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   Confirmar importacao
                 </button>
@@ -1101,7 +1101,49 @@ export default function FinanceReceivablesDesk({
                   Extraido: {new Set(validationRows.map((row) => `${row.companyName}|${row.companyDocument || ''}`)).size} empresa(s), {validationRows.length} fatura(s).
                 </div>
               )}
-              <div className="max-h-[560px] overflow-auto rounded-2xl border border-slate-200">
+              <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1 lg:hidden">
+                {validationRows.map((row) => (
+                  <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <label className="flex items-center gap-2 text-xs font-black text-slate-700">
+                        <input type="checkbox" checked={row.selected} onChange={() => patchValidationRow(row.id, { selected: !row.selected })} className="h-4 w-4 accent-indigo-600" />
+                        {row.invoice.invoiceNum}
+                      </label>
+                      <select value={row.action} onChange={(event) => patchValidationRow(row.id, { action: event.target.value as ImportValidationRow['action'] })}
+                        className="max-w-[120px] rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold">
+                        {Object.entries(ACTION_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      <label className="block">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Cliente</span>
+                        <input value={row.companyName} onChange={(event) => patchValidationRow(row.id, { companyName: event.target.value })}
+                          className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-2 py-1 text-xs" />
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Vencimento</span>
+                          <input type="date" value={row.invoice.dueDate} onChange={(event) => patchInvoice(row.id, { dueDate: event.target.value, overdueDays: daysOverdue(event.target.value) })}
+                            className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-2 py-1 text-xs" />
+                        </label>
+                        <label className="block">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Valor</span>
+                          <input type="number" value={row.invoice.openAmount} onChange={(event) => patchInvoice(row.id, { openAmount: Number(event.target.value), originalAmount: Number(event.target.value) })}
+                            className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs" />
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">P.O.</span>
+                        <input value={row.invoice.purchaseOrder || ''} onChange={(event) => patchInvoice(row.id, { purchaseOrder: event.target.value })}
+                          className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 px-2 py-1 text-xs" />
+                      </label>
+                      <p className="text-xs leading-5 text-slate-500">{row.reason}</p>
+                    </div>
+                  </div>
+                ))}
+                {validationRows.length === 0 && <EmptyState text="Envie um PDF ou cole um Markdown para gerar a pre-validacao." />}
+              </div>
+              <div className="hidden max-h-[560px] overflow-auto rounded-2xl border border-slate-200 lg:block">
                 <table className="w-full min-w-[960px] text-left text-xs">
                   <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
                     <tr>
@@ -1326,7 +1368,7 @@ function Kpi({ title, value, detail, icon: Icon, tone }: { title: string; value:
 
 function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="min-w-0 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="mb-4">
         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p>
         <h3 className="mt-1 text-lg font-black text-slate-950">{title}</h3>
