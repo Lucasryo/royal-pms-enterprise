@@ -79,6 +79,16 @@ type SchemaAvailability = {
   templates: boolean;
 };
 
+type ImportResult = {
+  created: number;
+  updated: number;
+  failed: number;
+  companiesCreated: number;
+  skipped: number;
+  errors: Array<{ invoice: string; company: string; reason: string }>;
+  finishedAt: string;
+};
+
 type CompanyExposure = {
   companyId: string;
   name: string;
@@ -163,6 +173,7 @@ export default function FinanceReceivablesDesk({
   const [currentImportId, setCurrentImportId] = useState('');
   const [importing, setImporting] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
   const [templateDraft, setTemplateDraft] = useState<EmailTemplate>(DEFAULT_EMAIL_TEMPLATES[1]);
   const [ruleDrafts, setRuleDrafts] = useState<CollectionRule[]>(DEFAULT_COLLECTION_RULES);
 
@@ -358,6 +369,11 @@ export default function FinanceReceivablesDesk({
     : { subject: '', body: 'Selecione uma empresa para preparar a cobranca.' };
   const recipient = recipientDraft.trim() || selectedCompany?.email || selectedInvoices.find((file) => file.billing_email_snapshot)?.billing_email_snapshot || '';
   const schemaMissing = Object.entries(schema).filter(([, ok]) => !ok).map(([key]) => key);
+  const validationStats = useMemo(() => validationRows.reduce((acc, row) => {
+    acc[row.action] += 1;
+    if (row.selected && row.action !== 'duplicate' && row.action !== 'error' && row.action !== 'ignored') acc.selectedValid += 1;
+    return acc;
+  }, { create: 0, update: 0, duplicate: 0, error: 0, ignored: 0, selectedValid: 0 } as Record<ImportValidationRow['action'] | 'selectedValid', number>), [validationRows]);
 
   async function handlePdfUpload(file: File) {
     if (!file) return;
@@ -390,6 +406,7 @@ export default function FinanceReceivablesDesk({
       const parsed = parseMarkdownReport(markdown);
       const rows = validateImportRows(parsed, companies, files);
       const summary = parseReceivablesSummary(markdown);
+      setLastImportResult(null);
       setMarkdownInput(markdown);
       setValidationRows(rows);
       setReportSummary(summary);
@@ -416,6 +433,7 @@ export default function FinanceReceivablesDesk({
       if (parsed.length === 0) throw new Error('Nenhuma empresa/fatura encontrada.');
       const rows = validateImportRows(parsed, companies, files);
       const summary = parseReceivablesSummary(markdown);
+      setLastImportResult(null);
       setMarkdownInput(markdown);
       setValidationRows(rows);
       setReportSummary(summary);
@@ -437,47 +455,77 @@ export default function FinanceReceivablesDesk({
     try {
       const refreshedCompanies = [...companies];
       const nextFiles: FiscalFile[] = [...files];
+      const successIds = new Set<string>();
+      const failedById = new Map<string, string>();
+      const errors: ImportResult['errors'] = [];
       let created = 0;
       let updated = 0;
       let companiesCreated = 0;
 
       for (const row of rows) {
-        const company = await resolveCompany(row, refreshedCompanies);
-        if (!row.matchedCompanyId && !companies.some((item) => item.id === company.id)) companiesCreated += 1;
+        try {
+          const company = await resolveCompany(row, refreshedCompanies);
+          if (!row.matchedCompanyId && !companies.some((item) => item.id === company.id)) companiesCreated += 1;
 
-        if (row.action === 'update' && row.existingFileId) {
-          const payload = buildFilePayload(row, company.id);
-          await updateFileWithFallback(row.existingFileId, payload);
-          const index = nextFiles.findIndex((file) => file.id === row.existingFileId);
-          if (index >= 0) nextFiles[index] = { ...nextFiles[index], ...payload } as FiscalFile;
-          updated += 1;
-        } else {
-          const payload = buildFilePayload(row, company.id);
-          const inserted = await insertFileWithFallback(payload);
-          nextFiles.unshift(inserted);
-          created += 1;
+          if (row.action === 'update' && row.existingFileId) {
+            const payload = buildFilePayload(row, company.id);
+            await updateFileWithFallback(row.existingFileId, payload);
+            const index = nextFiles.findIndex((file) => file.id === row.existingFileId);
+            if (index >= 0) nextFiles[index] = { ...nextFiles[index], ...payload } as FiscalFile;
+            updated += 1;
+          } else {
+            const payload = buildFilePayload(row, company.id);
+            const inserted = await insertFileWithFallback(payload);
+            nextFiles.unshift(inserted);
+            created += 1;
+          }
+          successIds.add(row.id);
+        } catch (error: any) {
+          const reason = error.message || 'Falha ao gravar esta fatura.';
+          failedById.set(row.id, reason);
+          errors.push({ invoice: row.invoice.invoiceNum, company: row.companyName, reason });
         }
       }
 
       setCompanies(refreshedCompanies);
       setFiles(nextFiles);
+      const nextValidationRows = validationRows
+        .filter((row) => !successIds.has(row.id))
+        .map((row) => failedById.has(row.id)
+          ? { ...row, action: 'error' as const, selected: false, reason: `Falha ao gravar: ${failedById.get(row.id)}` }
+          : row
+        );
+      const result: ImportResult = {
+        created,
+        updated,
+        failed: errors.length,
+        companiesCreated,
+        skipped: validationRows.length - rows.length,
+        errors,
+        finishedAt: new Date().toISOString(),
+      };
+      setLastImportResult(result);
       await updateImportRecord(currentImportId, {
-        extraction_status: 'imported',
-        validation_json: validationRows,
-        imported_by: profile.id,
-        imported_at: new Date().toISOString(),
+        extraction_status: errors.length ? 'awaiting_validation' : 'imported',
+        validation_json: errors.length ? nextValidationRows : validationRows,
+        imported_by: errors.length ? undefined : profile.id,
+        imported_at: errors.length ? undefined : new Date().toISOString(),
       });
       await logAudit({
         user_id: profile.id,
         user_name: profile.name,
-        action: 'Regua - importacao de recebiveis confirmada',
-        details: { created, updated, companiesCreated, sourceImportId: currentImportId || null },
+        action: errors.length ? 'Regua - importacao de recebiveis parcial' : 'Regua - importacao de recebiveis confirmada',
+        details: { ...result, sourceImportId: currentImportId || null },
         type: 'upload',
       });
-      setValidationRows([]);
-      setCurrentImportId('');
+      setValidationRows(errors.length ? nextValidationRows : []);
+      if (!errors.length) setCurrentImportId('');
       await fetchAll();
-      toast.success(`Importacao concluida: ${created} criada(s), ${updated} atualizada(s).`, { id: toastId });
+      if (errors.length) {
+        toast.error(`Importacao parcial: ${created} criada(s), ${updated} atualizada(s), ${errors.length} falha(s).`, { id: toastId });
+      } else {
+        toast.success(`Importacao concluida: ${created} criada(s), ${updated} atualizada(s).`, { id: toastId });
+      }
     } catch (error: any) {
       toast.error(error.message || 'Falha ao confirmar importacao.', { id: toastId });
     } finally {
@@ -855,6 +903,34 @@ export default function FinanceReceivablesDesk({
     downloadCsv(`carteira_regua_${new Date().toISOString().slice(0, 10)}.csv`, rows);
   }
 
+  function selectValidationRows(mode: 'valid' | 'none' | 'all') {
+    setValidationRows((prev) => prev.map((row) => {
+      if (mode === 'none') return { ...row, selected: false };
+      const isValid = row.action !== 'duplicate' && row.action !== 'error' && row.action !== 'ignored';
+      return { ...row, selected: mode === 'all' ? isValid : isValid };
+    }));
+  }
+
+  function exportValidationPreview() {
+    if (validationRows.length === 0) {
+      toast.message('Gere a pre-validacao antes de exportar.');
+      return;
+    }
+    downloadCsv(`pre_validacao_regua_${new Date().toISOString().slice(0, 10)}.csv`, validationRows.map((row) => ({
+      Acao: ACTION_LABEL[row.action],
+      Selecionada: row.selected ? 'Sim' : 'Nao',
+      Cliente: row.companyName,
+      CNPJ: row.companyDocument || '',
+      Fatura: row.invoice.invoiceNum,
+      Emissao: fmtDate(row.invoice.issueDate),
+      Vencimento: fmtDate(row.invoice.dueDate),
+      ValorFatura: Number(row.invoice.originalAmount || 0).toFixed(2).replace('.', ','),
+      ValorReceber: Number(row.invoice.openAmount || 0).toFixed(2).replace('.', ','),
+      Status: row.invoice.status,
+      Motivo: row.reason,
+    })));
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[42vh] items-center justify-center">
@@ -1150,13 +1226,48 @@ export default function FinanceReceivablesDesk({
               <div className="mb-3 grid gap-2 sm:flex sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-black text-slate-950">Pre-validacao editavel</p>
-                  <p className="text-xs font-medium text-slate-500">{validationRows.length} linha(s), {validationRows.filter((row) => row.selected).length} selecionada(s)</p>
+                  <p className="text-xs font-medium text-slate-500">{validationRows.length} linha(s), {validationStats.selectedValid} valida(s) selecionada(s)</p>
                 </div>
                 <button onClick={confirmImport} disabled={importing || validationRows.length === 0} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50 sm:w-auto">
                   {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   Confirmar importacao
                 </button>
               </div>
+              <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                {[
+                  ['Criar', validationStats.create, 'text-emerald-700 bg-emerald-50 border-emerald-100'],
+                  ['Atualizar', validationStats.update, 'text-indigo-700 bg-indigo-50 border-indigo-100'],
+                  ['Duplicadas', validationStats.duplicate, 'text-amber-700 bg-amber-50 border-amber-100'],
+                  ['Erros', validationStats.error, 'text-rose-700 bg-rose-50 border-rose-100'],
+                  ['Ignoradas', validationStats.ignored, 'text-slate-700 bg-slate-50 border-slate-100'],
+                ].map(([label, value, tone]) => (
+                  <div key={label} className={`rounded-2xl border px-3 py-2 ${tone}`}>
+                    <p className="text-[10px] font-black uppercase tracking-wider">{label}</p>
+                    <p className="mt-1 text-lg font-black">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <MiniButton onClick={() => selectValidationRows('valid')}>Selecionar validas</MiniButton>
+                <MiniButton onClick={() => selectValidationRows('none')}>Limpar selecao</MiniButton>
+                <MiniButton onClick={exportValidationPreview}>Exportar previa</MiniButton>
+              </div>
+              {lastImportResult && (
+                <div className={`mb-3 rounded-2xl border p-3 text-xs font-bold ${
+                  lastImportResult.failed
+                    ? 'border-amber-200 bg-amber-50 text-amber-800'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                }`}>
+                  Ultima importacao: {lastImportResult.created} criada(s), {lastImportResult.updated} atualizada(s), {lastImportResult.failed} falha(s), {lastImportResult.skipped} ignorada(s).
+                  {lastImportResult.errors.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {lastImportResult.errors.slice(0, 5).map((item) => (
+                        <li key={`${item.company}-${item.invoice}`}>{item.invoice} - {item.company}: {item.reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {(reportSummary.invoiceCount || reportSummary.companyCount) && (
                 <div className={`mb-3 rounded-2xl border p-3 text-xs font-bold ${
                   reportSummary.invoiceCount === validationRows.length

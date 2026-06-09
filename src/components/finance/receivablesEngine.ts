@@ -779,14 +779,19 @@ function classifyInvoiceType(line: string) {
 
 export function validateImportRows(parsed: ParsedCompany[], companies: Company[], files: FiscalFile[]): ImportValidationRow[] {
   const activeFiles = files.filter((file) => !file.is_deleted);
+  const seenInImport = new Set<string>();
   return parsed.flatMap((company) => {
     const matched = companies.find((existing) =>
-      (company.cnpj && existing.cnpj === company.cnpj) ||
+      (company.cnpj && normalizeKey(existing.cnpj || '') === normalizeKey(company.cnpj)) ||
       normalizeKey(existing.name) === normalizeKey(company.name) ||
       (existing.parser_aliases || []).some((alias) => normalizeKey(alias) === normalizeKey(company.name))
     );
 
     return company.invoices.map((invoice, index) => {
+      const rowId = `${normalizeKey(company.name)}-${invoice.invoiceNum}-${index}`;
+      const importKey = `${normalizeKey(company.cnpj || company.name)}|${normalizeKey(invoice.invoiceNum)}`;
+      const repeatedInImport = seenInImport.has(importKey);
+      if (importKey !== '|') seenInImport.add(importKey);
       const existingByNumber = activeFiles.find((file) =>
         getCompanyId(file) === matched?.id &&
         normalizeKey(file.original_name || '').includes(normalizeKey(invoice.invoiceNum))
@@ -801,7 +806,7 @@ export function validateImportRows(parsed: ParsedCompany[], companies: Company[]
 
       if (missing.length > 0) {
         return {
-          id: `${normalizeKey(company.name)}-${invoice.invoiceNum}-${index}`,
+          id: rowId,
           companyName: company.name,
           companyDocument: company.cnpj,
           invoice,
@@ -813,9 +818,23 @@ export function validateImportRows(parsed: ParsedCompany[], companies: Company[]
         };
       }
 
+      if (repeatedInImport) {
+        return {
+          id: rowId,
+          companyName: company.name,
+          companyDocument: company.cnpj,
+          invoice,
+          action: 'duplicate' as const,
+          reason: 'Fatura repetida dentro do arquivo importado.',
+          matchedCompanyId: matched?.id,
+          existingFileId: existingByNumber?.id,
+          selected: false,
+        };
+      }
+
       if (existingStrict) {
         return {
-          id: `${normalizeKey(company.name)}-${invoice.invoiceNum}-${index}`,
+          id: rowId,
           companyName: company.name,
           companyDocument: company.cnpj,
           invoice,
@@ -829,7 +848,7 @@ export function validateImportRows(parsed: ParsedCompany[], companies: Company[]
 
       if (existingByNumber) {
         return {
-          id: `${normalizeKey(company.name)}-${invoice.invoiceNum}-${index}`,
+          id: rowId,
           companyName: company.name,
           companyDocument: company.cnpj,
           invoice,
@@ -842,7 +861,7 @@ export function validateImportRows(parsed: ParsedCompany[], companies: Company[]
       }
 
       return {
-        id: `${normalizeKey(company.name)}-${invoice.invoiceNum}-${index}`,
+        id: rowId,
         companyName: company.name,
         companyDocument: company.cnpj,
         invoice,

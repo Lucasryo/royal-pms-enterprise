@@ -436,6 +436,32 @@ Validacao:
 - `npm run lint` passou.
 - `npm run test:receivables` passou.
 
+### 2026-06-09 - Importacao resiliente e governanca da pre-validacao
+
+Problema encontrado:
+
+- `Confirmar importacao` abortava toda a rotina quando uma unica fatura falhava ao gravar.
+- A tela nao mostrava claramente quantas faturas foram criadas, atualizadas, ignoradas ou rejeitadas.
+- CNPJ com mascara e sem mascara podia impedir o casamento correto de cliente.
+- Faturas repetidas dentro do proprio arquivo importado nao eram barradas antes da gravacao.
+
+Correcao feita:
+
+- `confirmImport` passou a gravar linha a linha, mantendo sucesso parcial e devolvendo na tela apenas as faturas com falha.
+- Adicionado resumo da ultima importacao com criadas, atualizadas, falhas e ignoradas.
+- Adicionados indicadores de pre-validacao por acao: criar, atualizar, duplicadas, erros e ignoradas.
+- Adicionados comandos operacionais: selecionar validas, limpar selecao e exportar previa CSV.
+- `validateImportRows` agora compara CNPJ normalizado e detecta duplicidade dentro do proprio PDF/Markdown.
+- A importacao parcial deixa o arquivo em `awaiting_validation` para revisao, em vez de fingir sucesso total.
+
+Validacao:
+
+- `npm run lint` passou.
+- `npm run test:receivables` passou.
+- `npm run build` passou.
+- Browser local desktop na aba Regua/Importador: `overflowX = 0` e novos controles visiveis.
+- Browser local mobile 390px na aba Regua/Importador com pre-validacao gerada: `overflowX = 0`.
+
 ## Historico de alteracoes
 
 ### 2026-06-08 - Auditoria inicial e memoria do modulo

@@ -6,6 +6,8 @@ import {
   classifyInvoiceStatus,
   convertExtractedReceivablesText,
   formatCnpj,
+  parseMarkdownReport,
+  validateImportRows,
   validateCompanyTotals,
 } from '../src/components/finance/receivablesEngine';
 
@@ -63,6 +65,24 @@ assert.match(convertedGrouped.markdown, /\* FT-88307 \| Emissão: 19\/06\/2024 \
 assert.equal(convertedGrouped.summary.companyCount, 2);
 assert.equal(convertedGrouped.summary.invoiceCount, 3);
 assert.equal(convertedGrouped.companyTotalValidations.every((row) => row.ok), true);
+
+const duplicateMarkdown = `# RELATORIO DE CONTAS A RECEBER - ROYAL MACAE PALACE HOTEL
+Data de Operacao: 28/05/2026
+
+## AEROMASTER TAXI AEREO LTDA (CNPJ: 74.385.485/0002-04)
+* FT-102551 | Emissao: 30/04/2026 | Vencimento: 01/06/2026 | Vlr Fatura: 578,93 | Vlr Receber: 578,93 | Status: A VENCER
+* FT-102551 | Emissao: 30/04/2026 | Vencimento: 01/06/2026 | Vlr Fatura: 578,93 | Vlr Receber: 578,93 | Status: A VENCER
+`;
+
+const duplicateRows = validateImportRows(
+  parseMarkdownReport(duplicateMarkdown),
+  [{ id: 'company-1', name: 'AEROMASTER TAXI AEREO LTDA', cnpj: '74385485000204', parser_aliases: [] } as any],
+  [{ id: 'file-1', company_id: 'company-1', original_name: 'FT-102650 - AEROMASTER TAXI AEREO LTDA', amount: 1157.85, is_deleted: false } as any]
+);
+assert.equal(duplicateRows[0].action, 'create');
+assert.equal(duplicateRows[0].matchedCompanyId, 'company-1');
+assert.equal(duplicateRows[1].action, 'duplicate');
+assert.match(duplicateRows[1].reason, /arquivo importado/);
 
 const realReportPath = 'C:/Users/ROYA/Downloads/relatorio_contas_receber_royal_macae (1).md';
 if (existsSync(realReportPath)) {
