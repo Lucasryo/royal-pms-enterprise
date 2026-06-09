@@ -372,6 +372,28 @@ Validacao:
 - Resultado validado no relatorio real: 73 empresas, 1060 faturas, total R$ 1.507.761,63 e Total Empresa consistente.
 - `npm run lint` passou.
 
+### 2026-06-09 - Hotfix do PDF agrupado com empresa/CNPJ separados das faturas
+
+Problema encontrado em producao:
+
+- O PDF estava sendo convertido pelo fallback legado.
+- As faturas saiam com numero artificial `FT-178...` em vez do numero real.
+- Telefones estavam entrando no nome da empresa.
+- Como a Data de Operacao podia vir quebrada em outra linha, faturas antigas eram classificadas como `A VENCER`.
+
+Correcao feita:
+
+- `parseRawReceivablesRows` agora mantem a empresa atual quando o PDF extrai a linha da empresa/CNPJ separada das linhas de fatura.
+- Criados parsers auxiliares para cabecalho de empresa e linha de fatura agrupada.
+- A Data de Operacao agora aceita quebra de linha entre o rotulo e a data.
+- O nome da empresa passa por limpeza de telefones antes de gerar o Markdown.
+- Quando a linha nao traz todos os valores contabeis intermediarios, `Vlr Fatura` usa o valor a receber em vez de pegar comissao/telefone como valor.
+
+Validacao:
+
+- `npm run test:receivables` passou com amostra que reproduz o PDF agrupado.
+- `npm run lint` passou.
+
 ## Historico de alteracoes
 
 ### 2026-06-08 - Auditoria inicial e memoria do modulo

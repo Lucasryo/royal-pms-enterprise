@@ -419,29 +419,111 @@ function parseRawReceivablesRows(text: string) {
   const operationDate = extractOperationDate(text);
   const companies = new Map<string, ParsedCompany>();
   const lines = normalizeReceivablesLayout(text).split('\n').filter((line) => !ignoredPdfHeader(line));
+  let currentCompany: ParsedCompany | null = null;
 
   for (const line of lines) {
+    const companyHeader = parseCompanyHeaderLine(line);
+    if (companyHeader) {
+      const companyKey = `${normalizeKey(companyHeader.name)}|${companyHeader.cnpj || ''}`;
+      currentCompany = companies.get(companyKey) || {
+        name: companyHeader.name,
+        cnpj: companyHeader.cnpj,
+        phone: companyHeader.phone,
+        invoices: [],
+      };
+      companies.set(companyKey, currentCompany);
+      continue;
+    }
+
     const parsed = parseRawReceivableLine(line, operationDate);
-    if (!parsed) continue;
-    const companyKey = `${normalizeKey(parsed.companyName)}|${parsed.cnpj || ''}`;
-    const company = companies.get(companyKey) || {
-      name: parsed.companyName,
-      cnpj: parsed.cnpj,
-      phone: parsed.phone,
+    const groupedInvoice = !parsed && currentCompany ? parseGroupedReceivableLine(line, currentCompany, operationDate) : null;
+    const row = parsed || groupedInvoice;
+    if (!row) continue;
+    const companyKey = `${normalizeKey(row.companyName)}|${row.cnpj || ''}`;
+    const company = companies.get(companyKey) || (groupedInvoice && currentCompany ? currentCompany : {
+      name: row.companyName,
+      cnpj: row.cnpj,
+      phone: row.phone,
       invoices: [],
-    };
-    company.invoices.push(parsed.invoice);
+    });
+    company.invoices.push(row.invoice);
     companies.set(companyKey, company);
+    currentCompany = company;
   }
 
-  return { operationDate, companies: Array.from(companies.values()) };
+  return { operationDate, companies: Array.from(companies.values()).filter((company) => company.invoices.length > 0) };
 }
 
 function extractOperationDate(text: string) {
-  return text.match(/Data\s+de\s+Opera[çc][aã]o\s*:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1]
+  return text.match(/Data\s+de\s+Opera[çc][aã]o\s*:?\s*(?:\n\s*)?(\d{2}\/\d{2}\/\d{4})/i)?.[1]
     || text.match(/Opera[çc][aã]o\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1]
     || text.match(/\bData\s*:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1]
     || '';
+}
+
+function cleanCompanyName(value: string) {
+  return repairMojibake(value)
+    .replace(/\bCNPJ\s*:?\s*$/i, '')
+    .replace(/\(?\b\d{2}\)?\s*\d{4,5}-?\d{4}\b/g, '')
+    .replace(/\b\d{2}\s+\d{4,5}-?\d{4}\b/g, '')
+    .replace(/\b\d{8,11}\b/g, '')
+    .replace(/\s+-\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function parseCompanyHeaderLine(line: string) {
+  const normalized = repairMojibake(line).replace(/\s+/g, ' ').trim();
+  const cnpjMatch = normalized.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/);
+  if (!cnpjMatch) return null;
+  const moneyCount = normalized.match(/-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}/g)?.length || 0;
+  const dateCount = normalized.match(/\d{2}\/\d{2}\/\d{4}/g)?.length || 0;
+  if (moneyCount > 0 || dateCount > 0) return null;
+  const beforeCnpj = normalized.slice(0, cnpjMatch.index).replace(/\(?\s*CNPJ\s*:?\s*$/i, '');
+  const afterCnpj = normalized.slice(cnpjMatch.index + cnpjMatch[0].length);
+  const phone = `${beforeCnpj} ${afterCnpj}`.match(/\(?\b\d{2}\)?\s*\d{4,5}-?\d{4}\b/)?.[0];
+  const name = cleanCompanyName(beforeCnpj);
+  if (!name) return null;
+  return { name, cnpj: formatCnpj(cnpjMatch[0]), phone };
+}
+
+function parseGroupedReceivableLine(line: string, company: ParsedCompany, operationDate: string) {
+  const normalized = repairMojibake(line).replace(/\s+/g, ' ').trim();
+  const invoiceMatch = normalized.match(/\b(?:FT[-\s]?)?(\d{3,})\b/);
+  if (!invoiceMatch) return null;
+  const dates = normalized.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  if (dates.length < 2) return null;
+  const issueDate = dates[0];
+  const dueDate = dates[dates.length - 1];
+  const firstDateIndex = normalized.indexOf(issueDate);
+  const dueDateIndex = normalized.lastIndexOf(dueDate);
+  const valuesBeforeDue = normalized
+    .slice(firstDateIndex >= 0 ? firstDateIndex + issueDate.length : 0, dueDateIndex >= 0 ? dueDateIndex : normalized.length)
+    .match(/-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}/g) || [];
+  if (valuesBeforeDue.length === 0) return null;
+  const receiveRaw = valuesBeforeDue[valuesBeforeDue.length - 1];
+  const grossRaw = valuesBeforeDue.length >= 6 ? valuesBeforeDue[valuesBeforeDue.length - 4] : receiveRaw;
+  const status = classifyInvoiceStatus(dueDate, operationDate || issueDate);
+  const due = dateTimeFromAny(dueDate);
+  const operation = dateTimeFromAny(operationDate || issueDate);
+  const overdueDays = due && operation ? Math.max(0, Math.floor((operation.getTime() - due.getTime()) / 86_400_000)) : 0;
+
+  return {
+    companyName: company.name,
+    cnpj: company.cnpj,
+    phone: company.phone,
+    invoice: {
+      invoiceNum: `FT-${invoiceMatch[1]}`,
+      issueDate: toIsoDate(issueDate),
+      dueDate: toIsoDate(dueDate),
+      originalAmount: brlToNumber(grossRaw),
+      openAmount: brlToNumber(receiveRaw),
+      paidAmount: 0,
+      overdueDays,
+      status: status === 'VENCIDO' ? 'Vencida' as const : 'A vencer' as const,
+      invoiceType: 'FATURA',
+    },
+  };
 }
 
 function parseRawReceivableLine(line: string, operationDate: string) {
@@ -455,7 +537,7 @@ function parseRawReceivableLine(line: string, operationDate: string) {
   const invoiceIndex = tokens.findIndex((token) => /^(?:FT[-\s]?)?\d{3,}$/.test(token));
   if (invoiceIndex <= 0) return null;
 
-  const companyName = tokens.slice(0, invoiceIndex).join(' ').trim();
+  const companyName = cleanCompanyName(tokens.slice(0, invoiceIndex).join(' '));
   const invoiceNum = `FT-${tokens[invoiceIndex].replace(/\D/g, '')}`;
   const rest = tokens.slice(invoiceIndex + 1).join(' ');
   const dates = rest.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
@@ -468,8 +550,8 @@ function parseRawReceivableLine(line: string, operationDate: string) {
     .slice(firstDateIndex >= 0 ? firstDateIndex + dates[0].length : 0, dueDateIndex >= 0 ? dueDateIndex : normalized.length)
     .match(/-?(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}/g) || [];
   if (valuesBeforeDue.length === 0) return null;
-  const grossRaw = valuesBeforeDue.length >= 6 ? valuesBeforeDue[valuesBeforeDue.length - 4] : valuesBeforeDue[0];
   const receiveRaw = valuesBeforeDue[valuesBeforeDue.length - 1];
+  const grossRaw = valuesBeforeDue.length >= 6 ? valuesBeforeDue[valuesBeforeDue.length - 4] : receiveRaw;
   const status = classifyInvoiceStatus(dueDate, operationDate || issueDate);
   const due = dateTimeFromAny(dueDate);
   const operation = dateTimeFromAny(operationDate || issueDate);
