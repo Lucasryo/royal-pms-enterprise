@@ -12,21 +12,6 @@ const BOT_MAINTENANCE_SECRET = Deno.env.get("BOT_MAINTENANCE_SECRET") ?? "";
 const db = createClient(SUPA_URL, SUPA_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// Webhook deduplication — prevents processing the same update twice
-const processedUpdates = new Map<number, number>();
-const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-function isDuplicate(updateId: number): boolean {
-  const now = Date.now();
-  // Clean expired entries
-  for (const [id, ts] of processedUpdates.entries()) {
-    if (now - ts > DEDUP_TTL_MS) processedUpdates.delete(id);
-  }
-  if (processedUpdates.has(updateId)) return true;
-  processedUpdates.set(updateId, now);
-  return false;
-}
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -304,7 +289,8 @@ function cardStatusLabel(record: Record<string, unknown>): string {
   if (status === "in_progress" && record.awaiting_parts) return "Aguardando pecas";
   if (status === "in_progress" && inspection === "rejected") return "Reprovado / retorno ao tecnico";
   if (status === "in_progress") return "Em atendimento";
-  if (status === "resolved" && inspection === "pending" && record.inspector_tg_id) return "Vistoria em andamento";
+  if (status === "resolved" && inspection === "pending" &&
+      (record.inspector_tg_id || record.inspector_id)) return "Vistoria em andamento";
   if (status === "resolved" && inspection === "pending") return "Aguardando vistoria";
   if (status === "resolved" && inspection === "approved" && !record.rating) return "Aprovado / aguardando avaliacao";
   if (status === "resolved" && inspection === "approved" && record.rating) return "Concluido e avaliado";
@@ -403,6 +389,7 @@ function ticketCardKb(record: Record<string, unknown>) {
   if (status === "in_progress" && record.awaiting_parts) return partsReceivedKb(id, techTgId);
   if (status === "in_progress") return inProgressKb(id, techTgId);
   if (status === "resolved" && inspection === "pending" && inspectorTgId) return inspectorActionsKb(id, inspectorTgId);
+  if (status === "resolved" && inspection === "pending" && record.inspector_id) return { inline_keyboard: [] };
   if (status === "resolved" && inspection === "pending") return inspectionKb(id);
   if (status === "resolved" && inspection === "approved" && !record.rating) return ratingKb(id);
   return { inline_keyboard: [] };
@@ -906,10 +893,14 @@ async function rejectInspectionAndReturnToTech(
   chatId: unknown,
   note?: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  const actor = await getTelegramActor(actorTgId);
+  if (!actor || !actorHasRole(actor, ["inspector", "admin"])) {
+    return { ok: false, error: "inspector_permission_required" };
+  }
   const cleanNote = note?.trim() || "Reprovado pela vistoria. O tecnico deve corrigir e concluir novamente.";
   const { data: ticket } = await db
     .from("maintenance_tickets")
-    .select("title,room_number,status,status_reason,telegram_user_id,inspection_status,inspector_tg_id")
+    .select("title,room_number,status,status_reason,telegram_user_id,inspection_status,inspector_id,inspector_tg_id")
     .eq("id", ticketId)
     .single();
 
@@ -924,6 +915,9 @@ async function rejectInspectionAndReturnToTech(
   if (Number(ticket.inspector_tg_id) !== actorTgId) {
     return { ok: false, error: "locked_to_other_inspector" };
   }
+  if (ticket.inspector_id !== actor.profileId) {
+    return { ok: false, error: "locked_to_other_inspector" };
+  }
 
   const now = new Date().toISOString();
   const { count } = await db.from("maintenance_tickets").update({
@@ -933,6 +927,7 @@ async function rejectInspectionAndReturnToTech(
     inspected_at: now,
     resolved_at: null,
     awaiting_parts: false,
+    inspector_id: null,
     inspector_tg_id: null,
     inspection_requested_at: null,
     updated_at: now,
@@ -940,6 +935,7 @@ async function rejectInspectionAndReturnToTech(
     .eq("id", ticketId)
     .eq("status", "resolved")
     .eq("inspection_status", "pending")
+    .eq("inspector_id", actor.profileId)
     .eq("inspector_tg_id", actorTgId)
     .select("id", { count: "exact", head: true });
 
@@ -984,7 +980,7 @@ async function rejectInspectionAndReturnToTech(
 }
 
 async function sendSlaAlert() {
-  const SLA: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
+  const SLA: Record<string, number> = { urgent: 15, high: 60, medium: 120, low: 1440 };
   const now = Date.now();
 
   const { data: open } = await db.from("maintenance_tickets")
@@ -993,7 +989,7 @@ async function sendSlaAlert() {
     .limit(500);
 
   const breached = (open ?? []).filter(t => {
-    const limit = SLA[t.priority] ?? 240;
+    const limit = SLA[t.priority] ?? 120;
     const alreadyAlerted = t.sla_alerted_at &&
       (now - new Date(t.sla_alerted_at).getTime()) < 60 * 60 * 1000; // não re-alerta em 1h
     return !alreadyAlerted && (now - new Date(t.created_at).getTime()) / 60000 > limit;
@@ -1087,9 +1083,9 @@ async function sendDailyReport() {
       ) / resolvedWithTime.length)
     : null;
 
-  const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
+  const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 120, low: 1440 };
   const slaBreached = openTickets?.filter(t => {
-    const limit = SLA_LIMITS[t.priority] ?? 240;
+    const limit = SLA_LIMITS[t.priority] ?? 120;
     return (Date.now() - new Date(t.created_at).getTime()) / 60000 > limit;
   }) ?? [];
 
@@ -1992,11 +1988,17 @@ async function handleCallback(query: Record<string, unknown>) {
   // ── Inspection: assume vistoria (somente moderadores) ───────────────────
   if (action === "insp_assume") {
     const ticketId = rest;
-    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_assume", callbackAlert, ticketId);
+    const actor = await requireCallbackRole(
+      fromId,
+      ["inspector", "admin"],
+      "insp_assume",
+      callbackAlert,
+      ticketId,
+    );
     if (!actor) return { ok: true };
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_tg_id,status").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,inspection_status,inspector_id,inspector_tg_id,status").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
     // Only allow assuming inspection on resolved tickets
@@ -2006,7 +2008,8 @@ async function handleCallback(query: Record<string, unknown>) {
     }
 
     // Block if another moderator already assumed (inspection_status is "pending" and inspector_tg_id is set)
-    if (ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== fromId) {
+    if ((ticket.inspector_tg_id && Number(ticket.inspector_tg_id) !== fromId) ||
+        (ticket.inspector_id && ticket.inspector_id !== actor.profileId)) {
       await callbackAlert("A vistoria deste chamado ja foi assumida por outro moderador.");
       return { ok: true };
     }
@@ -2019,10 +2022,12 @@ async function handleCallback(query: Record<string, unknown>) {
     // Fix B: save inspector_tg_id atomically while inspection is waiting.
     const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "pending",
+      inspector_id: actor.profileId,
       inspector_tg_id: fromId,
       updated_at: new Date().toISOString(),
     }).eq("id", ticketId)
       .eq("status", "resolved")
+      .is("inspector_id", null)
       .is("inspector_tg_id", null)
       .or("inspection_status.is.null,inspection_status.eq.pending")
       .select("id", { count: "exact", head: true });
@@ -2030,11 +2035,13 @@ async function handleCallback(query: Record<string, unknown>) {
     if (!count || count === 0) {
       const { data: current } = await db
         .from("maintenance_tickets")
-        .select("status,inspection_status,inspector_tg_id")
+        .select("status,inspection_status,inspector_id,inspector_tg_id")
         .eq("id", ticketId)
         .single();
 
-      if (current?.status === "resolved" && Number(current.inspector_tg_id) === fromId) {
+      if (current?.status === "resolved" &&
+          current.inspector_id === actor.profileId &&
+          Number(current.inspector_tg_id) === fromId) {
         await updateTicketCard(ticketId, chatId);
         return { ok: true };
       }
@@ -2066,7 +2073,13 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId       = parts[0];
     const lockedInspId   = parts[1] ? Number(parts[1]) : null;
 
-    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_ok", callbackAlert, ticketId);
+    const actor = await requireCallbackRole(
+      fromId,
+      ["inspector", "admin"],
+      "insp_ok",
+      callbackAlert,
+      ticketId,
+    );
     if (!actor) return { ok: true };
 
     // Fix B: validate lock against DB inspector_tg_id too
@@ -2076,7 +2089,7 @@ async function handleCallback(query: Record<string, unknown>) {
     }
 
     const { data: ticket } = await db
-      .from("maintenance_tickets").select("title,room_number,status,status_reason,inspection_status,inspector_tg_id").eq("id", ticketId).single();
+      .from("maintenance_tickets").select("title,room_number,status,status_reason,inspection_status,inspector_id,inspector_tg_id").eq("id", ticketId).single();
     if (!ticket) return { ok: true };
 
     if (ticket.status !== "resolved" || ticket.inspection_status !== "pending") {
@@ -2095,6 +2108,10 @@ async function handleCallback(query: Record<string, unknown>) {
       await callbackAlert("Apenas o vistoriador que assumiu pode aprovar este chamado.");
       return { ok: true };
     }
+    if (ticket.inspector_id !== actor.profileId) {
+      await callbackAlert("Apenas o vistoriador que assumiu pode aprovar este chamado.");
+      return { ok: true };
+    }
 
     const { count } = await db.from("maintenance_tickets").update({
       inspection_status: "approved",
@@ -2104,6 +2121,7 @@ async function handleCallback(query: Record<string, unknown>) {
       .eq("id", ticketId)
       .eq("status", "resolved")
       .eq("inspection_status", "pending")
+      .eq("inspector_id", actor.profileId)
       .eq("inspector_tg_id", fromId)
       .select("id", { count: "exact", head: true });
 
@@ -2133,7 +2151,13 @@ async function handleCallback(query: Record<string, unknown>) {
     const ticketId     = parts[0];
     const lockedInspId = parts[1] ? Number(parts[1]) : null;
 
-    const actor = await requireCallbackRole(fromId, ["inspector"], "insp_nok", callbackAlert, ticketId);
+    const actor = await requireCallbackRole(
+      fromId,
+      ["inspector", "admin"],
+      "insp_nok",
+      callbackAlert,
+      ticketId,
+    );
     if (!actor) return { ok: true };
 
     if (lockedInspId && lockedInspId !== fromId) {
@@ -2428,7 +2452,13 @@ async function handleReply(message: Record<string, unknown>) {
       });
       return { ok: true };
     }
-    if (!await requireMessageRole(chatId, fromId, ["inspector"], "insp_reject_reply", ticketId)) return { ok: true };
+    if (!await requireMessageRole(
+      chatId,
+      fromId,
+      ["inspector", "admin"],
+      "insp_reject_reply",
+      ticketId,
+    )) return { ok: true };
 
     const result = await rejectInspectionAndReturnToTech(ticketId, fromId, name, chatId, userText);
     if (result.ok) {
@@ -2900,8 +2930,8 @@ async function handleMessage(message: Record<string, unknown>) {
     // 3E: uma única query — inProg é subconjunto de open
     const { data: open } = await db.from("maintenance_tickets")
       .select("id,priority,status,created_at,awaiting_parts").in("status", ["open", "in_progress"]).limit(500);
-    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
-    const breached      = (open ?? []).filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 240));
+    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 120, low: 1440 };
+    const breached      = (open ?? []).filter(t => (Date.now() - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 120));
     const awaitingParts = (open ?? []).filter(t => t.awaiting_parts).length;
     const inProgCount   = (open ?? []).filter(t => t.status === "in_progress").length;
     const lines = [
@@ -3017,17 +3047,17 @@ async function handleMessage(message: Record<string, unknown>) {
       return { ok: true };
     }
     if (!await requireMessageRole(chatId, fromId, ["technician", "inspector", "admin"], "sla_command")) return { ok: true };
-    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 240, low: 1440 };
+    const SLA_LIMITS: Record<string, number> = { urgent: 15, high: 60, medium: 120, low: 1440 };
     const now = Date.now();
     const { data: open } = await db.from("maintenance_tickets")
       .select("id,title,room_number,priority,created_at")
       .in("status", ["open", "in_progress"])
       .limit(500);
     const breached = (open ?? [])
-      .filter(t => (now - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 240))
+      .filter(t => (now - new Date(t.created_at).getTime()) / 60000 > (SLA_LIMITS[t.priority] ?? 120))
       .sort((a, b) => {
-        const overA = (now - new Date(a.created_at).getTime()) / 60000 - (SLA_LIMITS[a.priority] ?? 240);
-        const overB = (now - new Date(b.created_at).getTime()) / 60000 - (SLA_LIMITS[b.priority] ?? 240);
+        const overA = (now - new Date(a.created_at).getTime()) / 60000 - (SLA_LIMITS[a.priority] ?? 120);
+        const overB = (now - new Date(b.created_at).getTime()) / 60000 - (SLA_LIMITS[b.priority] ?? 120);
         return overB - overA;
       });
     if (breached.length === 0) {
@@ -3037,7 +3067,7 @@ async function handleMessage(message: Record<string, unknown>) {
     const lines = [`⚠️ *${breached.length} chamado${breached.length > 1 ? "s" : ""} com SLA estourado\\!*`, ""];
     for (const t of breached.slice(0, 15)) {
       const elapsedMins = Math.round((now - new Date(t.created_at).getTime()) / 60000);
-      const overMins    = elapsedMins - (SLA_LIMITS[t.priority] ?? 240);
+      const overMins    = elapsedMins - (SLA_LIMITS[t.priority] ?? 120);
       const uhPart      = t.room_number ? ` — UH ${esc(t.room_number)}` : "";
       lines.push(`${P_EMOJI[t.priority] ?? "•"} *${esc(t.title)}*${uhPart}`);
       lines.push(`  ⏱ ${esc(formatDuration(overMins))} além do SLA  \\|  \`${t.id}\``);
@@ -3361,6 +3391,7 @@ serve(async (req) => {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  let claimedUpdateId: number | null = null;
   try {
     const body        = await req.json();
     const authHeader  = req.headers.get("authorization");
@@ -3378,12 +3409,19 @@ serve(async (req) => {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
-    // Deduplication — skip if already processed
     const updateId = body.update_id as number;
-    if (updateId && isDuplicate(updateId)) {
-      return new Response(JSON.stringify({ ok: true, skipped: "duplicate" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (updateId && isFromTg) {
+      const { data: claimed, error: claimError } = await db.rpc(
+        "mobile_telegram_claim_webhook_update",
+        { p_update_id: updateId },
+      );
+      if (claimError) throw claimError;
+      if (!claimed) {
+        return new Response(JSON.stringify({ ok: true, skipped: "duplicate_or_processing" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      claimedUpdateId = updateId;
     }
 
     let result: Record<string, unknown>;
@@ -3400,11 +3438,29 @@ serve(async (req) => {
       result = { ok: true, skipped: "unknown-event" };
     }
 
+    if (claimedUpdateId) {
+      await db.rpc("mobile_telegram_finish_webhook_update", {
+        p_update_id: claimedUpdateId,
+        p_succeeded: true,
+        p_error: null,
+      });
+    }
     return new Response(JSON.stringify(result), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
     console.error("[notify] Error:", err);
+    if (claimedUpdateId) {
+      try {
+        await db.rpc("mobile_telegram_finish_webhook_update", {
+          p_update_id: claimedUpdateId,
+          p_succeeded: false,
+          p_error: err instanceof Error ? err.message : String(err),
+        });
+      } catch {
+        // Preserve the original webhook error if recording the failure also fails.
+      }
+    }
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
